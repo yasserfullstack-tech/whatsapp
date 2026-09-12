@@ -1,6 +1,6 @@
 # WhatsApp Marketing Platform
 
-Multi-tenant SaaS for businesses to connect their own WhatsApp Business account, import opted-in contacts, manage approved templates, send large campaigns through Meta's WhatsApp Cloud API, and track delivery/read analytics.
+Multi-tenant SaaS for businesses to connect their own WhatsApp Business account, import opted-in contacts, build reusable audiences, manage approved templates, send large campaigns through Meta's WhatsApp Cloud API, and track delivery/read analytics.
 
 ## Stack
 
@@ -11,25 +11,29 @@ Multi-tenant SaaS for businesses to connect their own WhatsApp Business account,
 - PostgreSQL + Drizzle ORM
 - Better Auth (self-hosted sessions)
 - BullMQ + Valkey/Redis
-- Cloudflare R2 for large files (next milestone)
+- Cloudflare R2 for large CSV uploads
 - Meta WhatsApp Cloud API / Embedded Signup
 
 ## Repository
 
 ```text
 apps/
-  web/       Next.js dashboard, auth, Meta Embedded Signup BFF routes
-  api/       Hono API + Meta webhooks
-  worker/    outbound send and webhook workers
+  web/       Next.js dashboard, auth, audiences, campaigns, Meta Embedded Signup BFF routes
+  api/       Hono API + signed Meta webhook ingress
+  worker/    contact import, campaign dispatch, send, and webhook workers
 packages/
   auth/          Better Auth server configuration
   config/        validated runtime configuration
   credentials/   AES-256-GCM credential encryption helpers
-  db/            Drizzle schema and database client
-  meta/          Meta Cloud API + Embedded Signup helpers
+  db/            Drizzle schema, audience predicates, and database client
+  meta/          Meta Cloud API + Embedded Signup/webhook helpers
   queue/         BullMQ queues + per-phone limiter
+  storage/       Cloudflare R2 / S3-compatible storage helpers
 docs/
   architecture.md
+  audiences.md
+  r2.md
+  webhooks.md
 ```
 
 ## Local development
@@ -57,30 +61,39 @@ At minimum, set these values in `.env`:
 - `META_APP_ID` and `META_APP_SECRET` — the Meta app used by the platform.
 - `META_CONFIG_ID` — the WhatsApp Embedded Signup configuration ID.
 - `META_VERIFY_TOKEN` — private webhook verification value.
+- Cloudflare R2 account, access key, secret, and bucket values for contact imports.
 
 Never commit real Meta tokens or production secrets.
 
-## Current user flow
+## Implemented flow
 
-1. User creates an account or signs in.
-2. The platform creates an internal organization/workspace automatically.
-3. The dashboard shows the workspace and its real WhatsApp connections.
-4. The user clicks **Connect WhatsApp**.
-5. Meta Embedded Signup opens and the user chooses their business/WABA/phone number.
-6. The browser sends only the authorization code and returned IDs to our server.
-7. The server exchanges the code with Meta, verifies the phone number, subscribes our app to the WABA, encrypts the access token, and saves the connection.
-8. The dashboard refreshes with the connected number, quality status, and throughput.
+1. User creates an account or signs in and receives an internal workspace.
+2. Meta Embedded Signup connects the client's own WABA and phone number.
+3. The server exchanges the signup code, verifies the phone, subscribes the app, encrypts the tenant access token, and stores the connection.
+4. CSV files upload directly from the browser to R2 and stream through background contact-import workers.
+5. Imports normalize E.164 phone numbers, preserve consent metadata, deduplicate contacts, and can add valid contacts to reusable lists.
+6. Users sync/create approved Meta templates.
+7. Users can target all eligible contacts, static lists, or saved dynamic AND/OR segments.
+8. Campaign launch creates an immutable PostgreSQL recipient snapshot, then feeds a bounded BullMQ runway sized to phone throughput.
+9. Send workers decrypt the correct tenant credential, enforce per-phone rate limits, and persist Meta `wamid` values.
+10. Signed Meta webhooks update sent/delivered/read/failed states, process inbound STOP opt-outs, and power live campaign analytics.
+11. Campaigns can be paused, resumed, or cancelled; suppression remains authoritative for future sends.
 
-## Security baseline
+## Security and delivery baseline
 
 - Application tenant IDs are separate from authentication-provider IDs.
 - Meta app secrets never go to the browser.
 - Client access tokens are encrypted with AES-256-GCM before database storage.
 - A WhatsApp phone number cannot be attached to two workspaces.
 - PostgreSQL remains the source of truth; Redis/BullMQ is an execution layer.
-- Only contacts with valid WhatsApp marketing consent should become campaign recipients.
-- Opt-outs and suppression must be enforced before recipients are queued.
+- Audience filters can only narrow opted-in, non-unsubscribed, non-suppressed contacts.
+- Campaign audience definitions are stored before dispatch so later segment edits cannot mutate an in-flight snapshot.
+- Queue jobs contain credential references, not plaintext Meta tokens.
 
-## Next milestone
+## Next production milestones
 
-Contact ingestion: direct browser upload to Cloudflare R2, background CSV parsing/normalization, deduplication, opt-in validation, import progress, and contact lists. After that: Meta template sync and the real campaign dispatcher/reconciliation path.
+- suppression-management UI and an explicit resubscribe policy;
+- committed versioned Drizzle migrations instead of production `db:push`;
+- end-to-end tests with a real Meta test/business number;
+- controlled 1k / 10k / 50k / large-volume load tests with PostgreSQL, Redis, worker, and Meta latency metrics;
+- deployment hardening, monitoring, backups, and billing.
