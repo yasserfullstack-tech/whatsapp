@@ -2,7 +2,12 @@ import { Worker, type Job } from "bullmq";
 import { and, count, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { decryptSecret } from "@wa/credentials";
 import type { WorkerEnv } from "@wa/config";
-import { createDatabase, schema } from "@wa/db";
+import {
+  buildEligibleAudiencePredicate,
+  createDatabase,
+  normalizeAudienceDefinition,
+  schema,
+} from "@wa/db";
 import { MetaApiError, WhatsAppCloudClient, type TemplateComponent } from "@wa/meta";
 import {
   CAMPAIGN_DISPATCH_QUEUE_NAME,
@@ -209,6 +214,7 @@ export function startCampaignWorkers(input: {
         campaignStatus: schema.campaigns.status,
         snapshotCreatedAt: schema.campaigns.snapshotCreatedAt,
         templateBindings: schema.campaigns.templateBindings,
+        audienceDefinition: schema.campaignAudiences.definition,
         phoneNumberId: schema.whatsappPhoneNumbers.phoneNumberId,
         phoneStatus: schema.whatsappPhoneNumbers.status,
         throughputMps: schema.whatsappPhoneNumbers.throughputMps,
@@ -225,6 +231,7 @@ export function startCampaignWorkers(input: {
         eq(schema.campaigns.whatsappPhoneNumberId, schema.whatsappPhoneNumbers.id),
       )
       .innerJoin(schema.templates, eq(schema.campaigns.templateId, schema.templates.id))
+      .leftJoin(schema.campaignAudiences, eq(schema.campaignAudiences.campaignId, schema.campaigns.id))
       .where(
         and(
           eq(schema.campaigns.id, job.campaignId),
@@ -245,6 +252,9 @@ export function startCampaignWorkers(input: {
     }
 
     if (!record.snapshotCreatedAt) {
+      const audienceDefinition = normalizeAudienceDefinition(record.audienceDefinition ?? { type: "all" });
+      const audiencePredicate = buildEligibleAudiencePredicate(audienceDefinition, record.organizationId);
+
       await db.execute(sql`
         INSERT INTO campaign_recipients (
           id,
@@ -268,9 +278,7 @@ export function startCampaignWorkers(input: {
           now(),
           now()
         FROM contacts c
-        WHERE c.organization_id = ${record.organizationId}::uuid
-          AND c.opted_in = true
-          AND c.unsubscribed_at IS NULL
+        WHERE ${audiencePredicate}
         ON CONFLICT (campaign_id, contact_id) DO NOTHING
       `);
 
