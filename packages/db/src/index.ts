@@ -2,10 +2,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as coreSchema from "./schema";
 import * as contactImportSchema from "./contact-import-schema";
+import * as suppressionSchema from "./suppression-schema";
 
-export const schema = { ...coreSchema, ...contactImportSchema };
+export const schema = { ...coreSchema, ...contactImportSchema, ...suppressionSchema };
 export * from "./schema";
 export * from "./contact-import-schema";
+export * from "./suppression-schema";
 
 export function createDatabase(databaseUrl: string) {
   const client = postgres(databaseUrl, {

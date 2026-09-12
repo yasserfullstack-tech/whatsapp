@@ -1,13 +1,18 @@
 import { Worker, type Job } from "bullmq";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
-import { parseWhatsAppWebhook, type WhatsAppMessageStatus } from "@wa/meta/webhooks";
+import {
+  isMarketingOptOutMessage,
+  parseWhatsAppWebhook,
+  type WhatsAppInboundMessage,
+  type WhatsAppMessageStatus,
+} from "@wa/meta/webhooks";
 import { WEBHOOK_QUEUE_NAME, createBullConnection, type WebhookProcessJob } from "@wa/queue";
 
 type Database = ReturnType<typeof createDatabase>["db"];
 
-function eventTime(status: WhatsAppMessageStatus): Date {
+function eventTime(status: WhatsAppMessageStatus | WhatsAppInboundMessage): Date {
   if (status.timestampSeconds !== undefined) {
     const date = new Date(status.timestampSeconds * 1_000);
     if (!Number.isNaN(date.getTime())) return date;
@@ -89,6 +94,85 @@ async function applyStatus(db: Database, status: WhatsAppMessageStatus): Promise
   `);
 }
 
+function normalizedSender(from: string): string | null {
+  const digits = from.replace(/\D/g, "");
+  return digits ? `+${digits}` : null;
+}
+
+async function organizationForPhone(db: Database, phoneNumberId: string | undefined): Promise<string | null> {
+  if (!phoneNumberId) return null;
+  const [phone] = await db
+    .select({ organizationId: schema.whatsappPhoneNumbers.organizationId })
+    .from(schema.whatsappPhoneNumbers)
+    .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, phoneNumberId))
+    .limit(1);
+  return phone?.organizationId ?? null;
+}
+
+async function applyMarketingOptOut(
+  db: Database,
+  organizationId: string,
+  message: WhatsAppInboundMessage,
+): Promise<boolean> {
+  if (!isMarketingOptOutMessage(message)) return false;
+  const phoneE164 = normalizedSender(message.from);
+  if (!phoneE164) return false;
+
+  const at = eventTime(message);
+  const source = `whatsapp_${message.type}`;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(schema.suppressionList)
+      .values({
+        organizationId,
+        phoneE164,
+        reason: "marketing_opt_out",
+        source,
+        sourceMessageId: message.messageId,
+        suppressedAt: at,
+      })
+      .onConflictDoUpdate({
+        target: [schema.suppressionList.organizationId, schema.suppressionList.phoneE164],
+        set: {
+          reason: "marketing_opt_out",
+          source,
+          sourceMessageId: message.messageId,
+          suppressedAt: at,
+          updatedAt: new Date(),
+        },
+      });
+
+    await tx
+      .update(schema.contacts)
+      .set({
+        optedIn: false,
+        unsubscribedAt: at,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(schema.contacts.organizationId, organizationId),
+        eq(schema.contacts.phoneE164, phoneE164),
+      ));
+
+    await tx
+      .update(schema.campaignRecipients)
+      .set({
+        status: "skipped",
+        errorCode: "SUPPRESSED",
+        lastError: "Recipient opted out through WhatsApp",
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(schema.campaignRecipients.organizationId, organizationId),
+        eq(schema.campaignRecipients.phoneE164, phoneE164),
+        inArray(schema.campaignRecipients.status, ["pending", "queued"]),
+      ));
+  });
+
+  return true;
+}
+
 export function startWebhookWorker(input: { db: Database; env: WorkerEnv }) {
   const { db, env } = input;
 
@@ -112,19 +196,20 @@ export function startWebhookWorker(input: { db: Database; env: WorkerEnv }) {
 
       const parsed = parseWhatsAppWebhook(event.payload);
       const phoneNumberId = event.phoneNumberId ?? parsed.phoneNumberIds[0] ?? null;
-      let organizationId = event.organizationId;
-
-      if (!organizationId && phoneNumberId) {
-        const [phone] = await db
-          .select({ organizationId: schema.whatsappPhoneNumbers.organizationId })
-          .from(schema.whatsappPhoneNumbers)
-          .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, phoneNumberId))
-          .limit(1);
-        organizationId = phone?.organizationId ?? null;
-      }
+      let organizationId = event.organizationId ?? await organizationForPhone(db, phoneNumberId ?? undefined);
 
       for (const status of parsed.statuses) {
         await applyStatus(db, status);
+      }
+
+      let optOuts = 0;
+      for (const message of parsed.messages) {
+        const messageOrganizationId = message.phoneNumberId === phoneNumberId
+          ? organizationId
+          : await organizationForPhone(db, message.phoneNumberId);
+        if (!messageOrganizationId) continue;
+        organizationId ??= messageOrganizationId;
+        if (await applyMarketingOptOut(db, messageOrganizationId, message)) optOuts += 1;
       }
 
       const processedAt = new Date();
@@ -135,15 +220,15 @@ export function startWebhookWorker(input: { db: Database; env: WorkerEnv }) {
           phoneNumberId,
           processedAt,
         })
-        .where(
-          and(
-            eq(schema.webhookEvents.id, event.id),
-            isNull(schema.webhookEvents.processedAt),
-          ),
-        );
+        .where(and(
+          eq(schema.webhookEvents.id, event.id),
+          isNull(schema.webhookEvents.processedAt),
+        ));
 
       return {
-        processed: parsed.statuses.length,
+        processedStatuses: parsed.statuses.length,
+        processedMessages: parsed.messages.length,
+        optOuts,
         organizationId,
         phoneNumberId,
       };

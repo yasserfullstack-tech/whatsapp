@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseWhatsAppWebhook } from "./webhooks";
+import { isMarketingOptOutMessage, parseWhatsAppWebhook } from "./webhooks";
 
 describe("parseWhatsAppWebhook", () => {
   test("extracts status updates and phone metadata", () => {
@@ -40,5 +40,33 @@ describe("parseWhatsAppWebhook", () => {
     });
 
     expect(parsed.statuses).toEqual([]);
+  });
+
+  test("extracts inbound text and quick-reply messages for opt-out handling", () => {
+    const parsed = parseWhatsAppWebhook({
+      object: "whatsapp_business_account",
+      entry: [{
+        id: "waba-1",
+        changes: [{
+          field: "messages",
+          value: {
+            metadata: { phone_number_id: "phone-1" },
+            messages: [
+              { id: "in.1", from: "9647000000000", timestamp: "1700000002", type: "text", text: { body: "STOP" } },
+              { id: "in.2", from: "9647000000001", timestamp: "1700000003", type: "button", button: { text: "Stop promotions", payload: "STOP_PROMOTIONS" } },
+            ],
+          },
+        }],
+      }],
+    });
+
+    expect(parsed.messages).toHaveLength(2);
+    expect(parsed.messages[0]).toMatchObject({ messageId: "in.1", from: "9647000000000", text: "STOP", phoneNumberId: "phone-1" });
+    expect(isMarketingOptOutMessage(parsed.messages[0]!)).toBe(true);
+    expect(isMarketingOptOutMessage(parsed.messages[1]!)).toBe(true);
+  });
+
+  test("does not interpret ordinary customer text as an opt-out", () => {
+    expect(isMarketingOptOutMessage({ messageId: "in.3", from: "1", type: "text", text: "Please stop by tomorrow" })).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { schema } from "@wa/db";
 import { CampaignAnalytics } from "@/components/campaign-analytics";
+import { CampaignControls } from "@/components/campaign-controls";
 import { SignOutButton } from "@/components/sign-out-button";
 import { requireAuthContext } from "@/lib/auth-context";
 import { db } from "@/lib/server";
@@ -78,6 +79,7 @@ export default async function CampaignAnalyticsPage({ params }: PageProps) {
           <Link className="secondary" href="/campaigns">Back to campaigns</Link>
         </header>
 
+        <CampaignControls campaignId={campaign.id} initialStatus={campaign.status} />
         <CampaignAnalytics campaignId={campaign.id} />
       </section>
     </main>
