@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Action = "pause" | "resume" | "cancel";
@@ -10,6 +10,28 @@ export function CampaignControls({ campaignId, initialStatus }: { campaignId: st
   const [status, setStatus] = useState(initialStatus);
   const [busy, setBusy] = useState<Action | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (["completed", "cancelled", "failed"].includes(status)) return;
+    let stopped = false;
+    let timer: number | undefined;
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/campaigns/${campaignId}`, { cache: "no-store" });
+        const result = (await response.json()) as { status?: string };
+        if (!stopped && response.ok && result.status) setStatus(result.status);
+      } finally {
+        if (!stopped) timer = window.setTimeout(poll, 2_000);
+      }
+    };
+
+    timer = window.setTimeout(poll, 1_000);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [campaignId, status]);
 
   const run = async (action: Action) => {
     if (action === "cancel" && !window.confirm("Cancel this campaign? Recipients not yet submitted to Meta will be skipped.")) return;
