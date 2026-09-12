@@ -2,6 +2,7 @@ import Link from "next/link";
 import { count, desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { ConnectWhatsApp } from "@/components/connect-whatsapp";
+import { ContactImporter } from "@/components/contact-importer";
 import { SignOutButton } from "@/components/sign-out-button";
 import { requireAuthContext } from "@/lib/auth-context";
 import { db, getMetaServerConfig } from "@/lib/server";
@@ -14,7 +15,7 @@ export default async function DashboardPage() {
   const { session, workspace } = await requireAuthContext();
   const meta = getMetaServerConfig();
 
-  const [phoneNumbers, contactRows, campaignRows] = await Promise.all([
+  const [phoneNumbers, contactRows, campaignRows, importRows] = await Promise.all([
     db
       .select()
       .from(schema.whatsappPhoneNumbers)
@@ -28,11 +29,32 @@ export default async function DashboardPage() {
       .select({ total: count() })
       .from(schema.campaigns)
       .where(eq(schema.campaigns.organizationId, workspace.organizationId)),
+    db
+      .select()
+      .from(schema.contactImports)
+      .where(eq(schema.contactImports.organizationId, workspace.organizationId))
+      .orderBy(desc(schema.contactImports.createdAt))
+      .limit(1),
   ]);
 
   const connected = phoneNumbers.find((phone) => phone.status === "connected");
   const contacts = contactRows[0]?.total ?? 0;
   const campaigns = campaignRows[0]?.total ?? 0;
+  const latestImport = importRows[0];
+  const importSnapshot = latestImport
+    ? {
+        id: latestImport.id,
+        fileName: latestImport.originalFileName,
+        status: latestImport.status,
+        totalRows: latestImport.totalRows,
+        processedRows: latestImport.processedRows,
+        importedRows: latestImport.importedRows,
+        invalidRows: latestImport.invalidRows,
+        duplicateRows: latestImport.duplicateRows,
+        errorMessage: latestImport.errorMessage,
+      }
+    : null;
+
   const initials = workspace.organizationName
     .split(/\s+/)
     .slice(0, 2)
@@ -84,7 +106,7 @@ export default async function DashboardPage() {
             <h1>{workspace.organizationName}</h1>
             <p className="subtitle">Connect WhatsApp, import opted-in customers, and launch campaigns.</p>
           </div>
-          <button className="primary" disabled={!connected} type="button">Create campaign</button>
+          <button className="primary" disabled={!connected || contacts === 0} type="button">Create campaign</button>
         </header>
 
         <section className="connectionCard">
@@ -118,6 +140,17 @@ export default async function DashboardPage() {
               <p>{stat.detail}</p>
             </article>
           ))}
+        </section>
+
+        <section className="panel" style={{ marginTop: 18 }}>
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Contacts</p>
+              <h2>Import opted-in customers</h2>
+              <p className="subtitle">CSV files upload directly to R2 and are processed by a background worker in 1,000-row database batches.</p>
+            </div>
+          </div>
+          <ContactImporter initialImport={importSnapshot} />
         </section>
 
         <section className="mainGrid">
@@ -158,7 +191,7 @@ export default async function DashboardPage() {
             <h2>Get ready to send</h2>
             <ol className="checklist">
               <li><span>{connected ? "✓" : "1"}</span><div><strong>Connect WhatsApp</strong><p>Meta Embedded Signup.</p></div></li>
-              <li><span>2</span><div><strong>Import contacts</strong><p>Only opted-in WhatsApp recipients.</p></div></li>
+              <li><span>{contacts > 0 ? "✓" : "2"}</span><div><strong>Import contacts</strong><p>Only opted-in WhatsApp recipients.</p></div></li>
               <li><span>3</span><div><strong>Sync a template</strong><p>Use an approved marketing template.</p></div></li>
               <li><span>4</span><div><strong>Launch safely</strong><p>Workers respect each phone number&apos;s throughput.</p></div></li>
             </ol>

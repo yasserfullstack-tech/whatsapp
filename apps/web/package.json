@@ -12,6 +12,8 @@
     "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",
+    "@wa/queue": "workspace:*",
+    "@wa/storage": "workspace:*",
     "better-auth": "1.7.3",
     "drizzle-orm": "0.45.2",
     "next": "16.3.3",

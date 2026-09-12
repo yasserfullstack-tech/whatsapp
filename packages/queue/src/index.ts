@@ -4,6 +4,7 @@ import type { TemplateComponent } from "@wa/meta";
 
 export const SEND_QUEUE_NAME = "whatsapp-send";
 export const WEBHOOK_QUEUE_NAME = "whatsapp-webhooks";
+export const CONTACT_IMPORT_QUEUE_NAME = "contact-imports";
 
 export type SendMessageJob = {
   organizationId: string;
@@ -17,10 +18,16 @@ export type SendMessageJob = {
   maxMessagesPerSecond?: number;
 };
 
+export type ContactImportJob = {
+  organizationId: string;
+  importId: string;
+};
+
 export function createRedisClient(redisUrl: string): Redis {
   return new Redis(redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: true,
+    lazyConnect: true,
   });
 }
 
@@ -43,6 +50,18 @@ export function createSendQueue(redisUrl: string): Queue<SendMessageJob> {
 export function createWebhookQueue(redisUrl: string): Queue {
   return new Queue(WEBHOOK_QUEUE_NAME, {
     connection: createBullConnection(redisUrl),
+  });
+}
+
+export function createContactImportQueue(redisUrl: string): Queue<ContactImportJob> {
+  return new Queue<ContactImportJob>(CONTACT_IMPORT_QUEUE_NAME, {
+    connection: createBullConnection(redisUrl),
+    defaultJobOptions: {
+      attempts: 4,
+      backoff: { type: "exponential", delay: 5_000 },
+      removeOnComplete: 1_000,
+      removeOnFail: 5_000,
+    },
   });
 }
 

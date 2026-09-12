@@ -9,8 +9,13 @@
   },
   "dependencies": {
     "@wa/config": "workspace:*",
+    "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",
     "@wa/queue": "workspace:*",
-    "bullmq": "6.3.4"
+    "@wa/storage": "workspace:*",
+    "bullmq": "6.3.4",
+    "csv-parse": "7.0.2",
+    "drizzle-orm": "0.45.2",
+    "libphonenumber-js": "1.13.13"
   }
 }
