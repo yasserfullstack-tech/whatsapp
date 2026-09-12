@@ -29,6 +29,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
   const [file, setFile] = useState<File | null>(null);
   const [country, setCountry] = useState("IQ");
   const [source, setSource] = useState("customer database consent");
+  const [listName, setListName] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [snapshot, setSnapshot] = useState<ImportSnapshot | null>(initialImport);
   const [busy, setBusy] = useState(false);
@@ -53,6 +54,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
     if (!file.name.toLowerCase().endsWith(".csv")) return setError("Only .csv files are supported.");
     if (file.size > MAX_CSV_BYTES) return setError("CSV files are limited to 250 MB.");
     if (!/^[A-Za-z]{2}$/.test(country)) return setError("Default country must be a two-letter code such as IQ, AE, or US.");
+    if (listName.trim() && listName.trim().length < 2) return setError("List names need at least two characters.");
     if (!confirmed) return setError("Confirm that these customers agreed to receive WhatsApp marketing before importing.");
 
     setBusy(true);
@@ -67,6 +69,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
           sizeBytes: file.size,
           defaultCountry: country,
           optInSource: source,
+          ...(listName.trim() ? { listName: listName.trim() } : {}),
           confirmedOptIn: true,
         }),
       });
@@ -98,7 +101,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1.5fr) 110px minmax(180px, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1.4fr) 100px minmax(180px, 1fr) minmax(180px, 1fr)", gap: 12 }}>
         <label style={{ display: "grid", gap: 7, fontSize: 13, fontWeight: 700 }}>
           Customer CSV
           <input accept=".csv,text/csv" disabled={busy} onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
@@ -111,6 +114,10 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
           Opt-in source
           <input disabled={busy} onChange={(event) => setSource(event.target.value)} value={source} />
         </label>
+        <label style={{ display: "grid", gap: 7, fontSize: 13, fontWeight: 700 }}>
+          Add to list <span style={{ fontWeight: 400, color: "var(--muted)" }}>(optional)</span>
+          <input disabled={busy} maxLength={120} onChange={(event) => setListName(event.target.value)} placeholder="VIP customers" value={listName} />
+        </label>
       </div>
 
       <label style={{ display: "flex", alignItems: "flex-start", gap: 9, color: "var(--muted)", fontSize: 13, lineHeight: 1.45 }}>
@@ -122,7 +129,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
         <button className="secondary" disabled={busy || !file || !confirmed} onClick={startImport} type="button">
           {busy ? "Uploading…" : "Upload and import"}
         </button>
-        <span style={{ color: "var(--muted)", fontSize: 12 }}>Required phone header: phone, phone_number, mobile, whatsapp, or whatsapp_number · max 250 MB</span>
+        <span style={{ color: "var(--muted)", fontSize: 12 }}>Optional list membership includes both newly inserted and already-existing contacts · max 250 MB</span>
       </div>
 
       {error ? <p style={{ margin: 0, color: "#a23a2a", fontSize: 13 }}>{error}</p> : null}
@@ -133,7 +140,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
             <strong>{snapshot.fileName}</strong>
             <p style={{ marginBottom: 0 }}>
               {snapshot.status === "completed"
-                ? `${snapshot.importedRows.toLocaleString()} contacts imported`
+                ? `${snapshot.importedRows.toLocaleString()} new contacts imported`
                 : snapshot.status === "processing"
                   ? `${snapshot.processedRows.toLocaleString()} rows processed`
                   : snapshot.status === "failed"
@@ -143,7 +150,7 @@ export function ContactImporter({ initialImport }: { initialImport: ImportSnapsh
           </div>
           <div className="numberMeta">
             <span>{snapshot.invalidRows.toLocaleString()} invalid</span>
-            <span>{snapshot.duplicateRows.toLocaleString()} duplicates</span>
+            <span>{snapshot.duplicateRows.toLocaleString()} existing/duplicate</span>
             <span className={snapshot.status === "completed" ? "status connected" : "status"}>{snapshot.status.replace("_", " ")}</span>
           </div>
         </div>
