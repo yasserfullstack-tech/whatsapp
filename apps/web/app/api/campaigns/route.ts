@@ -1,9 +1,14 @@
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { schema } from "@wa/db";
 import type { CampaignVariableBinding } from "@wa/queue";
 import { getAuthContext } from "@/lib/auth-context";
+import {
+  audienceSelectionSchema,
+  countEligibleAudience,
+  resolveAudienceSelection,
+} from "@/lib/audience-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
 
 export const runtime = "nodejs";
@@ -23,6 +28,7 @@ const createCampaignSchema = z.object({
   name: z.string().trim().min(2).max(120),
   whatsappPhoneNumberId: z.uuid(),
   templateId: z.uuid(),
+  audience: audienceSelectionSchema,
   bindings: z.array(bindingSchema).max(20).default([]),
 });
 
@@ -77,7 +83,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "The selected template belongs to a different WhatsApp Business Account" }, { status: 400 });
   }
   if (!isTextOnlyTemplate(template.components)) {
-    return NextResponse.json({ error: "This first campaign engine supports text/body templates only. Sync or create a text template for this campaign." }, { status: 400 });
+    return NextResponse.json({ error: "This campaign engine currently supports text/body templates only." }, { status: 400 });
   }
 
   const required = requiredVariableIndexes(template.bodyPreview);
@@ -87,50 +93,63 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Template variables must be mapped exactly: ${required.map((value) => `{{${value}}}`).join(", ") || "none"}` }, { status: 400 });
   }
 
-  const [eligibleRow] = await db
-    .select({ total: count() })
-    .from(schema.contacts)
-    .where(and(
-      eq(schema.contacts.organizationId, organizationId),
-      eq(schema.contacts.optedIn, true),
-      isNull(schema.contacts.unsubscribedAt),
-    ));
-  const eligibleContacts = eligibleRow?.total ?? 0;
-  if (eligibleContacts === 0) {
-    return NextResponse.json({ error: "There are no opted-in, non-unsubscribed contacts to send to" }, { status: 400 });
+  let audience;
+  try {
+    audience = await resolveAudienceSelection(organizationId, parsed.data.audience);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Choose a valid audience" }, { status: 400 });
   }
 
-  const [campaign] = await db
-    .insert(schema.campaigns)
-    .values({
-      organizationId,
-      whatsappPhoneNumberId: phone.id,
-      templateId: template.id,
-      name: parsed.data.name,
-      status: "dispatching",
-      templateBindings: bindings,
-    })
-    .returning({ id: schema.campaigns.id });
+  const eligibleContacts = await countEligibleAudience(organizationId, audience.definition);
+  if (eligibleContacts === 0) {
+    return NextResponse.json({ error: "The selected audience has no currently eligible, non-suppressed contacts" }, { status: 400 });
+  }
 
-  if (!campaign) return NextResponse.json({ error: "Could not create campaign" }, { status: 500 });
+  const campaignId = await db.transaction(async (tx) => {
+    const [campaign] = await tx
+      .insert(schema.campaigns)
+      .values({
+        organizationId,
+        whatsappPhoneNumberId: phone.id,
+        templateId: template.id,
+        name: parsed.data.name,
+        status: "dispatching",
+        templateBindings: bindings,
+      })
+      .returning({ id: schema.campaigns.id });
+
+    if (!campaign) throw new Error("Could not create campaign");
+
+    await tx.insert(schema.campaignAudiences).values({
+      organizationId,
+      campaignId: campaign.id,
+      type: audience.definition.type,
+      sourceId: audience.sourceId,
+      sourceName: audience.sourceName,
+      definition: audience.definition,
+    });
+
+    return campaign.id;
+  });
 
   try {
     await campaignDispatchQueue.add(
       "dispatch-campaign",
-      { organizationId, campaignId: campaign.id },
-      { jobId: `campaign-${campaign.id}` },
+      { organizationId, campaignId },
+      { jobId: `campaign-${campaignId}` },
     );
   } catch (error) {
     await db.update(schema.campaigns)
       .set({ status: "failed", updatedAt: new Date() })
-      .where(eq(schema.campaigns.id, campaign.id));
+      .where(eq(schema.campaigns.id, campaignId));
     console.error("Could not queue campaign dispatcher", error);
     return NextResponse.json({ error: "Campaign was created but could not be queued" }, { status: 503 });
   }
 
   return NextResponse.json({
-    campaignId: campaign.id,
+    campaignId,
     status: "dispatching",
+    audienceName: audience.sourceName,
     eligibleContacts,
     throughputMps: phone.throughputMps,
     estimatedSeconds: Math.ceil(eligibleContacts / Math.max(1, Math.floor(phone.throughputMps * 0.95))),
