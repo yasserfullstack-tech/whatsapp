@@ -21,8 +21,6 @@ export const templateStatus = pgEnum("template_status", ["draft", "pending", "ap
 export const campaignStatus = pgEnum("campaign_status", ["draft", "scheduled", "dispatching", "sending", "paused", "completed", "cancelled", "failed"]);
 export const recipientStatus = pgEnum("recipient_status", ["pending", "queued", "sent", "delivered", "read", "failed", "skipped"]);
 
-// Better Auth core tables. They intentionally use an auth_ prefix so application users
-// can keep a stable internal UUID independent of the authentication provider/runtime.
 export const authUser = pgTable("auth_user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -176,18 +174,25 @@ export const templates = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    wabaId: text("waba_id").notNull(),
     metaTemplateId: text("meta_template_id"),
     name: text("name").notNull(),
     language: text("language").notNull().default("en"),
     category: templateCategory("category").notNull(),
     status: templateStatus("status").notNull().default("draft"),
+    metaStatus: text("meta_status"),
     bodyPreview: text("body_preview"),
+    components: jsonb("components").notNull().default([]),
+    rejectionReason: text("rejection_reason"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     createdAt,
     updatedAt,
   },
   (table) => [
-    uniqueIndex("templates_org_name_language_uq").on(table.organizationId, table.name, table.language),
+    uniqueIndex("templates_org_waba_name_language_uq").on(table.organizationId, table.wabaId, table.name, table.language),
+    uniqueIndex("templates_meta_id_uq").on(table.metaTemplateId),
     index("templates_org_status_idx").on(table.organizationId, table.status),
+    index("templates_org_waba_idx").on(table.organizationId, table.wabaId),
   ],
 );
 
