@@ -2,6 +2,11 @@ import { sql, type SQL } from "drizzle-orm";
 import type { AudienceFilter, CampaignAudienceDefinition } from "./audience-schema";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const INVALID_AUDIENCE: CampaignAudienceDefinition = {
+  type: "segment",
+  match: "all",
+  filters: [{ field: "phone_e164", operator: "equals", value: "__invalid_audience_definition__" }],
+};
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
@@ -32,24 +37,24 @@ function filterPredicate(filter: AudienceFilter, organizationId: string): SQL {
   return sql`c.phone_e164 LIKE ${`${value}%`} ESCAPE '\\'`;
 }
 
-export function normalizeAudienceDefinition(value: unknown): CampaignAudienceDefinition | null {
-  if (!value || typeof value !== "object") return null;
+export function normalizeAudienceDefinition(value: unknown): CampaignAudienceDefinition {
+  if (!value || typeof value !== "object") return INVALID_AUDIENCE;
   const candidate = value as Record<string, unknown>;
   if (candidate.type === "all") return { type: "all" };
 
   if (candidate.type === "list") {
     return typeof candidate.listId === "string" && UUID_RE.test(candidate.listId)
       ? { type: "list", listId: candidate.listId }
-      : null;
+      : INVALID_AUDIENCE;
   }
 
   if (candidate.type !== "segment" || (candidate.match !== "all" && candidate.match !== "any") || !Array.isArray(candidate.filters)) {
-    return null;
+    return INVALID_AUDIENCE;
   }
 
   const filters: AudienceFilter[] = [];
   for (const item of candidate.filters.slice(0, 20)) {
-    if (!item || typeof item !== "object") return null;
+    if (!item || typeof item !== "object") return INVALID_AUDIENCE;
     const filter = item as Record<string, unknown>;
 
     if (filter.field === "list" && filter.operator === "in" && typeof filter.value === "string" && UUID_RE.test(filter.value)) {
@@ -64,7 +69,7 @@ export function normalizeAudienceDefinition(value: unknown): CampaignAudienceDef
       } else if (typeof filter.value === "string" && filter.value.trim()) {
         filters.push({ field: "display_name", operator, value: filter.value.trim().slice(0, 120) });
       } else {
-        return null;
+        return INVALID_AUDIENCE;
       }
       continue;
     }
@@ -78,10 +83,10 @@ export function normalizeAudienceDefinition(value: unknown): CampaignAudienceDef
       continue;
     }
 
-    return null;
+    return INVALID_AUDIENCE;
   }
 
-  if (!filters.length || filters.length !== candidate.filters.length) return null;
+  if (!filters.length || filters.length !== candidate.filters.length) return INVALID_AUDIENCE;
   return { type: "segment", match: candidate.match, filters };
 }
 
