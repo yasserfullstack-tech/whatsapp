@@ -8,8 +8,32 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: whatsapp
+          POSTGRES_USER: whatsapp
+          POSTGRES_PASSWORD: whatsapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatsapp -d whatsapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
+      REDIS_URL: redis://localhost:6379
       BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
       CREDENTIAL_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
@@ -24,15 +48,18 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install
-      - name: Generate migration baseline
-        working-directory: packages/db
-        run: bun run db:generate -- --name=baseline
-      - name: Upload migration baseline
-        uses: actions/upload-artifact@v4
-        with:
-          name: drizzle-baseline
-          path: packages/db/drizzle
-          if-no-files-found: error
+      - name: Check migration drift
+        run: |
+          bun run db:generate -- --name=ci-drift
+          if [ -n "$(git status --porcelain -- packages/db/drizzle)" ]; then
+            echo "Schema and committed Drizzle migrations are out of sync."
+            git status --short -- packages/db/drizzle
+            exit 1
+          fi
+      - name: Apply migrations to clean PostgreSQL
+        run: bun run db:migrate
+      - name: Verify migrated schema
+        run: bun run db:verify
       - run: bun run test
       - run: bun run typecheck
       - run: bun run build
