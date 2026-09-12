@@ -152,15 +152,20 @@ async function applyMarketingOptOut(
         },
       });
 
-    await tx.insert(schema.contactConsentEvents).values({
-      organizationId,
-      contactId: contact?.id ?? null,
-      phoneE164,
-      eventType: "opt_out",
-      source,
-      sourceMessageId: message.messageId,
-      occurredAt: at,
-    });
+    await tx
+      .insert(schema.contactConsentEvents)
+      .values({
+        organizationId,
+        contactId: contact?.id ?? null,
+        phoneE164,
+        eventType: "opt_out",
+        source,
+        sourceMessageId: message.messageId,
+        occurredAt: at,
+      })
+      .onConflictDoNothing({
+        target: [schema.contactConsentEvents.organizationId, schema.contactConsentEvents.sourceMessageId],
+      });
 
     await tx
       .update(schema.contacts)
