@@ -6,13 +6,13 @@ import { loadWorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import {
   CONTACT_IMPORT_QUEUE_NAME,
-  WEBHOOK_QUEUE_NAME,
   createBullConnection,
   createRedisClient,
   type ContactImportJob,
 } from "@wa/queue";
 import { createR2Client, getStoredObject } from "@wa/storage";
 import { startCampaignWorkers } from "./campaigns";
+import { startWebhookWorker } from "./webhooks";
 
 const env = loadWorkerEnv();
 const redis = createRedisClient(env.REDIS_URL);
@@ -28,18 +28,7 @@ const r2 = createR2Client({
 await redis.connect();
 
 const campaignWorkers = startCampaignWorkers({ db, redis, env });
-
-const webhookWorker = new Worker(
-  WEBHOOK_QUEUE_NAME,
-  async (job) => {
-    // Raw webhook persistence/status transitions are completed in the analytics milestone.
-    console.log("Received Meta webhook", { jobId: job.id });
-  },
-  {
-    connection: createBullConnection(env.REDIS_URL),
-    concurrency: 100,
-  },
-);
+const webhookWorker = startWebhookWorker({ db, env });
 
 type CsvRow = Record<string, string | undefined>;
 type ContactInsert = typeof schema.contacts.$inferInsert;
@@ -267,6 +256,7 @@ contactImportWorker.on("failed", (job, error) => {
 
 console.log("Workers started", {
   sendConcurrency: env.WORKER_CONCURRENCY,
+  webhookConcurrency: env.WEBHOOK_CONCURRENCY,
   campaignDispatchConcurrency: env.CAMPAIGN_DISPATCH_CONCURRENCY,
   contactImportConcurrency: env.CONTACT_IMPORT_CONCURRENCY,
   defaultMps: env.DEFAULT_META_MPS,

@@ -8,6 +8,8 @@ const base = z.object({
 
 const apiSchema = base.extend({
   API_PORT: z.coerce.number().int().positive().max(65_535).default(4000),
+  DATABASE_URL: z.string().min(1),
+  META_APP_SECRET: z.string().min(1),
   META_VERIFY_TOKEN: z.string().min(8),
 });
 
@@ -16,8 +18,9 @@ const workerSchema = base.extend({
   CREDENTIAL_ENCRYPTION_KEY: z.string().min(1),
   META_ACCESS_TOKEN: z.string().optional(),
   DEFAULT_META_MPS: z.coerce.number().int().positive().max(1_000).default(80),
-  WORKER_CONCURRENCY: z.coerce.number().int().positive().max(4_000).default(800),
-  CAMPAIGN_DISPATCH_CONCURRENCY: z.coerce.number().int().positive().max(128).default(16),
+  WORKER_CONCURRENCY: z.coerce.number().int().positive().max(2_000).default(400),
+  WEBHOOK_CONCURRENCY: z.coerce.number().int().positive().max(1_000).default(100),
+  CAMPAIGN_DISPATCH_CONCURRENCY: z.coerce.number().int().positive().max(100).default(8),
   CONTACT_IMPORT_CONCURRENCY: z.coerce.number().int().positive().max(16).default(2),
   R2_ACCOUNT_ID: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),

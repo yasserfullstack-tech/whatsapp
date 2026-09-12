@@ -13,7 +13,7 @@ const nav = [
   { label: "Contacts", href: "/dashboard#contacts" },
   { label: "Templates", href: "/templates" },
   { label: "Campaigns", href: "/campaigns" },
-  { label: "Reports", href: "/dashboard" },
+  { label: "Reports", href: "/campaigns" },
   { label: "Settings", href: "/dashboard" },
 ];
 
@@ -83,7 +83,7 @@ export default async function CampaignsPage() {
           <article className="statCard"><span>Eligible contacts</span><strong>{eligibleContacts.toLocaleString()}</strong><p>Opted in and not unsubscribed</p></article>
           <article className="statCard"><span>Campaigns</span><strong>{campaigns.length.toLocaleString()}</strong><p>Latest 20 in this workspace</p></article>
           <article className="statCard"><span>Active</span><strong>{active.toLocaleString()}</strong><p>Dispatching or sending</p></article>
-          <article className="statCard"><span>Completed</span><strong>{completed.toLocaleString()}</strong><p>Finished enqueue/send pass</p></article>
+          <article className="statCard"><span>Completed</span><strong>{completed.toLocaleString()}</strong><p>Submission pass completed</p></article>
         </section>
 
         <section className="panel" style={{ marginTop: 18 }}>
@@ -108,13 +108,20 @@ export default async function CampaignsPage() {
         </section>
 
         <section className="panel" style={{ marginTop: 18 }}>
-          <div className="panelHeader"><div><p className="eyebrow">History</p><h2>Recent campaigns</h2></div></div>
+          <div className="panelHeader"><div><p className="eyebrow">History</p><h2>Recent campaigns</h2><p className="subtitle">Open a campaign to watch sent, delivered, read, and failure status updates from Meta.</p></div></div>
           {campaigns.length ? (
             <div className="numberList" style={{ marginTop: 14 }}>
               {campaigns.map((campaign) => (
                 <div className="numberRow" key={campaign.id}>
-                  <div><strong>{campaign.name}</strong><p>{campaign.recipientCount ? `${campaign.recipientCount.toLocaleString()} snapshotted recipients` : "Preparing recipient snapshot"}</p></div>
-                  <div className="numberMeta"><span>{campaign.createdAt.toLocaleString()}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span></div>
+                  <div>
+                    <Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link>
+                    <p>{campaign.recipientCount ? `${campaign.recipientCount.toLocaleString()} snapshotted recipients` : "Preparing recipient snapshot"}</p>
+                  </div>
+                  <div className="numberMeta">
+                    <span>{campaign.createdAt.toLocaleString()}</span>
+                    <span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span>
+                    <Link href={`/campaigns/${campaign.id}`}>View analytics →</Link>
+                  </div>
                 </div>
               ))}
             </div>

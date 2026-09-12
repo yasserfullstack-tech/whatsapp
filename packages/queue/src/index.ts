@@ -37,6 +37,10 @@ export type CampaignDispatchJob = {
   campaignId: string;
 };
 
+export type WebhookProcessJob = {
+  eventId: string;
+};
+
 export function createRedisClient(redisUrl: string): Redis {
   return new Redis(redisUrl, {
     maxRetriesPerRequest: null,
@@ -61,9 +65,15 @@ export function createSendQueue(redisUrl: string): Queue<SendMessageJob> {
   });
 }
 
-export function createWebhookQueue(redisUrl: string): Queue {
-  return new Queue(WEBHOOK_QUEUE_NAME, {
+export function createWebhookQueue(redisUrl: string): Queue<WebhookProcessJob> {
+  return new Queue<WebhookProcessJob>(WEBHOOK_QUEUE_NAME, {
     connection: createBullConnection(redisUrl),
+    defaultJobOptions: {
+      attempts: 12,
+      backoff: { type: "exponential", delay: 1_000 },
+      removeOnComplete: 10_000,
+      removeOnFail: 50_000,
+    },
   });
 }
 

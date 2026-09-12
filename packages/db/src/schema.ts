@@ -246,7 +246,7 @@ export const campaignRecipients = pgTable(
     uniqueIndex("campaign_recipients_campaign_contact_uq").on(table.campaignId, table.contactId),
     index("campaign_recipients_dispatch_idx").on(table.campaignId, table.status, table.id),
     index("campaign_recipients_queue_age_idx").on(table.status, table.queuedAt),
-    index("campaign_recipients_wamid_idx").on(table.wamid),
+    uniqueIndex("campaign_recipients_wamid_uq").on(table.wamid),
   ],
 );
 
@@ -264,5 +264,7 @@ export const webhookEvents = pgTable(
   (table) => [
     uniqueIndex("webhook_events_event_key_uq").on(table.eventKey),
     index("webhook_events_unprocessed_idx").on(table.processedAt),
+    index("webhook_events_phone_created_idx").on(table.phoneNumberId, table.createdAt),
+    index("webhook_events_org_created_idx").on(table.organizationId, table.createdAt),
   ],
 );

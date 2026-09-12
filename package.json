@@ -12,6 +12,7 @@
     "dev:api": "bun run --filter @wa/api dev",
     "dev:worker": "bun run --filter @wa/worker dev",
     "build": "bun run --filter @wa/web build",
+    "test": "bun test",
     "typecheck": "bun run --filter '@wa/*' typecheck",
     "db:generate": "bun run --filter @wa/db db:generate",
     "db:migrate": "bun run --filter @wa/db db:migrate",

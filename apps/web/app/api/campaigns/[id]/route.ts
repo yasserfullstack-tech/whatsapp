@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
@@ -17,6 +17,10 @@ type RecipientCounts = {
   skipped: number;
 };
 
+function ratio(numerator: number, denominator: number): number {
+  return denominator > 0 ? numerator / denominator : 0;
+}
+
 export async function GET(_request: Request, routeContext: RouteContext) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -30,7 +34,9 @@ export async function GET(_request: Request, routeContext: RouteContext) {
       recipientCount: schema.campaigns.recipientCount,
       snapshotCreatedAt: schema.campaigns.snapshotCreatedAt,
       startedAt: schema.campaigns.startedAt,
+      dispatchCompletedAt: schema.campaigns.dispatchCompletedAt,
       completedAt: schema.campaigns.completedAt,
+      createdAt: schema.campaigns.createdAt,
     })
     .from(schema.campaigns)
     .where(and(
@@ -41,11 +47,30 @@ export async function GET(_request: Request, routeContext: RouteContext) {
 
   if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
-  const rows = await db
-    .select({ status: schema.campaignRecipients.status, total: count() })
-    .from(schema.campaignRecipients)
-    .where(eq(schema.campaignRecipients.campaignId, campaign.id))
-    .groupBy(schema.campaignRecipients.status);
+  const [rows, recentFailures] = await Promise.all([
+    db
+      .select({ status: schema.campaignRecipients.status, total: count() })
+      .from(schema.campaignRecipients)
+      .where(eq(schema.campaignRecipients.campaignId, campaign.id))
+      .groupBy(schema.campaignRecipients.status),
+    db
+      .select({
+        id: schema.campaignRecipients.id,
+        displayName: schema.campaignRecipients.displayName,
+        phoneE164: schema.campaignRecipients.phoneE164,
+        errorCode: schema.campaignRecipients.errorCode,
+        lastError: schema.campaignRecipients.lastError,
+        attemptCount: schema.campaignRecipients.attemptCount,
+        failedAt: schema.campaignRecipients.failedAt,
+      })
+      .from(schema.campaignRecipients)
+      .where(and(
+        eq(schema.campaignRecipients.campaignId, campaign.id),
+        eq(schema.campaignRecipients.status, "failed"),
+      ))
+      .orderBy(desc(schema.campaignRecipients.failedAt))
+      .limit(20),
+  ]);
 
   const counts: RecipientCounts = {
     pending: 0,
@@ -59,11 +84,31 @@ export async function GET(_request: Request, routeContext: RouteContext) {
   };
   for (const row of rows) counts[row.status] = row.total;
 
-  const processed = counts.submitted + counts.sent + counts.delivered + counts.read + counts.failed + counts.skipped;
+  const accepted = counts.submitted + counts.sent + counts.delivered + counts.read;
+  const sent = counts.sent + counts.delivered + counts.read;
+  const delivered = counts.delivered + counts.read;
+  const read = counts.read;
+  const processed = accepted + counts.failed + counts.skipped;
+
   return NextResponse.json({
     ...campaign,
     counts,
+    funnel: {
+      accepted,
+      sent,
+      delivered,
+      read,
+      failed: counts.failed,
+    },
+    rates: {
+      acceptance: ratio(accepted, campaign.recipientCount),
+      delivery: ratio(delivered, accepted),
+      read: ratio(read, delivered),
+      failure: ratio(counts.failed, campaign.recipientCount),
+    },
     processed,
     progress: campaign.recipientCount > 0 ? Math.min(1, processed / campaign.recipientCount) : 0,
+    submissionSettled: counts.pending + counts.queued + counts.submitted === 0,
+    recentFailures,
   });
 }
