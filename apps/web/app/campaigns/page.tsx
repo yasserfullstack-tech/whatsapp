@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { and, count, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { CampaignBuilder } from "@/components/campaign-builder";
 import { SignOutButton } from "@/components/sign-out-button";
 import { requireAuthContext } from "@/lib/auth-context";
+import { countEligibleAudience } from "@/lib/audience-server";
 import { db } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 const nav = [
   { label: "Overview", href: "/dashboard" },
   { label: "Contacts", href: "/dashboard#contacts" },
+  { label: "Audiences", href: "/audiences" },
   { label: "Templates", href: "/templates" },
   { label: "Campaigns", href: "/campaigns" },
   { label: "Reports", href: "/campaigns" },
@@ -35,23 +37,38 @@ function isTextOnly(components: unknown): boolean {
 export default async function CampaignsPage() {
   const { session, workspace } = await requireAuthContext();
   const organizationId = workspace.organizationId;
-  const [phones, templateRows, eligibleRows, campaigns] = await Promise.all([
+  const [phones, templateRows, campaigns, lists, segments] = await Promise.all([
     db.select().from(schema.whatsappPhoneNumbers)
       .where(and(eq(schema.whatsappPhoneNumbers.organizationId, organizationId), eq(schema.whatsappPhoneNumbers.status, "connected")))
       .orderBy(desc(schema.whatsappPhoneNumbers.createdAt)),
     db.select().from(schema.templates)
       .where(and(eq(schema.templates.organizationId, organizationId), eq(schema.templates.status, "approved")))
       .orderBy(desc(schema.templates.updatedAt)),
-    db.select({ total: count() }).from(schema.contacts)
-      .where(and(eq(schema.contacts.organizationId, organizationId), eq(schema.contacts.optedIn, true), isNull(schema.contacts.unsubscribedAt))),
     db.select().from(schema.campaigns)
       .where(eq(schema.campaigns.organizationId, organizationId))
       .orderBy(desc(schema.campaigns.createdAt))
       .limit(20),
+    db.select().from(schema.contactLists)
+      .where(eq(schema.contactLists.organizationId, organizationId))
+      .orderBy(desc(schema.contactLists.updatedAt)),
+    db.select().from(schema.audienceSegments)
+      .where(eq(schema.audienceSegments.organizationId, organizationId))
+      .orderBy(desc(schema.audienceSegments.updatedAt)),
   ]);
 
+  const allEligible = await countEligibleAudience(organizationId, { type: "all" });
+  const [listCounts, segmentCounts] = await Promise.all([
+    Promise.all(lists.map((list) => countEligibleAudience(organizationId, { type: "list", listId: list.id }))),
+    Promise.all(segments.map((segment) => countEligibleAudience(organizationId, { type: "segment", match: segment.match, filters: segment.filters }))),
+  ]);
+
+  const audiences = [
+    { key: "all", type: "all" as const, name: "All eligible contacts", count: allEligible },
+    ...lists.map((list, index) => ({ key: `list:${list.id}`, type: "list" as const, id: list.id, name: `List · ${list.name}`, count: listCounts[index] ?? 0 })),
+    ...segments.map((segment, index) => ({ key: `segment:${segment.id}`, type: "segment" as const, id: segment.id, name: `Segment · ${segment.name}`, count: segmentCounts[index] ?? 0 })),
+  ];
+
   const templates = templateRows.filter((template) => template.bodyPreview && isTextOnly(template.components));
-  const eligibleContacts = eligibleRows[0]?.total ?? 0;
   const initials = workspace.organizationName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const active = campaigns.filter((campaign) => campaign.status === "dispatching" || campaign.status === "sending").length;
   const completed = campaigns.filter((campaign) => campaign.status === "completed").length;
@@ -76,20 +93,21 @@ export default async function CampaignsPage() {
 
       <section className="content">
         <header className="topbar">
-          <div><p className="eyebrow">Campaigns</p><h1>Launch a WhatsApp campaign</h1><p className="subtitle">The audience snapshot lives in PostgreSQL while Redis holds only a small throughput-sized sending runway.</p></div>
+          <div><p className="eyebrow">Campaigns</p><h1>Launch a WhatsApp campaign</h1><p className="subtitle">Choose all eligible contacts, a static list, or a saved dynamic segment. PostgreSQL freezes the final audience at launch.</p></div>
+          <Link className="secondary" href="/audiences">Manage audiences</Link>
         </header>
 
         <section className="statsGrid" aria-label="Campaign statistics">
-          <article className="statCard"><span>Eligible contacts</span><strong>{eligibleContacts.toLocaleString()}</strong><p>Opted in and not unsubscribed</p></article>
-          <article className="statCard"><span>Campaigns</span><strong>{campaigns.length.toLocaleString()}</strong><p>Latest 20 in this workspace</p></article>
+          <article className="statCard"><span>Eligible contacts</span><strong>{allEligible.toLocaleString()}</strong><p>Opted in, unsubscribed excluded, suppression applied</p></article>
+          <article className="statCard"><span>Audiences</span><strong>{(lists.length + segments.length).toLocaleString()}</strong><p>{lists.length} lists · {segments.length} segments</p></article>
           <article className="statCard"><span>Active</span><strong>{active.toLocaleString()}</strong><p>Dispatching or sending</p></article>
           <article className="statCard"><span>Completed</span><strong>{completed.toLocaleString()}</strong><p>Submission pass completed</p></article>
         </section>
 
         <section className="panel" style={{ marginTop: 18 }}>
-          <div className="panelHeader"><div><p className="eyebrow">New campaign</p><h2>All eligible contacts</h2><p className="subtitle">This first audience mode targets every opted-in contact. Lists/segments can layer on the same snapshot engine later.</p></div></div>
+          <div className="panelHeader"><div><p className="eyebrow">New campaign</p><h2>Choose the target audience</h2><p className="subtitle">Counts are calculated with the same eligibility and suppression predicate used by the immutable campaign snapshot.</p></div></div>
           <CampaignBuilder
-            eligibleContacts={eligibleContacts}
+            audiences={audiences}
             phones={phones.map((phone) => ({
               id: phone.id,
               wabaId: phone.wabaId,
