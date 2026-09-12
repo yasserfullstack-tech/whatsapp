@@ -1,0 +1,111 @@
+html[dir="rtl"] body { font-family: Tahoma, Arial, ui-sans-serif, system-ui, sans-serif; }
+html[dir="rtl"] .eyebrow { letter-spacing: 0; text-transform: none; }
+.navItem { text-align: start; }
+.signOut { justify-self: start; }
+.inlineError { text-align: end; }
+
+.languageSwitcher {
+  position: fixed;
+  inset-inline-end: 16px;
+  bottom: 16px;
+  z-index: 100;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.96);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+.languageSwitcher button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.languageSwitcher button.active { background: var(--accent); color: #fff; }
+
+.formGrid4, .formGrid3, .formGrid2, .filterBuilderRow, .bindingRow, .analyticsMiniGrid { display: grid; gap: 12px; }
+.formGrid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.formGrid3 { grid-template-columns: minmax(220px, 1fr) 150px 160px; }
+.formGrid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.filterBuilderRow { grid-template-columns: 180px 190px minmax(220px, 1fr) auto; align-items: center; }
+.bindingRow { grid-template-columns: 80px 220px minmax(220px, 1fr); align-items: center; }
+.analyticsMiniGrid { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
+.formLabel { display: grid; gap: 7px; min-width: 0; font-size: 13px; font-weight: 700; }
+.formLabel input, .formLabel select, .formLabel textarea, .filterBuilderRow input, .filterBuilderRow select, .bindingRow input, .bindingRow select {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid #d9e1dd;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  outline: none;
+}
+.formLabel input:focus, .formLabel select:focus, .formLabel textarea:focus, .filterBuilderRow input:focus, .filterBuilderRow select:focus, .bindingRow input:focus, .bindingRow select:focus {
+  border-color: #78c8a7;
+  box-shadow: 0 0 0 3px rgba(13, 143, 93, .09);
+}
+.formLabel textarea { resize: vertical; }
+.actionRow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+@media (max-width: 1050px) {
+  .formGrid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .formGrid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .formGrid3 > :first-child { grid-column: 1 / -1; }
+  .filterBuilderRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bindingRow { grid-template-columns: 72px minmax(180px, .65fr) minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+  }
+  .brand { padding: 0; }
+  .nav {
+    grid-column: 1 / -1;
+    display: flex !important;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .navItem { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 9px 11px; }
+  .workspace { display: none !important; }
+  .content { padding: 24px 16px 72px; }
+  .topbar { gap: 16px; }
+  .topbar > .primary, .topbar > .secondary { align-self: stretch; text-align: center; }
+  .connectionCard { grid-template-columns: 1fr; }
+  .connectionIcon { display: none; }
+  .connectionCard .connectActions { grid-column: auto; }
+  .numberRow { align-items: flex-start; flex-direction: column; }
+  .numberMeta { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .panel { padding: 18px; }
+  .formGrid4, .formGrid3, .formGrid2, .filterBuilderRow, .bindingRow, .analyticsMiniGrid { grid-template-columns: 1fr; }
+  .formGrid3 > :first-child { grid-column: auto; }
+  .bindingRow code { justify-self: start; }
+  .languageSwitcher { inset-inline-end: 10px; bottom: 10px; }
+}
+
+@media (max-width: 420px) {
+  .content { padding-inline: 12px; }
+  .statsGrid { grid-template-columns: 1fr !important; }
+  .authCard { padding: 22px 18px; }
+  h1 { font-size: 30px; }
+  .panelHeader { flex-direction: column; }
+}
