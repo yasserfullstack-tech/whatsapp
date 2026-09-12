@@ -37,19 +37,30 @@ export function CampaignControls({ campaignId, initialStatus }: { campaignId: st
     }
   };
 
-  const active = status === "dispatching" || status === "sending";
+  const active = status === "sending";
+  const preparing = status === "dispatching";
   const paused = status === "paused";
-  if (!active && !paused) return null;
+  if (!active && !paused && !preparing) return null;
 
   return (
     <section className="panel" style={{ marginBottom: 18 }}>
       <div className="panelHeader">
-        <div><p className="eyebrow">Campaign controls</p><h2>{status}</h2><p className="subtitle">Pause stops new queueing; cancel skips recipients that have not yet been submitted to Meta.</p></div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {active ? <button className="secondary" disabled={busy !== null} onClick={() => void run("pause")} type="button">{busy === "pause" ? "Pausing…" : "Pause"}</button> : null}
-          {paused ? <button className="primary" disabled={busy !== null} onClick={() => void run("resume")} type="button">{busy === "resume" ? "Resuming…" : "Resume"}</button> : null}
-          <button className="secondary" disabled={busy !== null} onClick={() => void run("cancel")} type="button">{busy === "cancel" ? "Cancelling…" : "Cancel campaign"}</button>
+        <div>
+          <p className="eyebrow">Campaign controls</p>
+          <h2>{status}</h2>
+          <p className="subtitle">
+            {preparing
+              ? "The immutable audience snapshot is being created. Pause/cancel controls activate as soon as sending begins."
+              : "Pause stops new queueing; cancel skips recipients that have not yet been submitted to Meta."}
+          </p>
         </div>
+        {!preparing ? (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {active ? <button className="secondary" disabled={busy !== null} onClick={() => void run("pause")} type="button">{busy === "pause" ? "Pausing…" : "Pause"}</button> : null}
+            {paused ? <button className="primary" disabled={busy !== null} onClick={() => void run("resume")} type="button">{busy === "resume" ? "Resuming…" : "Resume"}</button> : null}
+            <button className="secondary" disabled={busy !== null} onClick={() => void run("cancel")} type="button">{busy === "cancel" ? "Cancelling…" : "Cancel campaign"}</button>
+          </div>
+        ) : null}
       </div>
       {message ? <p className="subtitle" style={{ marginTop: 12 }}>{message}</p> : null}
     </section>
