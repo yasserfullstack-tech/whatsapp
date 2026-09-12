@@ -91,7 +91,7 @@ export function TemplateManager({ wabas }: Props) {
         <div>
           <p className="eyebrow">Create template</p>
           <h2>Submit a text template for review</h2>
-          <p className="subtitle">Use positional variables such as {{"{{1}}"}}. Add one example value per variable so Meta can review the template.</p>
+          <p className="subtitle">Use positional variables such as <code>{"{{1}}"}</code>. Add one example value per variable so Meta can review the template.</p>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) 150px 160px", gap: 12 }}>
