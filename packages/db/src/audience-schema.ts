@@ -6,7 +6,7 @@ const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defa
 
 export type AudienceFilter =
   | { field: "list"; operator: "in"; value: string }
-  | { field: "display_name"; operator: "contains" | "starts_with" | "equals" | "is_empty"; value?: string }
+  | { field: "display_name"; operator: "contains" | "starts_with" | "equals" | "is_empty"; value?: string | undefined }
   | { field: "phone_e164"; operator: "starts_with" | "ends_with" | "equals"; value: string };
 
 export type SegmentDefinition = {
