@@ -122,6 +122,15 @@ async function applyMarketingOptOut(
   const source = `whatsapp_${message.type}`;
 
   await db.transaction(async (tx) => {
+    const [contact] = await tx
+      .select({ id: schema.contacts.id })
+      .from(schema.contacts)
+      .where(and(
+        eq(schema.contacts.organizationId, organizationId),
+        eq(schema.contacts.phoneE164, phoneE164),
+      ))
+      .limit(1);
+
     await tx
       .insert(schema.suppressionList)
       .values({
@@ -142,6 +151,16 @@ async function applyMarketingOptOut(
           updatedAt: new Date(),
         },
       });
+
+    await tx.insert(schema.contactConsentEvents).values({
+      organizationId,
+      contactId: contact?.id ?? null,
+      phoneE164,
+      eventType: "opt_out",
+      source,
+      sourceMessageId: message.messageId,
+      occurredAt: at,
+    });
 
     await tx
       .update(schema.contacts)
