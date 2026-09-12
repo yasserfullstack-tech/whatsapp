@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 const nav = [
   { label: "Overview", href: "/dashboard" },
-  { label: "Contacts", href: "/dashboard#contacts" },
+  { label: "Contacts", href: "/contacts" },
   { label: "Audiences", href: "/audiences" },
   { label: "Templates", href: "/templates" },
   { label: "Campaigns", href: "/campaigns" },
