@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 const nav = [
   { label: "Overview", href: "/dashboard" },
-  { label: "Contacts", href: "/dashboard#contacts" },
+  { label: "Contacts", href: "/contacts" },
+  { label: "Audiences", href: "/audiences" },
   { label: "Templates", href: "/templates" },
   { label: "Campaigns", href: "/campaigns" },
   { label: "Reports", href: "/dashboard" },
@@ -101,7 +102,7 @@ export default async function DashboardPage() {
         </section>
 
         <section className="panel" id="contacts" style={{ marginTop: 18 }}>
-          <div className="panelHeader"><div><p className="eyebrow">Contacts</p><h2>Import opted-in customers</h2><p className="subtitle">CSV files upload directly to R2 and are processed by a background worker in 1,000-row database batches.</p></div></div>
+          <div className="panelHeader"><div><p className="eyebrow">Contacts</p><h2>Import opted-in customers</h2><p className="subtitle">CSV files upload directly to R2 and are processed by a background worker in 1,000-row database batches. <Link href="/contacts">Review consent and suppressions</Link>.</p></div></div>
           <ContactImporter initialImport={importSnapshot} />
         </section>
 
