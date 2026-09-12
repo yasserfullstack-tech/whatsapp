@@ -23,7 +23,7 @@ export type SendMessageJob = {
   to: string;
   templateName: string;
   languageCode: string;
-  components?: TemplateComponent[];
+  components?: TemplateComponent[] | undefined;
   maxMessagesPerSecond?: number;
 };
 

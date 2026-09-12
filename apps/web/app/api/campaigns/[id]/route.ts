@@ -6,6 +6,17 @@ import { db } from "@/lib/server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+type RecipientCounts = {
+  pending: number;
+  queued: number;
+  submitted: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  skipped: number;
+};
+
 export async function GET(_request: Request, routeContext: RouteContext) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,7 +47,7 @@ export async function GET(_request: Request, routeContext: RouteContext) {
     .where(eq(schema.campaignRecipients.campaignId, campaign.id))
     .groupBy(schema.campaignRecipients.status);
 
-  const counts: Record<string, number> = {
+  const counts: RecipientCounts = {
     pending: 0,
     queued: 0,
     submitted: 0,
