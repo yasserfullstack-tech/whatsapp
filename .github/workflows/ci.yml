@@ -24,20 +24,15 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install
-      - name: Generate migration baseline for capture
+      - name: Generate migration baseline
         working-directory: packages/db
-        run: |
-          bun run db:generate -- --name=baseline
-          echo '=== GENERATED FILES ==='
-          find drizzle -type f -maxdepth 2 -print | sort
-          echo '=== 0000 SQL ==='
-          cat drizzle/0000_*.sql
-          echo '=== JOURNAL ==='
-          cat drizzle/meta/_journal.json
-          echo '=== SNAPSHOT BASE64 ==='
-          base64 -w0 drizzle/meta/0000_snapshot.json
-          echo
-          echo '=== END SNAPSHOT BASE64 ==='
+        run: bun run db:generate -- --name=baseline
+      - name: Upload migration baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: drizzle-baseline
+          path: packages/db/drizzle
+          if-no-files-found: error
       - run: bun run test
       - run: bun run typecheck
       - run: bun run build
