@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, lte } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { schema } from "@wa/db";
@@ -49,7 +49,7 @@ export async function POST(request: Request, routeContext: RouteContext) {
   if (!contact) return NextResponse.json({ error: "Contact not found" }, { status: 404 });
 
   const [activeSuppression] = await db
-    .select({ id: schema.suppressionList.id })
+    .select({ id: schema.suppressionList.id, suppressedAt: schema.suppressionList.suppressedAt })
     .from(schema.suppressionList)
     .where(and(
       eq(schema.suppressionList.organizationId, organizationId),
@@ -61,13 +61,36 @@ export async function POST(request: Request, routeContext: RouteContext) {
     return NextResponse.json({ error: "Contact is already marketing-eligible" }, { status: 409 });
   }
 
+  const consentBoundary = [contact.unsubscribedAt, activeSuppression?.suppressedAt]
+    .filter((value): value is Date => Boolean(value))
+    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+
+  if (consentBoundary && consentedAt.getTime() <= consentBoundary.getTime()) {
+    return NextResponse.json({
+      error: "New consent must be recorded after the latest opt-out or suppression",
+      latestSuppressionAt: consentBoundary.toISOString(),
+    }, { status: 400 });
+  }
+
   const now = new Date();
-  await db.transaction(async (tx) => {
+  const restored = await db.transaction(async (tx) => {
     await tx.delete(schema.suppressionList)
       .where(and(
         eq(schema.suppressionList.organizationId, organizationId),
         eq(schema.suppressionList.phoneE164, contact.phoneE164),
+        lte(schema.suppressionList.suppressedAt, consentedAt),
       ));
+
+    const [remainingSuppression] = await tx
+      .select({ suppressedAt: schema.suppressionList.suppressedAt })
+      .from(schema.suppressionList)
+      .where(and(
+        eq(schema.suppressionList.organizationId, organizationId),
+        eq(schema.suppressionList.phoneE164, contact.phoneE164),
+      ))
+      .limit(1);
+
+    if (remainingSuppression) return false;
 
     await tx.update(schema.contacts)
       .set({
@@ -89,7 +112,15 @@ export async function POST(request: Request, routeContext: RouteContext) {
       actorUserId: context.workspace.userId,
       occurredAt: consentedAt,
     });
+
+    return true;
   });
+
+  if (!restored) {
+    return NextResponse.json({
+      error: "A newer suppression was recorded while restoring consent. Record consent again only after confirming the latest customer preference.",
+    }, { status: 409 });
+  }
 
   return NextResponse.json({
     status: "eligible",
