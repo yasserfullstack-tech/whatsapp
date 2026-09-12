@@ -16,6 +16,7 @@ const requestSchema = z.object({
   sizeBytes: z.number().int().positive().max(MAX_CSV_BYTES),
   defaultCountry: z.string().trim().length(2).regex(/^[A-Za-z]{2}$/),
   optInSource: z.string().trim().min(2).max(120),
+  listName: z.string().trim().min(2).max(120).optional(),
   confirmedOptIn: z.literal(true),
 });
 
@@ -38,14 +39,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid import request", issues: parsed.error.issues }, { status: 400 });
   }
 
+  const organizationId = context.workspace.organizationId;
+  let listId: string | null = null;
+  if (parsed.data.listName) {
+    const [list] = await db
+      .insert(schema.contactLists)
+      .values({ organizationId, name: parsed.data.listName })
+      .onConflictDoUpdate({
+        target: [schema.contactLists.organizationId, schema.contactLists.name],
+        set: { updatedAt: new Date() },
+      })
+      .returning({ id: schema.contactLists.id });
+    listId = list?.id ?? null;
+  }
+
   const importId = randomUUID();
-  const objectKey = `${context.workspace.organizationId}/contact-imports/${importId}/${safeFileName(parsed.data.fileName)}`;
+  const objectKey = `${organizationId}/contact-imports/${importId}/${safeFileName(parsed.data.fileName)}`;
   const r2Config = getR2ServerConfig();
   const r2 = createR2Client(r2Config);
 
   await db.insert(schema.contactImports).values({
     id: importId,
-    organizationId: context.workspace.organizationId,
+    organizationId,
+    listId,
     originalFileName: parsed.data.fileName,
     objectKey,
     sizeBytes: parsed.data.sizeBytes,
