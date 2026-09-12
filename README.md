@@ -25,13 +25,15 @@ packages/
   auth/          Better Auth server configuration
   config/        validated runtime configuration
   credentials/   AES-256-GCM credential encryption helpers
-  db/            Drizzle schema, audience predicates, and database client
+  db/            Drizzle schema, versioned migrations, audience predicates, and database client
   meta/          Meta Cloud API + Embedded Signup/webhook helpers
   queue/         BullMQ queues + per-phone limiter
   storage/       Cloudflare R2 / S3-compatible storage helpers
 docs/
   architecture.md
   audiences.md
+  database-migrations.md
+  load-testing.md
   r2.md
   webhooks.md
 ```
@@ -44,13 +46,14 @@ Requirements: Bun 1.4.2+, Docker, and Docker Compose.
 cp .env.example .env
 bun install
 bun run infra:up
-bun run db:push
+bun run db:migrate
+bun run db:verify
 bun run dev
 ```
 
 The web app runs on `http://localhost:3000` and the API defaults to `http://localhost:4000`.
 
-`db:push` is for local development while the schema is still moving quickly. Before the first production deployment we will generate and commit versioned Drizzle migrations and deploy only through migrations.
+Committed Drizzle migrations are now the default schema workflow. Use `bun run db:generate -- --name=<change>` when changing schema and commit the generated SQL/journal/snapshot together. `bun run db:push:dev` exists only for disposable local experiments and must not be used for staging or production. See `docs/database-migrations.md` for deployment, adoption, and rollback guidance.
 
 ## Required local secrets
 
@@ -78,6 +81,7 @@ Never commit real Meta tokens or production secrets.
 9. Send workers decrypt the correct tenant credential, enforce per-phone rate limits, and persist Meta `wamid` values.
 10. Signed Meta webhooks update sent/delivered/read/failed states, process inbound STOP opt-outs, and power live campaign analytics.
 11. Campaigns can be paused, resumed, or cancelled; suppression remains authoritative for future sends.
+12. Database schema changes ship as committed Drizzle migrations and CI proves a clean PostgreSQL database can apply them before tests/build run.
 
 ## Security and delivery baseline
 
@@ -89,11 +93,11 @@ Never commit real Meta tokens or production secrets.
 - Audience filters can only narrow opted-in, non-unsubscribed, non-suppressed contacts.
 - Campaign audience definitions are stored before dispatch so later segment edits cannot mutate an in-flight snapshot.
 - Queue jobs contain credential references, not plaintext Meta tokens.
+- Shared/staging/production databases are changed only by committed migrations, never `db:push`.
 
 ## Next production milestones
 
 - suppression-management UI and an explicit resubscribe policy;
-- committed versioned Drizzle migrations instead of production `db:push`;
 - end-to-end tests with a real Meta test/business number;
 - controlled 1k / 10k / 50k / large-volume load tests with PostgreSQL, Redis, worker, and Meta latency metrics;
 - deployment hardening, monitoring, backups, and billing.
