@@ -16,7 +16,8 @@
     "typecheck": "bun run --filter '@wa/*' typecheck",
     "db:generate": "bun run --filter @wa/db db:generate",
     "db:migrate": "bun run --filter @wa/db db:migrate",
-    "db:push": "bun run --filter @wa/db db:push",
+    "db:verify": "bun run --filter @wa/db db:verify",
+    "db:push:dev": "bun run --filter @wa/db db:push:dev",
     "infra:up": "docker compose up -d postgres valkey",
     "infra:down": "docker compose down"
   },
