@@ -12,6 +12,7 @@ const expectedPublicTables = [
   "campaign_audiences",
   "campaign_recipients",
   "campaigns",
+  "contact_consent_events",
   "contact_imports",
   "contact_list_members",
   "contact_lists",
@@ -51,8 +52,8 @@ try {
   const migrationRows = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations
   `;
-  if ((migrationRows[0]?.count ?? 0) < 1) {
-    throw new Error("No applied migration was recorded in drizzle.__drizzle_migrations");
+  if ((migrationRows[0]?.count ?? 0) < 2) {
+    throw new Error("Expected both committed migrations in drizzle.__drizzle_migrations");
   }
 
   console.log("Migration smoke check passed", {

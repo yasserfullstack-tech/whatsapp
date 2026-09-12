@@ -5,7 +5,9 @@
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "bun src/generate-migration.ts",
+    "db:snapshots:materialize": "bun src/snapshot-artifacts.ts materialize",
+    "db:snapshots:pack": "bun src/snapshot-artifacts.ts pack",
     "db:migrate": "drizzle-kit migrate",
     "db:verify": "bun src/verify-migrations.ts",
     "db:push:dev": "drizzle-kit push"

@@ -48,14 +48,18 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install
-      - name: Generate consent history migration
-        run: bun run db:generate -- --name=consent-history
-      - name: Upload generated migration
-        uses: actions/upload-artifact@v4
-        with:
-          name: consent-history-migration
-          path: packages/db/drizzle
-          if-no-files-found: error
+      - name: Check migration drift
+        run: |
+          bun run db:generate -- --name=ci-drift
+          if [ -n "$(git status --porcelain -- packages/db/drizzle)" ]; then
+            echo "Schema and committed Drizzle migrations are out of sync."
+            git status --short -- packages/db/drizzle
+            exit 1
+          fi
+      - name: Apply migrations to clean PostgreSQL
+        run: bun run db:migrate
+      - name: Verify migrated schema
+        run: bun run db:verify
       - run: bun run test
       - run: bun run typecheck
       - run: bun run build
