@@ -39,6 +39,7 @@ export const contactConsentEvents = pgTable(
     createdAt,
   },
   (table) => [
+    uniqueIndex("contact_consent_events_org_source_message_uq").on(table.organizationId, table.sourceMessageId),
     index("contact_consent_events_org_phone_time_idx").on(table.organizationId, table.phoneE164, table.occurredAt),
     index("contact_consent_events_org_type_time_idx").on(table.organizationId, table.eventType, table.occurredAt),
   ],
