@@ -29,12 +29,12 @@ export async function POST(request: Request, routeContext: RouteContext) {
   if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
   if (parsed.data.action === "pause") {
-    if (!(["dispatching", "sending"] as string[]).includes(campaign.status)) {
+    if (campaign.status !== "sending") {
       return NextResponse.json({ error: `Campaign cannot be paused from ${campaign.status}` }, { status: 409 });
     }
     await db.update(schema.campaigns)
       .set({ status: "paused", updatedAt: new Date() })
-      .where(and(eq(schema.campaigns.id, campaign.id), inArray(schema.campaigns.status, ["dispatching", "sending"])));
+      .where(and(eq(schema.campaigns.id, campaign.id), eq(schema.campaigns.status, "sending")));
     return NextResponse.json({ status: "paused" });
   }
 
@@ -64,7 +64,7 @@ export async function POST(request: Request, routeContext: RouteContext) {
     return NextResponse.json({ status: "sending" });
   }
 
-  if (["completed", "cancelled", "failed"].includes(campaign.status)) {
+  if (campaign.status !== "sending" && campaign.status !== "paused") {
     return NextResponse.json({ error: `Campaign cannot be cancelled from ${campaign.status}` }, { status: 409 });
   }
 
@@ -72,7 +72,10 @@ export async function POST(request: Request, routeContext: RouteContext) {
   await db.transaction(async (tx) => {
     await tx.update(schema.campaigns)
       .set({ status: "cancelled", completedAt: now, updatedAt: now })
-      .where(eq(schema.campaigns.id, campaign.id));
+      .where(and(
+        eq(schema.campaigns.id, campaign.id),
+        inArray(schema.campaigns.status, ["sending", "paused"]),
+      ));
 
     await tx.update(schema.campaignRecipients)
       .set({
