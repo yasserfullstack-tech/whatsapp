@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@wa/config": "workspace:*",
+    "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",
     "@wa/queue": "workspace:*",

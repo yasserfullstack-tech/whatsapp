@@ -1,6 +1,6 @@
 import { createAppAuth } from "@wa/auth";
 import { createDatabase } from "@wa/db";
-import { createContactImportQueue } from "@wa/queue";
+import { createCampaignDispatchQueue, createContactImportQueue } from "@wa/queue";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -12,7 +12,9 @@ const database = createDatabase(requiredEnv("DATABASE_URL"));
 
 export const db = database.db;
 export const databaseClient = database.client;
-export const contactImportQueue = createContactImportQueue(process.env.REDIS_URL ?? "redis://localhost:6379");
+const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+export const contactImportQueue = createContactImportQueue(redisUrl);
+export const campaignDispatchQueue = createCampaignDispatchQueue(redisUrl);
 
 export const auth = createAppAuth({
   db,

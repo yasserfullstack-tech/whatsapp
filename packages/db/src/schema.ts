@@ -19,7 +19,7 @@ export const connectionStatus = pgEnum("connection_status", ["pending", "connect
 export const templateCategory = pgEnum("template_category", ["marketing", "utility", "authentication"]);
 export const templateStatus = pgEnum("template_status", ["draft", "pending", "approved", "rejected", "paused", "disabled"]);
 export const campaignStatus = pgEnum("campaign_status", ["draft", "scheduled", "dispatching", "sending", "paused", "completed", "cancelled", "failed"]);
-export const recipientStatus = pgEnum("recipient_status", ["pending", "queued", "sent", "delivered", "read", "failed", "skipped"]);
+export const recipientStatus = pgEnum("recipient_status", ["pending", "queued", "submitted", "sent", "delivered", "read", "failed", "skipped"]);
 
 export const authUser = pgTable("auth_user", {
   id: text("id").primaryKey(),
@@ -205,9 +205,12 @@ export const campaigns = pgTable(
     templateId: uuid("template_id").notNull().references(() => templates.id),
     name: text("name").notNull(),
     status: campaignStatus("status").notNull().default("draft"),
+    templateBindings: jsonb("template_bindings").notNull().default([]),
     recipientCount: integer("recipient_count").notNull().default(0),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    snapshotCreatedAt: timestamp("snapshot_created_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
+    dispatchCompletedAt: timestamp("dispatch_completed_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt,
     updatedAt,
@@ -223,18 +226,26 @@ export const campaignRecipients = pgTable(
     campaignId: uuid("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
     contactId: uuid("contact_id").notNull().references(() => contacts.id),
     phoneE164: text("phone_e164").notNull(),
+    displayName: text("display_name"),
     status: recipientStatus("status").notNull().default("pending"),
     wamid: text("wamid"),
     errorCode: text("error_code"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     readAt: timestamp("read_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     createdAt,
+    updatedAt,
   },
   (table) => [
     uniqueIndex("campaign_recipients_campaign_contact_uq").on(table.campaignId, table.contactId),
     index("campaign_recipients_dispatch_idx").on(table.campaignId, table.status, table.id),
+    index("campaign_recipients_queue_age_idx").on(table.status, table.queuedAt),
     index("campaign_recipients_wamid_idx").on(table.wamid),
   ],
 );

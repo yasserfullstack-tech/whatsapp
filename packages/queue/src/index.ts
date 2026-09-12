@@ -5,12 +5,21 @@ import type { TemplateComponent } from "@wa/meta";
 export const SEND_QUEUE_NAME = "whatsapp-send";
 export const WEBHOOK_QUEUE_NAME = "whatsapp-webhooks";
 export const CONTACT_IMPORT_QUEUE_NAME = "contact-imports";
+export const CAMPAIGN_DISPATCH_QUEUE_NAME = "campaign-dispatch";
+
+export type CampaignVariableBinding = {
+  index: number;
+  source: "display_name" | "phone_e164" | "literal";
+  value?: string;
+  fallback?: string;
+};
 
 export type SendMessageJob = {
   organizationId: string;
   campaignId: string;
   recipientId: string;
   phoneNumberId: string;
+  credentialKey: string;
   to: string;
   templateName: string;
   languageCode: string;
@@ -21,6 +30,11 @@ export type SendMessageJob = {
 export type ContactImportJob = {
   organizationId: string;
   importId: string;
+};
+
+export type CampaignDispatchJob = {
+  organizationId: string;
+  campaignId: string;
 };
 
 export function createRedisClient(redisUrl: string): Redis {
@@ -61,6 +75,18 @@ export function createContactImportQueue(redisUrl: string): Queue<ContactImportJ
       backoff: { type: "exponential", delay: 5_000 },
       removeOnComplete: 1_000,
       removeOnFail: 5_000,
+    },
+  });
+}
+
+export function createCampaignDispatchQueue(redisUrl: string): Queue<CampaignDispatchJob> {
+  return new Queue<CampaignDispatchJob>(CAMPAIGN_DISPATCH_QUEUE_NAME, {
+    connection: createBullConnection(redisUrl),
+    defaultJobOptions: {
+      attempts: 4,
+      backoff: { type: "exponential", delay: 5_000 },
+      removeOnComplete: true,
+      removeOnFail: true,
     },
   });
 }

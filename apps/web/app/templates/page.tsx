@@ -13,7 +13,7 @@ const nav = [
   { label: "Overview", href: "/dashboard" },
   { label: "Contacts", href: "/dashboard#contacts" },
   { label: "Templates", href: "/templates" },
-  { label: "Campaigns", href: "/dashboard" },
+  { label: "Campaigns", href: "/campaigns" },
   { label: "Reports", href: "/dashboard" },
   { label: "Settings", href: "/dashboard" },
 ];

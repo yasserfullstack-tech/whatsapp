@@ -4,22 +4,18 @@ import { parse } from "csv-parse";
 import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js/max";
 import { loadWorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
-import { WhatsAppCloudClient } from "@wa/meta";
 import {
   CONTACT_IMPORT_QUEUE_NAME,
-  PerNumberRateLimiter,
-  SEND_QUEUE_NAME,
   WEBHOOK_QUEUE_NAME,
   createBullConnection,
   createRedisClient,
   type ContactImportJob,
-  type SendMessageJob,
 } from "@wa/queue";
 import { createR2Client, getStoredObject } from "@wa/storage";
+import { startCampaignWorkers } from "./campaigns";
 
 const env = loadWorkerEnv();
 const redis = createRedisClient(env.REDIS_URL);
-const limiter = new PerNumberRateLimiter(redis);
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
 const r2 = createR2Client({
@@ -31,39 +27,12 @@ const r2 = createR2Client({
 
 await redis.connect();
 
-const sendWorker = new Worker<SendMessageJob>(
-  SEND_QUEUE_NAME,
-  async (job) => {
-    const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
-    await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
-
-    if (!env.META_ACCESS_TOKEN) {
-      throw new Error("META_ACCESS_TOKEN is not configured. Use a per-client secret provider in production.");
-    }
-
-    const client = new WhatsAppCloudClient({
-      accessToken: env.META_ACCESS_TOKEN,
-      graphApiVersion: env.META_GRAPH_API_VERSION,
-    });
-
-    return client.sendTemplate({
-      phoneNumberId: job.data.phoneNumberId,
-      to: job.data.to,
-      templateName: job.data.templateName,
-      languageCode: job.data.languageCode,
-      ...(job.data.components ? { components: job.data.components } : {}),
-    });
-  },
-  {
-    connection: createBullConnection(env.REDIS_URL),
-    concurrency: env.WORKER_CONCURRENCY,
-  },
-);
+const campaignWorkers = startCampaignWorkers({ db, redis, env });
 
 const webhookWorker = new Worker(
   WEBHOOK_QUEUE_NAME,
   async (job) => {
-    // Persist raw webhook payloads and apply status transitions in the next milestone.
+    // Raw webhook persistence/status transitions are completed in the analytics milestone.
     console.log("Received Meta webhook", { jobId: job.id });
   },
   {
@@ -280,8 +249,12 @@ const contactImportWorker = new Worker<ContactImportJob>(
   },
 );
 
-sendWorker.on("failed", (job, error) => {
+campaignWorkers.sendWorker.on("failed", (job, error) => {
   console.error("Send job failed", { jobId: job?.id, message: error.message });
+});
+
+campaignWorkers.campaignDispatchWorker.on("failed", (job, error) => {
+  console.error("Campaign dispatcher failed", { jobId: job?.id, message: error.message });
 });
 
 webhookWorker.on("failed", (job, error) => {
@@ -294,12 +267,17 @@ contactImportWorker.on("failed", (job, error) => {
 
 console.log("Workers started", {
   sendConcurrency: env.WORKER_CONCURRENCY,
+  campaignDispatchConcurrency: env.CAMPAIGN_DISPATCH_CONCURRENCY,
   contactImportConcurrency: env.CONTACT_IMPORT_CONCURRENCY,
   defaultMps: env.DEFAULT_META_MPS,
 });
 
 const shutdown = async () => {
-  await Promise.all([sendWorker.close(), webhookWorker.close(), contactImportWorker.close()]);
+  await Promise.all([
+    campaignWorkers.close(),
+    webhookWorker.close(true),
+    contactImportWorker.close(true),
+  ]);
   await redis.quit();
   await database.client.end();
   process.exit(0);

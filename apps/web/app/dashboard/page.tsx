@@ -13,7 +13,7 @@ const nav = [
   { label: "Overview", href: "/dashboard" },
   { label: "Contacts", href: "/dashboard#contacts" },
   { label: "Templates", href: "/templates" },
-  { label: "Campaigns", href: "/dashboard" },
+  { label: "Campaigns", href: "/campaigns" },
   { label: "Reports", href: "/dashboard" },
   { label: "Settings", href: "/dashboard" },
 ];
@@ -55,6 +55,7 @@ export default async function DashboardPage() {
   } : null;
 
   const initials = workspace.organizationName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  const readyToCampaign = Boolean(connected && contacts > 0 && approvedTemplates > 0);
   const stats = [
     { label: "Contacts", value: contacts.toLocaleString(), detail: contacts ? "Contacts in this workspace" : "Import your first audience" },
     { label: "Campaigns", value: campaigns.toLocaleString(), detail: campaigns ? "Campaigns created" : "No campaigns sent yet" },
@@ -83,7 +84,7 @@ export default async function DashboardPage() {
       <section className="content">
         <header className="topbar">
           <div><p className="eyebrow">Overview</p><h1>{workspace.organizationName}</h1><p className="subtitle">Connect WhatsApp, import opted-in customers, and launch campaigns.</p></div>
-          <button className="primary" disabled={!connected || contacts === 0 || approvedTemplates === 0} type="button">Create campaign</button>
+          {readyToCampaign ? <Link className="primary" href="/campaigns">Create campaign</Link> : <button className="primary" disabled type="button">Create campaign</button>}
         </header>
 
         <section className="connectionCard">
@@ -118,7 +119,7 @@ export default async function DashboardPage() {
               <li><span>{connected ? "✓" : "1"}</span><div><strong>Connect WhatsApp</strong><p>Meta Embedded Signup.</p></div></li>
               <li><span>{contacts > 0 ? "✓" : "2"}</span><div><strong>Import contacts</strong><p>Only opted-in WhatsApp recipients.</p></div></li>
               <li><span>{approvedTemplates > 0 ? "✓" : "3"}</span><div><strong>Sync a template</strong><p>{approvedTemplates > 0 ? `${approvedTemplates} approved template${approvedTemplates === 1 ? "" : "s"}.` : "Use an approved marketing template."}</p></div></li>
-              <li><span>4</span><div><strong>Launch safely</strong><p>Workers respect each phone number&apos;s throughput.</p></div></li>
+              <li><span>{readyToCampaign ? "✓" : "4"}</span><div><strong>Launch safely</strong><p>{readyToCampaign ? "Campaign engine is ready." : "Workers respect each phone number's throughput."}</p></div></li>
             </ol>
           </aside>
         </section>

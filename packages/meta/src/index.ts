@@ -17,6 +17,11 @@ export type SendTemplateInput = {
   components?: TemplateComponent[];
 };
 
+export type SentTemplateMessage = {
+  messageId: string;
+  waId?: string;
+};
+
 type CloudClientOptions = {
   accessToken: string;
   graphApiVersion: string;
@@ -52,7 +57,7 @@ async function assertMetaResponse(response: Response, message: string): Promise<
 export class WhatsAppCloudClient {
   constructor(private readonly options: CloudClientOptions) {}
 
-  async sendTemplate(input: SendTemplateInput): Promise<unknown> {
+  async sendTemplate(input: SendTemplateInput): Promise<SentTemplateMessage> {
     const endpoint = `https://graph.facebook.com/${this.options.graphApiVersion}/${input.phoneNumberId}/messages`;
     const response = await fetch(endpoint, {
       method: "POST",
@@ -73,7 +78,16 @@ export class WhatsAppCloudClient {
       }),
     });
 
-    return assertMetaResponse(response, "Meta WhatsApp API request failed");
+    const body = await assertMetaResponse(response, "Meta WhatsApp API request failed");
+    if (!isRecord(body) || !Array.isArray(body.messages) || !isRecord(body.messages[0]) || typeof body.messages[0].id !== "string") {
+      throw new MetaApiError("Meta send response did not include a WhatsApp message ID", response.status, body);
+    }
+
+    const firstContact = Array.isArray(body.contacts) && isRecord(body.contacts[0]) ? body.contacts[0] : undefined;
+    return {
+      messageId: body.messages[0].id,
+      ...(firstContact && typeof firstContact.wa_id === "string" ? { waId: firstContact.wa_id } : {}),
+    };
   }
 }
 
