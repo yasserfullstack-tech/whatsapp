@@ -7,7 +7,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:verify": "bun src/verify-migrations.ts",
+    "db:push:dev": "drizzle-kit push"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
