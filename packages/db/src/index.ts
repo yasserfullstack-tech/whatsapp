@@ -3,11 +3,14 @@ import postgres from "postgres";
 import * as coreSchema from "./schema";
 import * as contactImportSchema from "./contact-import-schema";
 import * as suppressionSchema from "./suppression-schema";
+import * as audienceSchema from "./audience-schema";
 
-export const schema = { ...coreSchema, ...contactImportSchema, ...suppressionSchema };
+export const schema = { ...coreSchema, ...contactImportSchema, ...suppressionSchema, ...audienceSchema };
 export * from "./schema";
 export * from "./contact-import-schema";
 export * from "./suppression-schema";
+export * from "./audience-schema";
+export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {
   const client = postgres(databaseUrl, {
