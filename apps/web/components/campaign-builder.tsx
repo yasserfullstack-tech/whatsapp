@@ -19,6 +19,14 @@ type TemplateOption = {
   variableIndexes: number[];
 };
 
+type AudienceOption = {
+  key: string;
+  type: "all" | "list" | "segment";
+  id?: string;
+  name: string;
+  count: number;
+};
+
 type VariableBinding = {
   index: number;
   source: "display_name" | "phone_e164" | "literal";
@@ -39,14 +47,16 @@ type Progress = {
 export function CampaignBuilder({
   phones,
   templates,
-  eligibleContacts,
+  audiences,
 }: {
   phones: PhoneOption[];
   templates: TemplateOption[];
-  eligibleContacts: number;
+  audiences: AudienceOption[];
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [audienceKey, setAudienceKey] = useState(audiences[0]?.key ?? "all");
+  const selectedAudience = audiences.find((audience) => audience.key === audienceKey) ?? audiences[0];
   const [phoneId, setPhoneId] = useState(phones[0]?.id ?? "");
   const selectedPhone = phones.find((phone) => phone.id === phoneId);
   const availableTemplates = useMemo(
@@ -106,11 +116,14 @@ export function CampaignBuilder({
   };
 
   const launch = async () => {
-    if (!name.trim() || !phoneId || !selectedTemplate) return;
+    if (!name.trim() || !phoneId || !selectedTemplate || !selectedAudience) return;
     setBusy(true);
     setMessage(null);
     try {
       const payloadBindings = selectedTemplate.variableIndexes.map((index) => bindings[index]).filter(Boolean);
+      const audience = selectedAudience.type === "all"
+        ? { type: "all" as const }
+        : { type: selectedAudience.type, id: selectedAudience.id as string };
       const response = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -118,13 +131,14 @@ export function CampaignBuilder({
           name,
           whatsappPhoneNumberId: phoneId,
           templateId: selectedTemplate.id,
+          audience,
           bindings: payloadBindings,
         }),
       });
-      const result = (await response.json()) as { campaignId?: string; estimatedSeconds?: number; error?: string };
+      const result = (await response.json()) as { campaignId?: string; estimatedSeconds?: number; audienceName?: string; error?: string };
       if (!response.ok || !result.campaignId) throw new Error(result.error ?? "Could not launch campaign");
       setActiveCampaignId(result.campaignId);
-      setMessage(`Campaign accepted. Estimated minimum send time is about ${Math.max(1, Math.ceil((result.estimatedSeconds ?? 0) / 60))} minute(s) at this number's current throughput.`);
+      setMessage(`${result.audienceName ?? selectedAudience.name} accepted. Estimated minimum send time is about ${Math.max(1, Math.ceil((result.estimatedSeconds ?? 0) / 60))} minute(s) at this number's current throughput.`);
       setName("");
       router.refresh();
     } catch (error) {
@@ -135,6 +149,7 @@ export function CampaignBuilder({
   };
 
   const throughput = selectedPhone?.throughputMps ?? 0;
+  const eligibleContacts = selectedAudience?.count ?? 0;
   const estimatedSeconds = throughput > 0 ? Math.ceil(eligibleContacts / Math.max(1, Math.floor(throughput * 0.95))) : 0;
 
   if (!phones.length || !templates.length) {
@@ -143,10 +158,16 @@ export function CampaignBuilder({
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(240px, 1fr) minmax(240px, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(190px, 1fr))", gap: 12 }}>
         <label style={{ display: "grid", gap: 7, fontSize: 13, fontWeight: 700 }}>
           Campaign name
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="September offer" maxLength={120} />
+        </label>
+        <label style={{ display: "grid", gap: 7, fontSize: 13, fontWeight: 700 }}>
+          Audience
+          <select value={selectedAudience?.key ?? ""} onChange={(event) => setAudienceKey(event.target.value)}>
+            {audiences.map((audience) => <option key={audience.key} value={audience.key}>{audience.name} · {audience.count.toLocaleString()}</option>)}
+          </select>
         </label>
         <label style={{ display: "grid", gap: 7, fontSize: 13, fontWeight: 700 }}>
           Send from
@@ -196,7 +217,7 @@ export function CampaignBuilder({
       ) : null}
 
       <div className="statsGrid" style={{ marginTop: 0 }}>
-        <article className="statCard"><span>Eligible audience</span><strong>{eligibleContacts.toLocaleString()}</strong><p>Opted in and not unsubscribed</p></article>
+        <article className="statCard"><span>Eligible audience</span><strong>{eligibleContacts.toLocaleString()}</strong><p>{selectedAudience?.name ?? "Selected audience"}</p></article>
         <article className="statCard"><span>Throughput</span><strong>{throughput ? `${throughput} msg/s` : "—"}</strong><p>Current phone-number setting</p></article>
         <article className="statCard"><span>Estimated send</span><strong>{estimatedSeconds ? `${Math.max(1, Math.ceil(estimatedSeconds / 60))} min` : "—"}</strong><p>Uses a 95% safety target</p></article>
         <article className="statCard"><span>Queue runway</span><strong>{throughput ? `${Math.min(20_000, Math.max(1_000, throughput * 15)).toLocaleString()}` : "—"}</strong><p>Jobs buffered, not entire audience</p></article>
