@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync, inflateSync } from "node:zlib";
 
 const metaDir = fileURLToPath(new URL("../drizzle/meta/", import.meta.url));
+const archiveDir = fileURLToPath(new URL("../drizzle/snapshot-artifacts/", import.meta.url));
 const compressedSuffix = "_snapshot.json.zlib.b64";
 const snapshotSuffix = "_snapshot.json";
 
@@ -11,9 +12,9 @@ function minifySnapshot(value: string): string {
 }
 
 export async function materializeSnapshots(): Promise<void> {
-  const files = await readdir(metaDir);
+  const files = await readdir(archiveDir);
   for (const file of files.filter((name) => name.endsWith(compressedSuffix))) {
-    const compressed = (await readFile(`${metaDir}/${file}`, "utf8")).trim();
+    const compressed = (await readFile(`${archiveDir}/${file}`, "utf8")).trim();
     const snapshot = inflateSync(Buffer.from(compressed, "base64")).toString("utf8");
     const output = `${metaDir}/${file.replace(/\.zlib\.b64$/, "")}`;
     await writeFile(output, snapshot.endsWith("\n") ? snapshot : `${snapshot}\n`, "utf8");
@@ -24,7 +25,7 @@ export async function packSnapshots(): Promise<void> {
   const files = await readdir(metaDir);
   for (const file of files.filter((name) => name.endsWith(snapshotSuffix) && name !== "0000_snapshot.json")) {
     const source = minifySnapshot(await readFile(`${metaDir}/${file}`, "utf8"));
-    const compressedPath = `${metaDir}/${file}.zlib.b64`;
+    const compressedPath = `${archiveDir}/${file}.zlib.b64`;
     let unchanged = false;
     try {
       const existing = (await readFile(compressedPath, "utf8")).trim();
