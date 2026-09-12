@@ -21,6 +21,69 @@ export const templateStatus = pgEnum("template_status", ["draft", "pending", "ap
 export const campaignStatus = pgEnum("campaign_status", ["draft", "scheduled", "dispatching", "sending", "paused", "completed", "cancelled", "failed"]);
 export const recipientStatus = pgEnum("recipient_status", ["pending", "queued", "sent", "delivered", "read", "failed", "skipped"]);
 
+// Better Auth core tables. They intentionally use an auth_ prefix so application users
+// can keep a stable internal UUID independent of the authentication provider/runtime.
+export const authUser = pgTable("auth_user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  createdAt,
+  updatedAt,
+});
+
+export const authSession = pgTable(
+  "auth_session",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => authUser.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [index("auth_session_user_idx").on(table.userId)],
+);
+
+export const authAccount = pgTable(
+  "auth_account",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => authUser.id, { onDelete: "cascade" }),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    idToken: text("id_token"),
+    password: text("password"),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    index("auth_account_user_idx").on(table.userId),
+    uniqueIndex("auth_account_provider_account_uq").on(table.providerId, table.accountId),
+  ],
+);
+
+export const authVerification = pgTable(
+  "auth_verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [index("auth_verification_identifier_idx").on(table.identifier)],
+);
+
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -48,6 +111,21 @@ export const organizationMembers = pgTable(
     createdAt,
   },
   (table) => [uniqueIndex("organization_members_org_user_uq").on(table.organizationId, table.userId)],
+);
+
+export const credentialSecrets = pgTable(
+  "credential_secrets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    key: text("key").notNull().unique(),
+    ciphertext: text("ciphertext").notNull(),
+    iv: text("iv").notNull(),
+    authTag: text("auth_tag").notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [index("credential_secrets_org_idx").on(table.organizationId)],
 );
 
 export const whatsappPhoneNumbers = pgTable(
