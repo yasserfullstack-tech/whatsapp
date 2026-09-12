@@ -1,0 +1,16 @@
+{
+  "name": "@wa/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wa/config": "workspace:*",
+    "@wa/meta": "workspace:*",
+    "@wa/queue": "workspace:*",
+    "bullmq": "6.3.4"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "whatsapp-marketing-platform",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --parallel --filter @wa/web --filter @wa/api --filter @wa/worker dev",
+    "dev:web": "bun run --filter @wa/web dev",
+    "dev:api": "bun run --filter @wa/api dev",
+    "dev:worker": "bun run --filter @wa/worker dev",
+    "build": "bun run --filter @wa/web build",
+    "typecheck": "bun run --filter '@wa/*' typecheck",
+    "db:generate": "bun run --filter @wa/db db:generate",
+    "db:migrate": "bun run --filter @wa/db db:migrate",
+    "infra:up": "docker compose up -d postgres valkey",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "typescript": "7.0.2"
+  }
+}

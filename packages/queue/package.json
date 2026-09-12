@@ -1,0 +1,14 @@
+{
+  "name": "@wa/queue",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wa/meta": "workspace:*",
+    "bullmq": "6.3.4",
+    "ioredis": "6.0.0"
+  }
+}
