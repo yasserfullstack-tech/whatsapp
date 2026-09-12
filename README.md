@@ -18,7 +18,7 @@ Multi-tenant SaaS for businesses to connect their own WhatsApp Business account,
 
 ```text
 apps/
-  web/       Next.js dashboard, auth, audiences, campaigns, Meta Embedded Signup BFF routes
+  web/       Next.js dashboard, auth, contacts/consent, audiences, campaigns, Meta Embedded Signup BFF routes
   api/       Hono API + signed Meta webhook ingress
   worker/    contact import, campaign dispatch, send, and webhook workers
 packages/
@@ -34,6 +34,7 @@ docs/
   audiences.md
   database-migrations.md
   load-testing.md
+  opt-outs.md
   r2.md
   webhooks.md
 ```
@@ -53,7 +54,7 @@ bun run dev
 
 The web app runs on `http://localhost:3000` and the API defaults to `http://localhost:4000`.
 
-Committed Drizzle migrations are now the default schema workflow. Use `bun run db:generate -- --name=<change>` when changing schema and commit the generated SQL/journal/snapshot together. `bun run db:push:dev` exists only for disposable local experiments and must not be used for staging or production. See `docs/database-migrations.md` for deployment, adoption, and rollback guidance.
+Committed Drizzle migrations are now the default schema workflow. Use `bun run db:generate -- --name=<change>` when changing schema and commit the generated SQL/journal/snapshot artifacts together. `bun run db:push:dev` exists only for disposable local experiments and must not be used for staging or production. See `docs/database-migrations.md` for deployment, adoption, and rollback guidance.
 
 ## Required local secrets
 
@@ -75,13 +76,16 @@ Never commit real Meta tokens or production secrets.
 3. The server exchanges the signup code, verifies the phone, subscribes the app, encrypts the tenant access token, and stores the connection.
 4. CSV files upload directly from the browser to R2 and stream through background contact-import workers.
 5. Imports normalize E.164 phone numbers, preserve consent metadata, deduplicate contacts, and can add valid contacts to reusable lists.
-6. Users sync/create approved Meta templates.
-7. Users can target all eligible contacts, static lists, or saved dynamic AND/OR segments.
-8. Campaign launch creates an immutable PostgreSQL recipient snapshot, then feeds a bounded BullMQ runway sized to phone throughput.
-9. Send workers decrypt the correct tenant credential, enforce per-phone rate limits, and persist Meta `wamid` values.
-10. Signed Meta webhooks update sent/delivered/read/failed states, process inbound STOP opt-outs, and power live campaign analytics.
-11. Campaigns can be paused, resumed, or cancelled; suppression remains authoritative for future sends.
-12. Database schema changes ship as committed Drizzle migrations and CI proves a clean PostgreSQL database can apply them before tests/build run.
+6. Users can review contact eligibility and active suppressions; manual suppressions immediately block future marketing sends.
+7. Inbound WhatsApp opt-outs and dashboard suppression actions append immutable consent-history events.
+8. Only owners/admins can restore marketing eligibility, and only after recording explicit new-consent source, time, evidence, and confirmation. Older skipped campaign recipients remain skipped.
+9. Users sync/create approved Meta templates.
+10. Users can target all eligible contacts, static lists, or saved dynamic AND/OR segments.
+11. Campaign launch creates an immutable PostgreSQL recipient snapshot, then feeds a bounded BullMQ runway sized to phone throughput.
+12. Send workers decrypt the correct tenant credential, enforce per-phone rate limits, and persist Meta `wamid` values.
+13. Signed Meta webhooks update sent/delivered/read/failed states, process inbound STOP opt-outs, and power live campaign analytics.
+14. Campaigns can be paused, resumed, or cancelled; suppression remains authoritative for future sends.
+15. Database schema changes ship as committed Drizzle migrations and CI proves a clean PostgreSQL database can apply them before tests/build run.
 
 ## Security and delivery baseline
 
@@ -91,13 +95,13 @@ Never commit real Meta tokens or production secrets.
 - A WhatsApp phone number cannot be attached to two workspaces.
 - PostgreSQL remains the source of truth; Redis/BullMQ is an execution layer.
 - Audience filters can only narrow opted-in, non-unsubscribed, non-suppressed contacts.
+- Active suppression state is separate from append-only consent history, so restoring valid consent never erases an earlier opt-out.
 - Campaign audience definitions are stored before dispatch so later segment edits cannot mutate an in-flight snapshot.
 - Queue jobs contain credential references, not plaintext Meta tokens.
 - Shared/staging/production databases are changed only by committed migrations, never `db:push`.
 
 ## Next production milestones
 
-- suppression-management UI and an explicit resubscribe policy;
 - end-to-end tests with a real Meta test/business number;
 - controlled 1k / 10k / 50k / large-volume load tests with PostgreSQL, Redis, worker, and Meta latency metrics;
 - deployment hardening, monitoring, backups, and billing.
