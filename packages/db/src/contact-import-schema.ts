@@ -1,5 +1,6 @@
 import { index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { organizations } from "./schema";
+import { contactLists } from "./audience-schema";
 
 const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -19,6 +20,7 @@ export const contactImports = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    listId: uuid("list_id").references(() => contactLists.id, { onDelete: "set null" }),
     originalFileName: text("original_file_name").notNull(),
     objectKey: text("object_key").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
@@ -41,5 +43,6 @@ export const contactImports = pgTable(
     uniqueIndex("contact_imports_object_key_uq").on(table.objectKey),
     index("contact_imports_org_created_idx").on(table.organizationId, table.createdAt),
     index("contact_imports_status_idx").on(table.status),
+    index("contact_imports_list_idx").on(table.listId),
   ],
 );
