@@ -1,5 +1,5 @@
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { contacts, organizations } from "./schema";
+import { campaigns, contacts, organizations } from "./schema";
 
 const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -66,5 +66,23 @@ export const audienceSegments = pgTable(
   (table) => [
     uniqueIndex("audience_segments_org_name_uq").on(table.organizationId, table.name),
     index("audience_segments_org_created_idx").on(table.organizationId, table.createdAt),
+  ],
+);
+
+export const campaignAudiences = pgTable(
+  "campaign_audiences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+    type: text("type").$type<"all" | "list" | "segment">().notNull(),
+    sourceId: uuid("source_id"),
+    sourceName: text("source_name").notNull(),
+    definition: jsonb("definition").$type<CampaignAudienceDefinition>().notNull(),
+    createdAt,
+  },
+  (table) => [
+    uniqueIndex("campaign_audiences_campaign_uq").on(table.campaignId),
+    index("campaign_audiences_org_idx").on(table.organizationId),
   ],
 );
