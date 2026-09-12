@@ -16,4 +16,27 @@ ALTER TABLE "contact_consent_events" ADD CONSTRAINT "contact_consent_events_orga
 ALTER TABLE "contact_consent_events" ADD CONSTRAINT "contact_consent_events_contact_id_contacts_id_fk" FOREIGN KEY ("contact_id") REFERENCES "public"."contacts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "contact_consent_events" ADD CONSTRAINT "contact_consent_events_actor_user_id_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "contact_consent_events_org_phone_time_idx" ON "contact_consent_events" USING btree ("organization_id","phone_e164","occurred_at");--> statement-breakpoint
-CREATE INDEX "contact_consent_events_org_type_time_idx" ON "contact_consent_events" USING btree ("organization_id","event_type","occurred_at");
+CREATE INDEX "contact_consent_events_org_type_time_idx" ON "contact_consent_events" USING btree ("organization_id","event_type","occurred_at");--> statement-breakpoint
+INSERT INTO "contact_consent_events" (
+	"organization_id",
+	"contact_id",
+	"phone_e164",
+	"event_type",
+	"source",
+	"source_message_id",
+	"note",
+	"occurred_at"
+)
+SELECT
+	s."organization_id",
+	c."id",
+	s."phone_e164",
+	'suppression_backfill',
+	s."source",
+	s."source_message_id",
+	s."reason",
+	s."suppressed_at"
+FROM "suppression_list" s
+LEFT JOIN "contacts" c
+	ON c."organization_id" = s."organization_id"
+	AND c."phone_e164" = s."phone_e164";
