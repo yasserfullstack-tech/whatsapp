@@ -77,6 +77,10 @@ redis.call('PEXPIRE', key, math.ceil((capacity / rate) * 2))
 return {allowed, wait_ms}
 `;
 
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export class PerNumberRateLimiter {
   constructor(private readonly redis: Redis) {}
 
@@ -99,7 +103,7 @@ export class PerNumberRateLimiter {
 
       if (Number(result[0]) === 1) return;
       const waitMs = Math.max(1, Number(result[1]) || 1);
-      await Bun.sleep(waitMs);
+      await sleep(waitMs);
     }
   }
 }

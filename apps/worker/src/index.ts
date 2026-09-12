@@ -36,7 +36,7 @@ const sendWorker = new Worker<SendMessageJob>(
       to: job.data.to,
       templateName: job.data.templateName,
       languageCode: job.data.languageCode,
-      components: job.data.components,
+      ...(job.data.components ? { components: job.data.components } : {}),
     });
   },
   {
