@@ -13,6 +13,7 @@
     "dev:worker": "bun run --filter @wa/worker dev",
     "build": "bun run --filter @wa/web build",
     "test": "bun test",
+    "test:e2e": "playwright test",
     "typecheck": "bun run --filter '@wa/*' typecheck",
     "db:generate": "bun run --filter @wa/db db:generate",
     "db:migrate": "bun run --filter @wa/db db:migrate",
@@ -22,6 +23,7 @@
     "infra:down": "docker compose down"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/bun": "1.4.2",
     "@types/node": "22.20.2",
     "typescript": "7.0.2"
