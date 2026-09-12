@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { parse } from "csv-parse";
 import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js/max";
 import { loadWorkerEnv } from "@wa/config";
@@ -135,6 +135,28 @@ async function processContactImport(job: ContactImportJob) {
             .onConflictDoNothing()
             .returning({ id: schema.contacts.id });
           insertedCount = inserted.length;
+
+          if (contactImport.listId) {
+            const phoneNumbers = [...new Set(batch.map((row) => row.phoneE164))];
+            const contacts = await tx
+              .select({ id: schema.contacts.id })
+              .from(schema.contacts)
+              .where(and(
+                eq(schema.contacts.organizationId, contactImport.organizationId),
+                inArray(schema.contacts.phoneE164, phoneNumbers),
+              ));
+
+            if (contacts.length) {
+              await tx
+                .insert(schema.contactListMembers)
+                .values(contacts.map((contact) => ({
+                  organizationId: contactImport.organizationId,
+                  listId: contactImport.listId as string,
+                  contactId: contact.id,
+                })))
+                .onConflictDoNothing();
+            }
+          }
         }
 
         importedRows += insertedCount;
