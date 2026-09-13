@@ -7,6 +7,7 @@ import { ContactImporter } from "@/components/contact-importer";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
 import { db, getMetaServerConfig } from "@/lib/server";
+import { can } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function DashboardPage() {
   } : null;
   const initials = workspace.organizationName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const readyToCampaign = Boolean(connected && contacts > 0 && approvedTemplates > 0);
+  const canManageWhatsApp = can(workspace.role, "whatsapp.manage");
   const stats = [
     { label: messages.nav.contacts, value: number.format(contacts), detail: contacts ? messages.ui.contactsInWorkspace : messages.ui.importFirstAudience },
     { label: messages.nav.campaigns, value: number.format(campaigns), detail: campaigns ? messages.ui.campaignsCreated : messages.ui.noCampaignsSent },
@@ -59,7 +61,7 @@ export default async function DashboardPage() {
             <div className="rowTitle"><h2>{connected ? messages.ui.whatsappConnected : messages.ui.connectWhatsappBusiness}</h2><span className={connected ? "status connected" : "status"}>{connected ? messages.common.connected : messages.common.notConnected}</span></div>
             {connected ? <p>{connected.verifiedName ?? messages.common.whatsappBusiness} · {connected.displayPhoneNumber ?? connected.phoneNumberId}{connected.qualityRating ? ` · ${messages.ui.quality} ${connected.qualityRating}` : ""}</p> : <p>{messages.ui.connectDescription}</p>}
           </div>
-          <ConnectWhatsApp appId={meta.appId} configId={meta.configId} graphApiVersion={meta.graphApiVersion} />
+          {canManageWhatsApp ? <ConnectWhatsApp appId={meta.appId} configId={meta.configId} graphApiVersion={meta.graphApiVersion} /> : null}
         </section>
 
         <section className="statsGrid" aria-label={messages.ui.workspaceStatistics}>{stats.map((stat) => <article className="statCard" key={stat.label}><span>{stat.label}</span><strong>{stat.value}</strong><p>{stat.detail}</p></article>)}</section>
