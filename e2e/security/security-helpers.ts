@@ -26,13 +26,27 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${randomUUID().slice(0, 8)}`;
 }
 
+function cookieHeaderFrom(response: Awaited<ReturnType<APIRequestContext["post"]>>): string {
+  const cookies = response
+    .headersArray()
+    .filter(({ name }) => name.toLowerCase() === "set-cookie")
+    .map(({ value }) => value.split(";", 1)[0])
+    .filter((value): value is string => Boolean(value));
+
+  const header = cookies.join("; ");
+  if (!header.includes("better-auth.session_token=")) {
+    throw new Error("Better Auth sign-in did not return a session cookie");
+  }
+  return header;
+}
+
 export async function createSecurityTenant(label: string): Promise<SecurityTenant> {
   const suffix = uniqueSuffix();
   const email = `security-${label}-${suffix}@example.test`;
   const password = `Security-${randomUUID()}-A1!`;
-  const api = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
+  const authApi = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
 
-  const signUp = await api.post("/api/auth/sign-up/email", {
+  const signUp = await authApi.post("/api/auth/sign-up/email", {
     data: {
       name: `Security ${label}`,
       email,
@@ -51,18 +65,29 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
   if (!authUser) throw new Error(`Could not find Better Auth user for ${email}`);
 
   // Email verification is production-required. For this tenant-isolation fixture,
-  // verify the generated test account directly in the database, then establish a
-  // real Better Auth session through the normal sign-in endpoint.
+  // verify only the generated test account directly in the database, then establish
+  // a real Better Auth session through the normal sign-in endpoint.
   await database.client`
     UPDATE auth_user
     SET email_verified = true, updated_at = now()
     WHERE id = ${authUser.id}
   `;
 
-  const signIn = await api.post("/api/auth/sign-in/email", {
+  const signIn = await authApi.post("/api/auth/sign-in/email", {
     data: { email, password },
   });
   expect(signIn.ok(), `sign-in failed: ${await signIn.text()}`).toBeTruthy();
+
+  // `next start` runs in production mode, so Better Auth correctly emits Secure
+  // cookies. CI serves the local test app over HTTP; explicitly forwarding the
+  // exact Set-Cookie values keeps production cookie policy unchanged while still
+  // exercising Better Auth's real session validation on every protected request.
+  const cookie = cookieHeaderFrom(signIn);
+  const api = await request.newContext({
+    baseURL: "http://127.0.0.1:3000",
+    extraHTTPHeaders: { cookie },
+  });
+  await authApi.dispose();
 
   // Any authenticated workspace route forces creation of the application user,
   // organization, and owner membership through ensureWorkspace().
