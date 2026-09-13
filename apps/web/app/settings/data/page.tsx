@@ -22,7 +22,7 @@ export default async function DataSettingsPage() {
           <h1>Data</h1>
           <p className="subtitle">Workspace data inventory and export boundary.</p>
         </div>
-        <button className="primary" disabled title="Export job is the next implementation slice" type="button">Export workspace data</button>
+        {canExport ? <a className="primary" href="/api/settings/data/export" download>Export workspace data</a> : null}
       </header>
       <SettingsNav active="/settings/data" />
       <section className="statsGrid settingsStats" aria-label="Workspace data inventory">
@@ -33,7 +33,9 @@ export default async function DataSettingsPage() {
       <section className="panel settingsPanel">
         <div className="settingsCallout">
           <strong>{canExport ? "Your role is allowed to export workspace data" : "Read-only data access"}</strong>
-          <p>The route is ready for an asynchronous export job and signed-download workflow without exposing another tenant's objects.</p>
+          <p>{canExport
+            ? "The JSON export is generated only from this workspace and excludes credential secrets, encryption material, raw webhook payloads, presigned credentials, and high-volume delivery telemetry."
+            : "Your role can inspect this inventory but cannot download workspace data."}</p>
         </div>
       </section>
     </>
