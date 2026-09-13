@@ -5,13 +5,22 @@ import * as contactImportSchema from "./contact-import-schema";
 import * as suppressionSchema from "./suppression-schema";
 import * as audienceSchema from "./audience-schema";
 import * as adminSchema from "./admin-schema";
+import * as workspaceSettingsSchema from "./workspace-settings-schema";
 
-export const schema = { ...coreSchema, ...contactImportSchema, ...suppressionSchema, ...audienceSchema, ...adminSchema };
+export const schema = {
+  ...coreSchema,
+  ...contactImportSchema,
+  ...suppressionSchema,
+  ...audienceSchema,
+  ...adminSchema,
+  ...workspaceSettingsSchema,
+};
 export * from "./schema";
 export * from "./contact-import-schema";
 export * from "./suppression-schema";
 export * from "./audience-schema";
 export * from "./admin-schema";
+export * from "./workspace-settings-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {

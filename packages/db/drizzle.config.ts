@@ -12,6 +12,7 @@ export default defineConfig({
     "./src/suppression-schema.ts",
     "./src/audience-schema.ts",
     "./src/admin-schema.ts",
+    "./src/workspace-settings-schema.ts",
   ],
   out: "./drizzle",
   dbCredentials: {
