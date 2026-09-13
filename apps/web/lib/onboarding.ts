@@ -7,8 +7,12 @@ export async function getOnboardingProgress(
   organizationId: string,
   externalAuthId: string,
 ): Promise<OnboardingProgress> {
+  const onboarding = await db.select().from(schema.organizationOnboarding)
+    .where(eq(schema.organizationOnboarding.organizationId, organizationId))
+    .limit(1)
+    .then((rows) => rows[0]);
+
   const [
-    onboarding,
     authRows,
     preferenceRows,
     phoneRows,
@@ -18,10 +22,6 @@ export async function getOnboardingProgress(
     segmentRows,
     campaignRows,
   ] = await Promise.all([
-    db.select().from(schema.organizationOnboarding)
-      .where(eq(schema.organizationOnboarding.organizationId, organizationId))
-      .limit(1)
-      .then((rows) => rows[0]),
     db.select({ emailVerified: schema.authUser.emailVerified }).from(schema.authUser)
       .where(eq(schema.authUser.id, externalAuthId)).limit(1),
     db.select({ total: count() }).from(schema.workspacePreferences)
