@@ -28,7 +28,10 @@ export default async function TeamSettingsPage() {
       .orderBy(asc(schema.organizationInvitations.createdAt)),
   ]);
   const canInvite = can(workspace.role, "team.invite");
-  const pendingInvitations = invitations.filter((invitation) => invitation.acceptedAt === null);
+  const now = new Date();
+  const pendingInvitations = invitations.filter(
+    (invitation) => invitation.acceptedAt === null && invitation.expiresAt > now,
+  );
 
   return (
     <>
