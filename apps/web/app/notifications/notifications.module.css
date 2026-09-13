@@ -1,0 +1,121 @@
+.list {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.card {
+  display: flex;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  border-radius: 14px;
+  background: var(--card, #fff);
+}
+
+.unread {
+  border-inline-start: 4px solid #16a34a;
+}
+
+.body {
+  min-width: 0;
+  flex: 1;
+}
+
+.body h2 {
+  margin: 7px 0 5px;
+  font-size: 17px;
+}
+
+.body p {
+  margin: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.type {
+  text-transform: capitalize;
+}
+
+.unreadState,
+.readState {
+  margin-inline-start: auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.unreadState {
+  color: #067647;
+  background: #ecfdf3;
+}
+
+.readState {
+  color: #475467;
+  background: #f2f4f7;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 13px;
+}
+
+.actions a,
+.textButton {
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.textButton {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.empty {
+  padding: 52px 20px;
+  text-align: center;
+  border: 1px dashed rgba(127, 127, 127, 0.35);
+  border-radius: 14px;
+  color: #667085;
+}
+
+.pagination {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 32px;
+}
+
+.pagination a:last-child {
+  justify-self: end;
+}
+
+.pagination a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .card { padding: 15px; }
+  .meta { align-items: flex-start; }
+  .unreadState, .readState { margin-inline-start: 0; }
+}
