@@ -206,7 +206,7 @@ async function main() {
 
   await waitForHttp(`${FAKE_META_URL}/health`);
 
-  const worker = Bun.spawn(["bun", "--preload", "apps/load-test/src/fetch-redirect.ts", "apps/worker/src/index.ts"], {
+  const worker = Bun.spawn(["bun", "--preload", "./apps/load-test/src/fetch-redirect.ts", "apps/worker/src/index.ts"], {
     env: {
       ...process.env,
       NODE_ENV: "test",
