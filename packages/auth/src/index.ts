@@ -18,7 +18,7 @@ type CreateAppAuthInput = {
   trustedOrigins?: string[];
   secureCookies?: boolean;
   secondaryStorage?: SecondaryStorage;
-  signUpRateLimitMax?: number;
+  signUpRateLimitMax?: number | undefined;
   sendEmail: (message: AuthEmailMessage) => Promise<void>;
 };
 
