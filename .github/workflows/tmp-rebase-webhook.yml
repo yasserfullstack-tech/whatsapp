@@ -1,0 +1,37 @@
+name: Rebase webhook reliability
+
+on:
+  push:
+    branches: [feat/webhook-reliability]
+
+permissions:
+  contents: write
+
+jobs:
+  rebase:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:5432/whatsapp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/webhook-reliability
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Merge current main and regenerate migration
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main
+          git merge -X theirs origin/main --no-edit
+          rm -f packages/db/drizzle/0005_webhook-reliability.sql
+          git checkout origin/main -- packages/db/drizzle/meta/_journal.json packages/db/drizzle/snapshot-artifacts
+          bun install
+          bun run db:generate -- --name=webhook-reliability
+          git add -A
+          git commit -m "chore: rebase webhook reliability as migration 0006"
+          git push origin HEAD:feat/webhook-reliability
