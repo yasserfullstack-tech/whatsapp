@@ -4,6 +4,7 @@
     "jsx": "preserve",
     "plugins": [{ "name": "next" }],
     "incremental": true,
+    "types": ["node", "bun"],
     "paths": {
       "@/*": ["./*"]
     }

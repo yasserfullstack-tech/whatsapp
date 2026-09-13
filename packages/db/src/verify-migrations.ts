@@ -6,6 +6,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const expectedPublicTables = [
   "auth_account",
   "auth_session",
+  "auth_two_factor",
   "auth_user",
   "auth_verification",
   "audience_segments",
@@ -19,6 +20,7 @@ const expectedPublicTables = [
   "contacts",
   "credential_secrets",
   "organization_admin_settings",
+  "organization_invitations",
   "organization_members",
   "organizations",
   "platform_admin_grants",
@@ -29,6 +31,8 @@ const expectedPublicTables = [
   "users",
   "webhook_events",
   "whatsapp_phone_numbers",
+  "workspace_audit_logs",
+  "workspace_preferences",
 ] as const;
 
 const sql = postgres(databaseUrl, { max: 1, idle_timeout: 5, connect_timeout: 10 });
@@ -56,8 +60,8 @@ try {
   const migrationRows = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations
   `;
-  if ((migrationRows[0]?.count ?? 0) < 3) {
-    throw new Error("Expected all committed migrations in drizzle.__drizzle_migrations");
+  if ((migrationRows[0]?.count ?? 0) < 5) {
+    throw new Error("Expected all five committed migrations in drizzle.__drizzle_migrations");
   }
 
   console.log("Migration smoke check passed", {

@@ -1,0 +1,32 @@
+.settingsContent { display: grid; align-content: start; }
+.settingsHeader { margin-bottom: 18px; }
+.settingsNav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
+.settingsNavItem { padding: 9px 12px; border-radius: 9px; color: var(--muted); font-size: 13px; font-weight: 750; text-decoration: none; }
+.settingsNavItem:hover, .settingsNavItem.active { background: var(--accent-soft); color: var(--accent-dark); }
+.settingsPanel { margin-top: 18px; }
+.settingsPanel:first-of-type { margin-top: 0; }
+.settingsFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.settingsFields label { display: grid; gap: 7px; }
+.settingsFields label > span { font-size: 13px; font-weight: 750; }
+.settingsFields input, .settingsFields select { width: 100%; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); }
+.settingsFields input:disabled, .settingsFields select:disabled { background: var(--surface-2); color: var(--muted); opacity: 1; }
+.settingsHint { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.settingsList { display: grid; gap: 10px; margin-top: 18px; }
+.settingsListRow { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 16px; border: 1px solid var(--line); border-radius: 13px; background: #fbfcfc; }
+.settingsListRow p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.settingsListRow time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.roleBadge { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 999px; background: var(--surface-2); color: var(--accent-dark); font-size: 11px; font-weight: 850; text-transform: capitalize; }
+.settingsPhoneRow { align-items: center; }
+.settingsMetrics { display: flex; gap: 22px; flex-wrap: wrap; }
+.settingsMetrics span { display: grid; gap: 3px; min-width: 86px; }
+.settingsMetrics small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.settingsMetrics strong { font-size: 12px; text-transform: capitalize; }
+.settingsCallout { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+.settingsCallout p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.settingsStats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 0; }
+
+@media (max-width: 760px) {
+  .settingsFields, .settingsStats { grid-template-columns: 1fr; }
+  .settingsListRow, .settingsPhoneRow { align-items: flex-start; flex-direction: column; }
+  .settingsMetrics { width: 100%; justify-content: space-between; }
+}
