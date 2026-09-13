@@ -2,7 +2,8 @@ name: Load Smoke
 
 on:
   push:
-    branches: [test/load-testing]
+    branches: [main, test/load-testing]
+  workflow_dispatch:
 
 jobs:
   smoke:
