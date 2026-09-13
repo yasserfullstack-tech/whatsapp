@@ -1,17 +1,23 @@
-import Link from "next/link";
+"use client";
 
-const settingsLinks = [
-  ["General", "/settings/general"],
-  ["Team", "/settings/team"],
-  ["WhatsApp", "/settings/whatsapp"],
-  ["Security", "/settings/security"],
-  ["Billing", "/settings/billing"],
-  ["Data", "/settings/data"],
-] as const;
+import Link from "next/link";
+import { useI18n } from "@/components/i18n-provider";
+import { settingsNavMessages } from "@/lib/i18n/settings";
 
 export function SettingsNav({ active }: { active: string }) {
+  const { locale } = useI18n();
+  const messages = settingsNavMessages[locale];
+  const settingsLinks = [
+    [messages.general, "/settings/general"],
+    [messages.team, "/settings/team"],
+    [messages.whatsapp, "/settings/whatsapp"],
+    [messages.security, "/settings/security"],
+    [messages.billing, "/settings/billing"],
+    [messages.data, "/settings/data"],
+  ] as const;
+
   return (
-    <nav aria-label="Workspace settings" className="settingsNav">
+    <nav aria-label={messages.aria} className="settingsNav">
       {settingsLinks.map(([label, href]) => (
         <Link className={active === href ? "settingsNavItem active" : "settingsNavItem"} href={href} key={href}>
           {label}
