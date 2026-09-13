@@ -6,9 +6,18 @@ import { getI18n } from "@/lib/i18n/server";
 import "./globals.css";
 import "./responsive.css";
 
+function metadataBase(): URL {
+  const value = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return new URL(value);
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const { messages } = await getI18n();
-  return { title: messages.meta.title, description: messages.meta.description };
+  return {
+    metadataBase: metadataBase(),
+    title: messages.meta.title,
+    description: messages.meta.description,
+  };
 }
 
 export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
