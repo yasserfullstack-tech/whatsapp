@@ -40,8 +40,15 @@ export async function putStoredObject(input: {
   key: string;
   body: PutObjectCommandInput["Body"];
   contentType: string;
+  contentLength?: number;
 }) {
-  return input.client.send(new PutObjectCommand({ Bucket: input.bucket, Key: input.key, Body: input.body, ContentType: input.contentType }));
+  return input.client.send(new PutObjectCommand({
+    Bucket: input.bucket,
+    Key: input.key,
+    Body: input.body,
+    ContentType: input.contentType,
+    ContentLength: input.contentLength,
+  }));
 }
 
 export async function deleteStoredObject(input: { client: S3Client; bucket: string; key: string }) {
@@ -52,12 +59,7 @@ export async function deleteStoredPrefix(input: { client: S3Client; bucket: stri
   let deleted = 0;
   let continuationToken: string | undefined;
   do {
-    const page = await input.client.send(new ListObjectsV2Command({
-      Bucket: input.bucket,
-      Prefix: input.prefix,
-      ContinuationToken: continuationToken,
-      MaxKeys: 500,
-    }));
+    const page = await input.client.send(new ListObjectsV2Command({ Bucket: input.bucket, Prefix: input.prefix, ContinuationToken: continuationToken, MaxKeys: 500 }));
     const keys = (page.Contents ?? []).flatMap((object) => object.Key ? [object.Key] : []);
     for (const key of keys) {
       await deleteStoredObject({ client: input.client, bucket: input.bucket, key });

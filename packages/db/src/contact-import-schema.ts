@@ -5,24 +5,17 @@ import { contactLists } from "./audience-schema";
 const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
-export const contactImportStatus = pgEnum("contact_import_status", [
-  "awaiting_upload",
-  "queued",
-  "processing",
-  "completed",
-  "failed",
-]);
+export const contactImportStatus = pgEnum("contact_import_status", ["awaiting_upload", "queued", "processing", "completed", "failed"]);
 
 export const contactImports = pgTable(
   "contact_imports",
   {
     id: uuid("id").primaryKey(),
-    organizationId: uuid("organization_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
     listId: uuid("list_id").references(() => contactLists.id, { onDelete: "set null" }),
     originalFileName: text("original_file_name").notNull(),
     objectKey: text("object_key").notNull(),
+    objectDeletedAt: timestamp("object_deleted_at", { withTimezone: true }),
     sizeBytes: integer("size_bytes").notNull(),
     defaultCountry: text("default_country").notNull(),
     optInSource: text("opt_in_source").notNull(),

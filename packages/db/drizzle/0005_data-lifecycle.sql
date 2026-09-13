@@ -4,6 +4,8 @@ CREATE TYPE "public"."data_export_status" AS ENUM('queued', 'processing', 'compl
 --> statement-breakpoint
 CREATE TYPE "public"."workspace_deletion_status" AS ENUM('cooling_off', 'disabled', 'purging', 'completed', 'cancelled', 'failed');
 --> statement-breakpoint
+ALTER TABLE "contact_imports" ADD COLUMN "object_deleted_at" timestamp with time zone;
+--> statement-breakpoint
 CREATE TABLE "data_export_jobs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "organization_id" uuid NOT NULL,
