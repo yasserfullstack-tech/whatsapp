@@ -37,7 +37,6 @@ jobs:
       BETTER_AUTH_URL: http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
       AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-auth-emails.jsonl
-      CREDENTIAL_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       META_GRAPH_API_VERSION: v26.0
       META_APP_ID: "123456789"
       META_APP_SECRET: ci-only-meta-secret
@@ -48,6 +47,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      - name: Create ephemeral encryption key
+        shell: bash
+        run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
       - run: bun install
       - name: Check migration drift
         run: |
