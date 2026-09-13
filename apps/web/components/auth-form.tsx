@@ -32,6 +32,15 @@ export function AuthForm({ mode }: AuthFormProps) {
         setError(result.error.message ?? messages.auth.authenticationFailed);
         return;
       }
+
+      const requiresSecondFactor = !isSignUp && Boolean(
+        (result.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect,
+      );
+      if (requiresSecondFactor) {
+        router.push("/two-factor");
+        return;
+      }
+
       router.push(isSignUp ? `/verify-email?email=${encodeURIComponent(email)}` : "/dashboard");
       router.refresh();
     } finally {
