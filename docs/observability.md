@@ -8,7 +8,7 @@ API (`API_PORT`, default `4000`):
 
 - `GET /health` — process liveness only.
 - `GET /ready` — verifies PostgreSQL and Redis are reachable.
-- `GET /metrics` — Prometheus exposition format.
+- `GET /metrics` — Prometheus exposition format, including aggregate PostgreSQL execution statistics when `pg_stat_statements` is available.
 
 Worker observability server (`WORKER_METRICS_PORT`, default `9464`):
 
@@ -29,6 +29,18 @@ bun run observability:up
 Prometheus is available on port `9090` and Grafana on port `3001`. The local default Grafana credentials are `admin` / `admin`; set `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD` in your local environment to override them.
 
 The Prometheus development config scrapes the host API on `4000` and worker on `9464`. Production deployments should use service discovery or private service DNS instead of `host.docker.internal`.
+
+## PostgreSQL query latency
+
+Database execution latency is derived from PostgreSQL `pg_stat_statements` rather than application SQL logging. This avoids copying SQL parameters or credentials into telemetry and gives cumulative execution time and call counters suitable for Prometheus rate calculations during load tests.
+
+The local PostgreSQL container preloads `pg_stat_statements` and creates the extension for new database volumes. If the database volume already existed before observability was added, enable the extension once:
+
+```bash
+docker compose exec postgres psql -U whatsapp -d whatsapp -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'
+```
+
+Production PostgreSQL must include `pg_stat_statements` in `shared_preload_libraries`, restart PostgreSQL, and run `CREATE EXTENSION pg_stat_statements` in the application database. If the extension is unavailable, `/metrics` still succeeds and exports `whatsapp_db_query_stats_available{database="primary"} 0`.
 
 ## Logging policy
 

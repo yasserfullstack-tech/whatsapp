@@ -16,6 +16,7 @@ const db = database.db;
 const webhookQueue = createWebhookQueue(env.REDIS_URL);
 const log = createLogger({ service: "api" });
 const metrics = new MetricsRegistry();
+let dbStatsWarningLogged = false;
 
 metrics.defineCounter("whatsapp_http_requests_total", "HTTP requests handled by the API", ["method", "route", "status"]);
 metrics.defineCounter("whatsapp_http_errors_total", "HTTP responses with status 4xx or 5xx", ["method", "route", "status"]);
@@ -23,6 +24,9 @@ metrics.defineHistogram("whatsapp_http_request_duration_seconds", "HTTP request 
 metrics.defineCounter("whatsapp_webhooks_received_total", "Meta webhook POST requests received");
 metrics.defineCounter("whatsapp_webhook_errors_total", "Meta webhook requests rejected or unavailable", ["reason"]);
 metrics.defineHistogram("whatsapp_readiness_check_duration_seconds", "Readiness dependency check latency in seconds", ["dependency"]);
+metrics.defineCounter("whatsapp_db_queries_total", "Database statements executed as reported by pg_stat_statements", ["database"]);
+metrics.defineCounter("whatsapp_db_query_exec_seconds_total", "Cumulative database statement execution time in seconds", ["database"]);
+metrics.defineGauge("whatsapp_db_query_stats_available", "Whether pg_stat_statements statistics are available", ["database"]);
 
 function metricRoute(path: string): string {
   return path
@@ -33,6 +37,30 @@ function metricRoute(path: string): string {
 function safeRequestId(value: string | undefined): string {
   if (value && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value)) return value;
   return randomUUID();
+}
+
+async function refreshDatabaseMetrics() {
+  try {
+    const [stats] = await database.client<[{ calls: number; total_seconds: number }]>`
+      SELECT
+        COALESCE(SUM(calls), 0)::double precision AS calls,
+        COALESCE(SUM(total_exec_time), 0)::double precision / 1000 AS total_seconds
+      FROM pg_stat_statements
+      WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+        AND query NOT ILIKE '%pg_stat_statements%'
+    `;
+
+    metrics.setCounter("whatsapp_db_queries_total", stats?.calls ?? 0, { database: "primary" });
+    metrics.setCounter("whatsapp_db_query_exec_seconds_total", stats?.total_seconds ?? 0, { database: "primary" });
+    metrics.setGauge("whatsapp_db_query_stats_available", 1, { database: "primary" });
+    dbStatsWarningLogged = false;
+  } catch (error) {
+    metrics.setGauge("whatsapp_db_query_stats_available", 0, { database: "primary" });
+    if (!dbStatsWarningLogged) {
+      log.warn("db_query_stats_unavailable", { error });
+      dbStatsWarningLogged = true;
+    }
+  }
 }
 
 app.use("*", async (c, next) => {
@@ -123,7 +151,8 @@ app.get("/ready", async (c) => {
   return body.ok ? c.json(body, 200) : c.json(body, 503);
 });
 
-app.get("/metrics", (c) => {
+app.get("/metrics", async (c) => {
+  await refreshDatabaseMetrics();
   c.header("content-type", metrics.contentType);
   return c.body(metrics.render());
 });

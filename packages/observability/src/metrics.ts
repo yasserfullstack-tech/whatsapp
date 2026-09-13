@@ -102,6 +102,13 @@ export class MetricsRegistry {
     definition.series.set(key, { labels: normalized, value: (current?.value ?? 0) + value });
   }
 
+  setCounter(name: string, value: number, labels: MetricLabels = {}) {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`Counter ${name} needs a non-negative finite value`);
+    const definition = this.get(name, "counter");
+    const normalized = normalizeLabels(definition.labelNames, labels);
+    definition.series.set(seriesKey(normalized), { labels: normalized, value });
+  }
+
   setGauge(name: string, value: number, labels: MetricLabels = {}) {
     if (!Number.isFinite(value)) throw new Error(`Gauge ${name} needs a finite value`);
     const definition = this.get(name, "gauge");

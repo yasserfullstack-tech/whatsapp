@@ -89,6 +89,36 @@
       "targets": [{ "expr": "sum by (status) (rate(whatsapp_http_errors_total[5m]))", "legendFormat": "HTTP {{status}}", "refId": "A" }],
       "title": "HTTP error rate",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 25 },
+      "id": 10,
+      "targets": [{ "expr": "rate(whatsapp_db_query_exec_seconds_total[5m]) / clamp_min(rate(whatsapp_db_queries_total[5m]), 0.001)", "legendFormat": "mean", "refId": "A" }],
+      "title": "DB mean query execution latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 25 },
+      "id": 11,
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(whatsapp_meta_request_duration_seconds_bucket[5m])))", "legendFormat": "{{operation}}", "refId": "A" }],
+      "title": "Meta API p95 latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 25 },
+      "id": 12,
+      "targets": [
+        { "expr": "sum by (operation) (rate(whatsapp_meta_errors_total[5m]))", "legendFormat": "errors {{operation}}", "refId": "A" },
+        { "expr": "sum by (operation) (rate(whatsapp_meta_429_total[5m]))", "legendFormat": "429 {{operation}}", "refId": "B" }
+      ],
+      "title": "Meta errors and 429s",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
@@ -100,5 +130,5 @@
   "timezone": "browser",
   "title": "WhatsApp Platform Overview",
   "uid": "whatsapp-overview",
-  "version": 1
+  "version": 2
 }
