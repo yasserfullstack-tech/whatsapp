@@ -10,6 +10,7 @@ export const securityDb = database.db;
 
 export type SecurityTenant = {
   api: APIRequestContext;
+  cookie: string;
   email: string;
   authUserId: string;
   appUserId: string;
@@ -114,6 +115,7 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
 
   return {
     api,
+    cookie,
     email,
     authUserId: authUser.id,
     appUserId: workspace.appUserId,
