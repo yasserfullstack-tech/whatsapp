@@ -21,7 +21,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
           <h1>Reset password</h1>
           <p>Choose a new password. Resetting it signs out your other active sessions.</p>
         </div>
-        <ResetPasswordForm token={token} invalidToken={invalidToken} />
+        <ResetPasswordForm {...(token ? { token } : {})} invalidToken={invalidToken} />
       </section>
     </main>
   );
