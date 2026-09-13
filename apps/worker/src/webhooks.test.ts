@@ -73,6 +73,15 @@ describe("webhook durable inbox reconciliation", () => {
     }, now)).toBe("stale_processing");
   });
 
+  test("treats the stale processing threshold as recoverable", () => {
+    expect(shouldReconcileWebhookEvent({
+      processingStatus: "processing",
+      createdAt: new Date(now.getTime() - 120_000),
+      processingStartedAt: new Date(now.getTime() - WEBHOOK_STALE_PROCESSING_MS),
+      nextRetryAt: null,
+    }, now)).toBe("stale_processing");
+  });
+
   test("does not reclaim a fresh processing claim", () => {
     expect(shouldReconcileWebhookEvent({
       processingStatus: "processing",
