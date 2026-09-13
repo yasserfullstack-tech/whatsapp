@@ -4,12 +4,13 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { useI18n } from "@/components/i18n-provider";
 
-type ActiveNav = "overview" | "contacts" | "audiences" | "templates" | "campaigns" | "settings";
+type ActiveNav = "overview" | "onboarding" | "contacts" | "audiences" | "templates" | "campaigns" | "settings";
 
 export function AppSidebar({ active, workspaceName, email, initials }: { active: ActiveNav; workspaceName: string; email: string; initials: string }) {
-  const { messages } = useI18n();
+  const { messages, locale } = useI18n();
   const nav = [
     { key: "overview" as const, label: messages.nav.overview, href: "/dashboard" },
+    { key: "onboarding" as const, label: locale === "ar" ? "الإعداد" : "Setup", href: "/onboarding" },
     { key: "contacts" as const, label: messages.nav.contacts, href: "/contacts" },
     { key: "audiences" as const, label: messages.nav.audiences, href: "/audiences" },
     { key: "templates" as const, label: messages.nav.templates, href: "/templates" },
