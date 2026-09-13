@@ -89,6 +89,10 @@ jobs:
       META_APP_SECRET: ci-only-meta-secret
       META_CONFIG_ID: ci-only-config-id
       META_VERIFY_TOKEN: ci-only-verify-token
+      R2_ACCOUNT_ID: ci-only-r2-account
+      R2_ACCESS_KEY_ID: ci-only-r2-access-key
+      R2_SECRET_ACCESS_KEY: ci-only-r2-secret-key
+      R2_BUCKET: ci-only-r2-bucket
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

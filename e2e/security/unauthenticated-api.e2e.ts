@@ -22,6 +22,7 @@ const probes: Probe[] = [
   { name: "template creation", run: (api) => api.post("/api/templates", { data: {} }) },
   { name: "template synchronization", run: (api) => api.post("/api/templates/sync", { data: {} }) },
   { name: "embedded signup completion", run: (api) => api.post("/api/meta/embedded-signup/complete", { data: {} }) },
+  { name: "workspace data export", run: (api) => api.get("/api/settings/data/export") },
 ];
 
 test.describe("unauthenticated API access", () => {

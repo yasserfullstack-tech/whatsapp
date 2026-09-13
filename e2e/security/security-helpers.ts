@@ -7,9 +7,11 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required for security E2E tes
 
 const database = createDatabase(databaseUrl);
 export const securityDb = database.db;
+export const securitySql = database.client;
 
 export type SecurityTenant = {
   api: APIRequestContext;
+  cookie: string;
   email: string;
   authUserId: string;
   appUserId: string;
@@ -114,6 +116,7 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
 
   return {
     api,
+    cookie,
     email,
     authUserId: authUser.id,
     appUserId: workspace.appUserId,
