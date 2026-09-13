@@ -22,6 +22,7 @@ const workerSchema = base.extend({
   WEBHOOK_CONCURRENCY: z.coerce.number().int().positive().max(1_000).default(100),
   CAMPAIGN_DISPATCH_CONCURRENCY: z.coerce.number().int().positive().max(100).default(8),
   CONTACT_IMPORT_CONCURRENCY: z.coerce.number().int().positive().max(16).default(2),
+  WORKER_METRICS_PORT: z.coerce.number().int().positive().max(65_535).default(9464),
   R2_ACCOUNT_ID: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),
   R2_SECRET_ACCESS_KEY: z.string().min(1),
