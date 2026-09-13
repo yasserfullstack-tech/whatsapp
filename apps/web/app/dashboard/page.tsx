@@ -4,8 +4,11 @@ import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ConnectWhatsApp } from "@/components/connect-whatsapp";
 import { ContactImporter } from "@/components/contact-importer";
+import { OnboardingDashboardCard } from "@/components/onboarding-checklist";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
+import { getOnboardingCopy } from "@/lib/onboarding-copy";
+import { getOnboardingProgress } from "@/lib/onboarding";
 import { db, getMetaServerConfig } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
@@ -13,16 +16,17 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, locale, localeTag } = await getI18n();
   const number = new Intl.NumberFormat(localeTag);
   const meta = getMetaServerConfig();
 
-  const [phoneNumbers, contactRows, campaignRows, importRows, approvedTemplateRows] = await Promise.all([
+  const [phoneNumbers, contactRows, campaignRows, importRows, approvedTemplateRows, onboardingProgress] = await Promise.all([
     db.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, workspace.organizationId)).orderBy(desc(schema.whatsappPhoneNumbers.createdAt)),
     db.select({ total: count() }).from(schema.contacts).where(eq(schema.contacts.organizationId, workspace.organizationId)),
     db.select({ total: count() }).from(schema.campaigns).where(eq(schema.campaigns.organizationId, workspace.organizationId)),
     db.select().from(schema.contactImports).where(eq(schema.contactImports.organizationId, workspace.organizationId)).orderBy(desc(schema.contactImports.createdAt)).limit(1),
     db.select({ total: count() }).from(schema.templates).where(and(eq(schema.templates.organizationId, workspace.organizationId), eq(schema.templates.status, "approved"))),
+    getOnboardingProgress(workspace.organizationId, session.user.id),
   ]);
 
   const connected = phoneNumbers.find((phone) => phone.status === "connected");
@@ -39,6 +43,7 @@ export default async function DashboardPage() {
   const initials = workspace.organizationName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const readyToCampaign = Boolean(connected && contacts > 0 && approvedTemplates > 0);
   const canManageWhatsApp = can(workspace.role, "whatsapp.manage");
+  const onboardingCopy = getOnboardingCopy(locale);
   const stats = [
     { label: messages.nav.contacts, value: number.format(contacts), detail: contacts ? messages.ui.contactsInWorkspace : messages.ui.importFirstAudience },
     { label: messages.nav.campaigns, value: number.format(campaigns), detail: campaigns ? messages.ui.campaignsCreated : messages.ui.noCampaignsSent },
@@ -54,6 +59,8 @@ export default async function DashboardPage() {
           <div><p className="eyebrow">{messages.nav.overview}</p><h1>{workspace.organizationName}</h1><p className="subtitle">{messages.ui.dashboardSubtitle}</p></div>
           {readyToCampaign ? <Link className="primary" href="/campaigns">{messages.ui.createCampaign}</Link> : <button className="primary" disabled type="button">{messages.ui.createCampaign}</button>}
         </header>
+
+        <OnboardingDashboardCard progress={onboardingProgress} copy={onboardingCopy} />
 
         <section className="connectionCard">
           <div className="connectionIcon">W</div>
