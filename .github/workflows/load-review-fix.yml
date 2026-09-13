@@ -1,0 +1,83 @@
+name: Load review fix
+
+on:
+  push:
+    branches: [test/load-testing]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/load-testing
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Apply load-test correctness fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          fake = Path('apps/load-test/src/fake-meta.ts')
+          fake_text = fake.read_text()
+          if 'import { randomUUID } from "node:crypto";' not in fake_text:
+              fake_text = 'import { randomUUID } from "node:crypto";\n\n' + fake_text
+          old_id = 'const id = `wamid.load.${Date.now().toString(36)}.${state.requests.toString(36)}`;'
+          new_id = 'const id = `wamid.load.${Date.now().toString(36)}.${randomUUID()}`;'
+          if old_id not in fake_text and new_id not in fake_text:
+              raise SystemExit('expected fake Meta WAMID expression not found')
+          fake_text = fake_text.replace(old_id, new_id)
+          fake.write_text(fake_text)
+
+          run = Path('apps/load-test/src/run.ts')
+          run_text = run.read_text()
+          old_started = '  const startedAt = Date.now();\n'
+          if old_started in run_text:
+              run_text = run_text.replace(old_started, '  let startedAt = 0;\n', 1)
+          elif '  let startedAt = 0;\n' not in run_text:
+              raise SystemExit('expected benchmark start declaration not found')
+
+          connect_marker = '    await redis.connect();\n'
+          isolation = (
+              '    await Promise.all([\n'
+              '      dispatchQueue.obliterate({ force: true }),\n'
+              '      sendQueue.obliterate({ force: true }),\n'
+              '    ]);\n'
+          )
+          if isolation not in run_text:
+              if connect_marker not in run_text:
+                  raise SystemExit('expected Redis connect marker not found')
+              run_text = run_text.replace(connect_marker, connect_marker + isolation, 1)
+
+          baseline_marker = '    const baselineWrites = Number(baselineStats[0]?.writes ?? 0);\n\n'
+          start_marker = '    startedAt = Date.now();\n\n'
+          if start_marker not in run_text:
+              if baseline_marker not in run_text:
+                  raise SystemExit('expected DB write baseline marker not found')
+              run_text = run_text.replace(baseline_marker, baseline_marker + start_marker, 1)
+          run.write_text(run_text)
+          PY
+      - run: bun install
+      - name: TypeScript
+        run: bun run typecheck
+      - name: 1k campaign smoke
+        run: bun run load:run -- --scenario=baseline-80 --recipients=1000 --timeout-ms=120000
+      - name: 1k webhook smoke
+        run: bun run load:webhooks -- --events=1000 --concurrency=50 --timeout-ms=120000
+      - name: Commit verified fixes and remove temporary workflow
+        run: |
+          rm .github/workflows/load-review-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/load-test/src/fake-meta.ts apps/load-test/src/run.ts .github/workflows/load-review-fix.yml
+          git commit -m "fix(load-test): address benchmark review findings"
+          git push origin HEAD:test/load-testing
+      - name: Cleanup load infrastructure
+        if: always()
+        run: bun run load:infra:down
