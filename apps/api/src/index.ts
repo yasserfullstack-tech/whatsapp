@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { loadApiEnv } from "@wa/config";
@@ -7,6 +7,11 @@ import { parseWhatsAppWebhook } from "@wa/meta/webhooks";
 import { createLogger, MetricsRegistry } from "@wa/observability";
 import { createRedisClient, createWebhookQueue } from "@wa/queue";
 import { z } from "zod";
+import {
+  WebhookPersistenceError,
+  WebhookQueueError,
+  persistAndQueueWebhook,
+} from "./webhook-inbox";
 import { verifyMetaWebhookSignature } from "./webhook-signature";
 
 const env = loadApiEnv();
@@ -193,48 +198,66 @@ app.post("/api/v1/meta/webhook", async (c) => {
   }
 
   const parsed = parseWhatsAppWebhook(payload);
-  const eventKey = `sha256:${createHash("sha256").update(rawBody, "utf8").digest("hex")}`;
 
-  const [inserted] = await db
-    .insert(schema.webhookEvents)
-    .values({
-      eventKey,
-      phoneNumberId: parsed.phoneNumberIds[0] ?? null,
+  try {
+    await persistAndQueueWebhook({
+      rawBody,
       payload,
-    })
-    .onConflictDoNothing({ target: schema.webhookEvents.eventKey })
-    .returning({ id: schema.webhookEvents.id, processedAt: schema.webhookEvents.processedAt });
+      phoneNumberId: parsed.phoneNumberIds[0] ?? null,
+    }, {
+      persist: async ({ eventKey, phoneNumberId, payload: durablePayload }) => {
+        const [inserted] = await db
+          .insert(schema.webhookEvents)
+          .values({
+            eventKey,
+            phoneNumberId,
+            payload: durablePayload,
+          })
+          .onConflictDoNothing({ target: schema.webhookEvents.eventKey })
+          .returning({
+            id: schema.webhookEvents.id,
+            processedAt: schema.webhookEvents.processedAt,
+          });
 
-  const event = inserted ?? (
-    await db
-      .select({ id: schema.webhookEvents.id, processedAt: schema.webhookEvents.processedAt })
-      .from(schema.webhookEvents)
-      .where(eq(schema.webhookEvents.eventKey, eventKey))
-      .limit(1)
-  )[0];
-
-  if (!event) {
-    metrics.incCounter("whatsapp_webhook_errors_total", { reason: "persistence" });
-    return c.json({ error: "Could not persist webhook" }, 500);
-  }
-
-  if (!event.processedAt) {
-    try {
-      await webhookQueue.add(
+        return inserted ?? (
+          await db
+            .select({
+              id: schema.webhookEvents.id,
+              processedAt: schema.webhookEvents.processedAt,
+            })
+            .from(schema.webhookEvents)
+            .where(eq(schema.webhookEvents.eventKey, eventKey))
+            .limit(1)
+        )[0] ?? null;
+      },
+      enqueue: (eventId) => webhookQueue.add(
         "process-meta-webhook",
-        { eventId: event.id },
-        { jobId: `webhook-${event.id}` },
-      );
-    } catch (error) {
+        { eventId },
+        { jobId: `webhook-${eventId}` },
+      ),
+    });
+  } catch (error) {
+    if (error instanceof WebhookPersistenceError) {
+      metrics.incCounter("whatsapp_webhook_errors_total", { reason: "persistence" });
+      log.error("meta_webhook_persistence_failed", {
+        requestId: c.get("requestId"),
+        error,
+      });
+      return c.json({ error: "Could not persist webhook" }, 500);
+    }
+
+    if (error instanceof WebhookQueueError) {
       metrics.incCounter("whatsapp_webhook_errors_total", { reason: "queue_unavailable" });
       log.error("meta_webhook_queue_failed", {
         requestId: c.get("requestId"),
-        jobId: `webhook-${event.id}`,
-        eventId: event.id,
+        jobId: `webhook-${error.eventId}`,
+        eventId: error.eventId,
         error,
       });
-      return c.json({ error: "Webhook persisted but processing is temporarily unavailable" }, 503);
+      return c.json({ error: error.message }, 503);
     }
+
+    throw error;
   }
 
   return c.json({ received: true }, 200);
