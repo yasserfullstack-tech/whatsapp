@@ -7,7 +7,12 @@ import { authClient } from "@/lib/auth-client";
 
 type Mode = "totp" | "backup";
 
-function twoFactorError(error: { message?: string | null; code?: string | null } | null | undefined) {
+type AuthError = {
+  message?: string | null | undefined;
+  code?: string | null | undefined;
+};
+
+function twoFactorError(error: AuthError | null | undefined) {
   if (error?.code === "ACCOUNT_TEMPORARILY_LOCKED") {
     return "Too many failed attempts. This account is temporarily locked from MFA verification.";
   }
