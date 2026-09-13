@@ -12,6 +12,8 @@ export const billingAuditActions = {
   manualOverride: "billing.manual_override",
 } as const;
 
+type BillingAuditAction = (typeof billingAuditActions)[keyof typeof billingAuditActions];
+
 function addMonths(value: Date, months: number): Date {
   const next = new Date(value);
   next.setUTCMonth(next.getUTCMonth() + months);
@@ -58,21 +60,32 @@ async function audit(
   db: BillingDb,
   input: {
     organizationId: string;
-    actorUserId?: string | null;
-    action: (typeof billingAuditActions)[keyof typeof billingAuditActions];
+    actorUserId: string | null;
+    action: BillingAuditAction;
     targetType: string;
-    targetId?: string | null;
-    metadata?: Record<string, unknown>;
+    targetId: string | null;
+    metadata: Record<string, unknown>;
   },
 ) {
   await db.insert(schema.workspaceAuditLogs).values({
     organizationId: input.organizationId,
-    actorUserId: input.actorUserId ?? null,
+    actorUserId: input.actorUserId,
     action: input.action,
     targetType: input.targetType,
-    targetId: input.targetId ?? null,
-    metadata: input.metadata ?? {},
+    targetId: input.targetId,
+    metadata: input.metadata,
   });
+}
+
+async function currentSubscription(db: BillingDb, organizationId: string) {
+  return (
+    await db
+      .select()
+      .from(schema.billingSubscriptions)
+      .where(eq(schema.billingSubscriptions.organizationId, organizationId))
+      .orderBy(desc(schema.billingSubscriptions.createdAt))
+      .limit(1)
+  )[0] ?? null;
 }
 
 export async function ensureDefaultBilling(db: BillingDb, organizationId: string): Promise<void> {
@@ -86,6 +99,7 @@ export async function ensureDefaultBilling(db: BillingDb, organizationId: string
         .where(eq(schema.billingAccounts.organizationId, organizationId))
         .limit(1)
     )[0];
+
     if (!account) {
       account = (
         await tx.insert(schema.billingAccounts).values({ organizationId }).returning()
@@ -93,15 +107,14 @@ export async function ensureDefaultBilling(db: BillingDb, organizationId: string
     }
     if (!account) throw new Error("Could not initialize billing account");
 
-    const existingSubscription = (
+    const existing = (
       await tx
         .select({ id: schema.billingSubscriptions.id })
         .from(schema.billingSubscriptions)
         .where(eq(schema.billingSubscriptions.organizationId, organizationId))
-        .orderBy(desc(schema.billingSubscriptions.createdAt))
         .limit(1)
     )[0];
-    if (existingSubscription) return;
+    if (existing) return;
 
     const starter = (
       await tx
@@ -138,6 +151,7 @@ export async function ensureDefaultBilling(db: BillingDb, organizationId: string
       kind: "activation",
       metadata: { source: "workspace_bootstrap" },
     });
+
     await tx.insert(schema.workspaceAuditLogs).values({
       organizationId,
       action: billingAuditActions.subscriptionActivated,
@@ -181,7 +195,7 @@ export function createBillingAdminService(db: BillingDb) {
         )[0];
         if (!version) throw new Error("Could not create custom plan version");
 
-        const entries = Object.entries(input.entitlements) as [EntitlementKey, number | null | undefined][];
+        const entries = Object.entries(input.entitlements) as Array<[EntitlementKey, number | null | undefined]>;
         const values = entries
           .filter((entry): entry is [EntitlementKey, number | null] => entry[1] !== undefined)
           .map(([key, limitValue]) => ({ planVersionId: version.id, key, limitValue }));
@@ -192,7 +206,7 @@ export function createBillingAdminService(db: BillingDb) {
 
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.manualOverride,
         targetType: "plan",
         targetId: result.plan.id,
@@ -212,56 +226,46 @@ export function createBillingAdminService(db: BillingDb) {
       graceEndsAt?: Date | null;
     }) {
       const account = await billingAccountFor(db, input.organizationId);
-      const current = (
-        await db
-          .select()
-          .from(schema.billingSubscriptions)
-          .where(eq(schema.billingSubscriptions.organizationId, input.organizationId))
-          .orderBy(desc(schema.billingSubscriptions.createdAt))
-          .limit(1)
-      )[0];
+      const current = await currentSubscription(db, input.organizationId);
       const nextStatus = input.status ?? "active";
 
-      let subscription;
-      if (current) {
-        subscription = (
-          await db
-            .update(schema.billingSubscriptions)
-            .set({
-              planVersionId: input.planVersionId,
-              status: nextStatus,
-              isManual: true,
-              providerKey: null,
-              providerSubscriptionId: null,
-              currentPeriodStart: input.periodStart,
-              currentPeriodEnd: input.periodEnd,
-              trialEndsAt: input.trialEndsAt ?? null,
-              graceEndsAt: input.graceEndsAt ?? null,
-              cancelledAt: null,
-              suspendedAt: null,
-              updatedAt: new Date(),
-            })
-            .where(and(eq(schema.billingSubscriptions.id, current.id), eq(schema.billingSubscriptions.organizationId, input.organizationId)))
-            .returning()
-        )[0];
-      } else {
-        subscription = (
-          await db
-            .insert(schema.billingSubscriptions)
-            .values({
-              billingAccountId: account.id,
-              organizationId: input.organizationId,
-              planVersionId: input.planVersionId,
-              status: nextStatus,
-              isManual: true,
-              currentPeriodStart: input.periodStart,
-              currentPeriodEnd: input.periodEnd,
-              trialEndsAt: input.trialEndsAt ?? null,
-              graceEndsAt: input.graceEndsAt ?? null,
-            })
-            .returning()
-        )[0];
-      }
+      const subscription = current
+        ? (
+            await db
+              .update(schema.billingSubscriptions)
+              .set({
+                planVersionId: input.planVersionId,
+                status: nextStatus,
+                isManual: true,
+                providerKey: null,
+                providerSubscriptionId: null,
+                currentPeriodStart: input.periodStart,
+                currentPeriodEnd: input.periodEnd,
+                trialEndsAt: input.trialEndsAt ?? null,
+                graceEndsAt: input.graceEndsAt ?? null,
+                cancelledAt: null,
+                suspendedAt: null,
+                updatedAt: new Date(),
+              })
+              .where(and(eq(schema.billingSubscriptions.id, current.id), eq(schema.billingSubscriptions.organizationId, input.organizationId)))
+              .returning()
+          )[0]
+        : (
+            await db
+              .insert(schema.billingSubscriptions)
+              .values({
+                billingAccountId: account.id,
+                organizationId: input.organizationId,
+                planVersionId: input.planVersionId,
+                status: nextStatus,
+                isManual: true,
+                currentPeriodStart: input.periodStart,
+                currentPeriodEnd: input.periodEnd,
+                trialEndsAt: input.trialEndsAt ?? null,
+                graceEndsAt: input.graceEndsAt ?? null,
+              })
+              .returning()
+          )[0];
       if (!subscription) throw new Error("Could not activate manual subscription");
 
       await db.insert(schema.billingSubscriptionChanges).values({
@@ -274,9 +278,10 @@ export function createBillingAdminService(db: BillingDb) {
         kind: "manual_activation",
         actorUserId: input.actorUserId ?? null,
       });
+
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.subscriptionActivated,
         targetType: "subscription",
         targetId: subscription.id,
@@ -284,7 +289,7 @@ export function createBillingAdminService(db: BillingDb) {
       });
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.manualOverride,
         targetType: "subscription",
         targetId: subscription.id,
@@ -329,7 +334,7 @@ export function createBillingAdminService(db: BillingDb) {
       });
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.planChanged,
         targetType: "subscription",
         targetId: input.subscriptionId,
@@ -373,10 +378,11 @@ export function createBillingAdminService(db: BillingDb) {
       });
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.subscriptionCancelled,
         targetType: "subscription",
         targetId: input.subscriptionId,
+        metadata: {},
       });
       return updated;
     },
@@ -418,7 +424,7 @@ export function createBillingAdminService(db: BillingDb) {
       });
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.subscriptionSuspended,
         targetType: "subscription",
         targetId: input.subscriptionId,
@@ -460,7 +466,7 @@ export function createBillingAdminService(db: BillingDb) {
 
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.manualOverride,
         targetType: "invoice",
         targetId: invoice.id,
@@ -518,7 +524,7 @@ export function createBillingAdminService(db: BillingDb) {
 
       await audit(db, {
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        actorUserId: input.actorUserId ?? null,
         action: billingAuditActions.manualOverride,
         targetType: "payment",
         targetId: payment.id,
