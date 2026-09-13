@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
 import { requirePlatformAdmin } from "./platform-admin";
@@ -39,7 +39,7 @@ export async function retryWebhookEventAction(formData: FormData) {
 
   const now = new Date();
   await db.transaction(async (tx) => {
-    await tx
+    const [retryable] = await tx
       .update(schema.webhookEvents)
       .set({
         processingStatus: "retry",
@@ -47,7 +47,16 @@ export async function retryWebhookEventAction(formData: FormData) {
         nextRetryAt: now,
         deadLetteredAt: null,
       })
-      .where(eq(schema.webhookEvents.id, event.id));
+      .where(and(
+        eq(schema.webhookEvents.id, event.id),
+        isNull(schema.webhookEvents.processedAt),
+        ne(schema.webhookEvents.processingStatus, "processing"),
+      ))
+      .returning({ id: schema.webhookEvents.id });
+
+    if (!retryable) {
+      throw new Error("Webhook event state changed while retrying; refresh and try again");
+    }
 
     await tx.insert(schema.platformAuditEvents).values({
       actorAuthUserId: actor.authUserId,
