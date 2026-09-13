@@ -3,6 +3,7 @@ import { and, count, desc, eq, ilike, isNotNull, isNull, or, type SQL } from "dr
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ContactSuppressionManager } from "@/components/contact-suppression-manager";
+import { FirstUseEmptyState } from "@/components/first-use-empty-state";
 import { requireAuthContext } from "@/lib/auth-context";
 import { countEligibleAudience } from "@/lib/audience-server";
 import { getI18n } from "@/lib/i18n/server";
@@ -13,7 +14,7 @@ type PageProps = { searchParams: Promise<{ q?: string; status?: string }> };
 
 export default async function ContactsPage({ searchParams }: PageProps) {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, localeTag, locale } = await getI18n();
   const number = new Intl.NumberFormat(localeTag);
   const params = await searchParams;
   const organizationId = workspace.organizationId;
@@ -51,6 +52,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
         <article className="statCard"><span>{messages.ui.activeSuppressions}</span><strong>{number.format(suppressions)}</strong><p>{messages.ui.authoritativeBlockList}</p></article>
         <article className="statCard"><span>{messages.ui.consentEvents}</span><strong>{number.format(eventCount)}</strong><p>{messages.ui.consentHistoryDetail}</p></article>
       </section>
+      {total === 0 ? <FirstUseEmptyState kind="contacts" locale={locale} /> : null}
       <section className="panel contactFilterPanel">
         <form className="contactFilters" method="get">
           <label><span>{messages.ui.search}</span><input defaultValue={query} name="q" placeholder={messages.ui.searchPlaceholder} /></label>
