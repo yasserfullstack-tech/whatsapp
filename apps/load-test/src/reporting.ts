@@ -33,12 +33,13 @@ try {
     `;
 
     for (let index = 0; index < phoneIds.length; index += 1) {
+      const phoneId = phoneIds[index]!;
       await tx`
         INSERT INTO whatsapp_phone_numbers (
           id, organization_id, waba_id, phone_number_id, display_phone_number,
           verified_name, status, quality_rating, throughput_mps, credential_key
         ) VALUES (
-          ${phoneIds[index]}::uuid, ${organizationId}::uuid, ${`waba-${organizationId}`},
+          ${phoneId}::uuid, ${organizationId}::uuid, ${`waba-${organizationId}`},
           ${`load-phone-${index}-${organizationId}`}, ${`+964700000${String(index).padStart(3, "0")}`},
           ${`Load Number ${index + 1}`}, 'connected', 'GREEN', ${index === 0 ? 80 : 1000}, ${`load/${organizationId}/${index}`}
         )
@@ -51,20 +52,22 @@ try {
     `;
 
     for (let index = 0; index < campaignIds.length; index += 1) {
+      const campaignId = campaignIds[index]!;
+      const phoneId = phoneIds[index % phoneIds.length]!;
       await tx`
         INSERT INTO campaigns (
           id, organization_id, whatsapp_phone_number_id, template_id, name, status,
           recipient_count, snapshot_created_at, started_at, created_at, updated_at
         ) VALUES (
-          ${campaignIds[index]}::uuid, ${organizationId}::uuid, ${phoneIds[index % phoneIds.length]}::uuid,
+          ${campaignId}::uuid, ${organizationId}::uuid, ${phoneId}::uuid,
           ${templateId}::uuid, ${`Reporting scale campaign ${index + 1}`}, 'completed', 0,
-          now() - (${index} || ' days')::interval, now() - (${index} || ' days')::interval,
-          now() - (${index} || ' days')::interval, now()
+          now() - make_interval(days => ${index}), now() - make_interval(days => ${index}),
+          now() - make_interval(days => ${index}), now()
         )
       `;
       await tx`
         INSERT INTO campaign_audiences (organization_id, campaign_id, type, source_name, definition)
-        VALUES (${organizationId}::uuid, ${campaignIds[index]}::uuid, 'all', 'All eligible contacts', '{"type":"all"}'::jsonb)
+        VALUES (${organizationId}::uuid, ${campaignId}::uuid, 'all', 'All eligible contacts', '{"type":"all"}'::jsonb)
       `;
     }
 
@@ -97,7 +100,7 @@ try {
           id,
           phone_e164,
           rn,
-          ARRAY[${campaignsSql}][1 + ((rn - 1) % ${campaignCount})::int] AS campaign_id
+          (ARRAY[${campaignsSql}])[1 + ((rn - 1) % ${campaignCount})::int] AS campaign_id
         FROM numbered
       )
       INSERT INTO campaign_recipients (
