@@ -54,6 +54,22 @@ jobs:
       - name: Check migration drift
         run: |
           bun run db:generate -- --name=ci-drift
+          echo "::group::Generated Drizzle migration diagnostics"
+          for file in packages/db/drizzle/0005*; do
+            if [ -f "$file" ]; then
+              echo "--- $file"
+              cat "$file"
+            fi
+          done
+          echo "--- packages/db/drizzle/meta/_journal.json"
+          cat packages/db/drizzle/meta/_journal.json
+          for file in packages/db/drizzle/snapshot-artifacts/0005*; do
+            if [ -f "$file" ]; then
+              echo "--- $file"
+              cat "$file"
+            fi
+          done
+          echo "::endgroup::"
           if [ -n "$(git status --porcelain -- packages/db/drizzle)" ]; then
             echo "Schema and committed Drizzle migrations are out of sync."
             git status --short -- packages/db/drizzle
