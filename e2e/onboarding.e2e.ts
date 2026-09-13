@@ -95,6 +95,7 @@ test("new users can leave, resume, skip optional work, and use Arabic onboarding
   await page.getByRole("button", { name: "Resume onboarding" }).click();
   await expect(page).toHaveURL(/\/onboarding$/);
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "العربية" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ar");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
