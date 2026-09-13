@@ -27,6 +27,7 @@ export const authUser = pgTable("auth_user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   createdAt,
   updatedAt,
 });
@@ -80,6 +81,20 @@ export const authVerification = pgTable(
     updatedAt,
   },
   (table) => [index("auth_verification_identifier_idx").on(table.identifier)],
+);
+
+export const authTwoFactor = pgTable(
+  "auth_two_factor",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => authUser.id, { onDelete: "cascade" }),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    verified: boolean("verified").notNull().default(true),
+    failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("auth_two_factor_user_uq").on(table.userId)],
 );
 
 export const organizations = pgTable("organizations", {
