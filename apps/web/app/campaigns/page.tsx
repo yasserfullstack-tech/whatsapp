@@ -3,18 +3,25 @@ import { and, desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CampaignBuilder } from "@/components/campaign-builder";
+import { FirstUseEmptyState } from "@/components/first-use-empty-state";
 import { requireAuthContext } from "@/lib/auth-context";
 import { countEligibleAudience } from "@/lib/audience-server";
 import { getI18n } from "@/lib/i18n/server";
+import { getOnboardingCopy } from "@/lib/onboarding-copy";
 import { db } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 function variableIndexes(body: string): number[] { return [...new Set([...body.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1])))].filter((value) => Number.isInteger(value) && value > 0).sort((a, b) => a - b); }
 function isTextOnly(components: unknown): boolean { if (!Array.isArray(components)) return true; return components.every((component) => { if (!component || typeof component !== "object") return false; const type = String((component as Record<string, unknown>).type ?? "").toUpperCase(); return type === "BODY" || type === "FOOTER"; }); }
 
-export default async function CampaignsPage() {
+type PageProps = { searchParams: Promise<{ onboarding?: string }> };
+
+export default async function CampaignsPage({ searchParams }: PageProps) {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, localeTag, locale } = await getI18n();
+  const params = await searchParams;
+  const onboardingTestMode = params.onboarding === "test";
+  const onboardingCopy = getOnboardingCopy(locale);
   const number = new Intl.NumberFormat(localeTag);
   const dateTime = new Intl.DateTimeFormat(localeTag, { dateStyle: "medium", timeStyle: "short" });
   const organizationId = workspace.organizationId;
@@ -47,7 +54,8 @@ export default async function CampaignsPage() {
         <article className="statCard"><span>{messages.ui.active}</span><strong>{number.format(active)}</strong><p>{messages.ui.dispatchingOrSending}</p></article>
         <article className="statCard"><span>{messages.ui.completed}</span><strong>{number.format(completed)}</strong><p>{messages.ui.submissionCompleted}</p></article>
       </section>
-      <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates.map((template) => ({ id: template.id, wabaId: template.wabaId, name: template.name, language: template.language, bodyPreview: template.bodyPreview ?? "", variableIndexes: variableIndexes(template.bodyPreview ?? "") }))} /></section>
+      {campaigns.length === 0 ? <FirstUseEmptyState kind="campaigns" locale={locale} /> : null}
+      <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates.map((template) => ({ id: template.id, wabaId: template.wabaId, name: template.name, language: template.language, bodyPreview: template.bodyPreview ?? "", variableIndexes: variableIndexes(template.bodyPreview ?? "") }))} onboardingTestMode={onboardingTestMode} onboardingTestCopy={{ title: onboardingCopy.testModeTitle, description: onboardingCopy.testModeDescription, limit: onboardingCopy.testModeLimit }} /></section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.history}</p><h2>{messages.ui.recentCampaigns}</h2><p className="subtitle">{messages.ui.campaignHistoryDescription}</p></div></div>
         {campaigns.length ? <div className="numberList" style={{ marginTop: 14 }}>{campaigns.map((campaign) => <div className="numberRow" key={campaign.id}><div><Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link><p>{campaign.recipientCount ? messages.ui.snapshottedRecipients.replace("{count}", number.format(campaign.recipientCount)) : messages.ui.preparingSnapshot}</p></div><div className="numberMeta"><span>{dateTime.format(campaign.createdAt)}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span><Link href={`/campaigns/${campaign.id}`}>{messages.ui.viewAnalytics} →</Link></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">C</div><h3>{messages.ui.noCampaigns}</h3><p>{messages.ui.noCampaignsDescription}</p></div>}
       </section>
