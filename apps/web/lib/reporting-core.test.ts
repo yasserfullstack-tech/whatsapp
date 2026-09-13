@@ -16,11 +16,9 @@ describe("reporting core", () => {
   });
 
   test("normalizes custom ranges and ignores invalid tenant resource ids", () => {
-    expect(parseReportFilters({ range: "custom", from: "2026-09-20", to: "2026-09-01", campaign: "not-a-uuid" }, "UTC")).toMatchObject({
-      fromDate: "2026-09-01",
-      toDate: "2026-09-20",
-      campaignId: undefined,
-    });
+    const filters = parseReportFilters({ range: "custom", from: "2026-09-20", to: "2026-09-01", campaign: "not-a-uuid" }, "UTC");
+    expect(filters).toMatchObject({ fromDate: "2026-09-01", toDate: "2026-09-20" });
+    expect(filters.campaignId).toBeUndefined();
   });
 
   test("calculates defensive rates", () => {
