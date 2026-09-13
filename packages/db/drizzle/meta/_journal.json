@@ -50,6 +50,13 @@
       "when": 1789325399458,
       "tag": "0006_webhook-reliability",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789337698343,
+      "tag": "0007_onboarding-v2",
+      "breakpoints": true
     }
   ]
 }
