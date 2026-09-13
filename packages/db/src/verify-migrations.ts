@@ -10,6 +10,9 @@ const expectedPublicTables = [
   "auth_user",
   "auth_verification",
   "audience_segments",
+  "billing_accounts",
+  "billing_period_usage",
+  "billing_provider_events",
   "campaign_audiences",
   "campaign_recipients",
   "campaigns",
@@ -19,15 +22,23 @@ const expectedPublicTables = [
   "contact_lists",
   "contacts",
   "credential_secrets",
+  "invoices",
   "organization_admin_settings",
   "organization_invitations",
   "organization_members",
   "organizations",
+  "payments",
+  "plan_entitlements",
+  "plan_versions",
+  "plans",
   "platform_admin_grants",
   "platform_audit_events",
   "platform_user_controls",
+  "subscription_changes",
+  "subscriptions",
   "suppression_list",
   "templates",
+  "usage_ledger",
   "users",
   "webhook_events",
   "whatsapp_phone_numbers",
@@ -60,8 +71,8 @@ try {
   const migrationRows = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations
   `;
-  if ((migrationRows[0]?.count ?? 0) < 5) {
-    throw new Error("Expected all five committed migrations in drizzle.__drizzle_migrations");
+  if ((migrationRows[0]?.count ?? 0) < 6) {
+    throw new Error("Expected all six committed migrations in drizzle.__drizzle_migrations");
   }
 
   console.log("Migration smoke check passed", {

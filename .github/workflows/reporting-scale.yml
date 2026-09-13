@@ -1,0 +1,67 @@
+name: Reporting Scale
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/app/reports/**"
+      - "apps/web/app/api/reports/**"
+      - "apps/web/components/reporting-view.tsx"
+      - "apps/web/lib/reporting*.ts"
+      - "apps/load-test/src/reporting.ts"
+      - "packages/db/**"
+      - ".github/workflows/reporting-scale.yml"
+  workflow_dispatch:
+
+jobs:
+  reporting-scale:
+    name: ${{ matrix.name }} reporting dataset
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: small
+            recipients: 1000
+            campaigns: 1
+            phone_numbers: 1
+          - name: 100k
+            recipients: 100000
+            campaigns: 5
+            phone_numbers: 2
+          - name: 500k
+            recipients: 500000
+            campaigns: 10
+            phone_numbers: 3
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: whatsapp
+          POSTGRES_USER: whatsapp
+          POSTGRES_PASSWORD: whatsapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatsapp -d whatsapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
+      REPORT_RECIPIENTS: ${{ matrix.recipients }}
+      REPORT_CAMPAIGNS: ${{ matrix.campaigns }}
+      REPORT_PHONE_NUMBERS: ${{ matrix.phone_numbers }}
+      # Each matrix job owns a disposable PostgreSQL service container, so
+      # cascading fixture deletion only wastes CI time after measurements.
+      REPORT_KEEP_DATA: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install
+      - name: Apply migrations
+        run: bun run db:migrate
+      - name: Benchmark reporting aggregation
+        run: bun run --filter @wa/load-test reporting

@@ -10,6 +10,7 @@
   "dependencies": {
     "@better-auth/redis-storage": "1.7.3",
     "@wa/auth": "workspace:*",
+    "@wa/billing": "workspace:*",
     "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",

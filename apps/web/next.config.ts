@@ -1,6 +1,9 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
 const isProduction = process.env.NODE_ENV === "production";
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -31,6 +34,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  outputFileTracingRoot: repoRoot,
   poweredByHeader: false,
   reactStrictMode: true,
   transpilePackages: ["@wa/auth", "@wa/credentials", "@wa/db", "@wa/meta"],

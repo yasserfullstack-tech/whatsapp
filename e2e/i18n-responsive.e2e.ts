@@ -6,6 +6,12 @@ const englishPages = [
   ["/audiences", "Lists and reusable segments"],
   ["/templates", "Message templates"],
   ["/campaigns", "Launch a WhatsApp campaign"],
+  ["/reports", "Reports & analytics"],
+  ["/reports/campaigns", "Campaign reports"],
+  ["/reports/templates", "Template reports"],
+  ["/reports/audiences", "Audience reports"],
+  ["/reports/phone-numbers", "Phone number reports"],
+  ["/settings/billing", "Billing"],
 ] as const;
 
 const arabicPages = [
@@ -13,6 +19,12 @@ const arabicPages = [
   ["/audiences", "القوائم والشرائح القابلة لإعادة الاستخدام"],
   ["/templates", "قوالب الرسائل"],
   ["/campaigns", "إطلاق حملة واتساب"],
+  ["/reports", "التقارير والتحليلات"],
+  ["/reports/campaigns", "تقارير الحملات"],
+  ["/reports/templates", "تقارير القوالب"],
+  ["/reports/audiences", "تقارير الجمهور"],
+  ["/reports/phone-numbers", "تقارير أرقام الهاتف"],
+  ["/settings/billing", "الفوترة"],
 ] as const;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -74,20 +86,20 @@ test("English and Arabic UI remains usable across responsive viewports", async (
 
   for (const [path, heading] of englishPages) {
     await page.goto(path);
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await expect(page.getByRole("heading", { name: heading, level: 1, exact: true })).toBeVisible();
     await expectDirection(page, "en", "ltr");
     await expectNoHorizontalOverflow(page);
   }
 
   await page.getByRole("button", { name: "العربية" }).click();
   await expectDirection(page, "ar", "rtl");
-  await expect(page.getByRole("heading", { name: "إطلاق حملة واتساب" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الفوترة", level: 1, exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "التنقل الرئيسي" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   for (const [path, heading] of arabicPages) {
     await page.goto(path);
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await expect(page.getByRole("heading", { name: heading, level: 1, exact: true })).toBeVisible();
     await expectDirection(page, "ar", "rtl");
     await expectNoHorizontalOverflow(page);
   }
