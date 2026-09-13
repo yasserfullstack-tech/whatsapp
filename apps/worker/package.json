@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --hot src/index.ts",
-    "start": "bun src/index.ts",
+    "dev": "bun --hot src/entry.ts",
+    "start": "bun src/entry.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -12,6 +12,7 @@
     "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",
+    "@wa/notifications": "workspace:*",
     "@wa/observability": "workspace:*",
     "@wa/queue": "workspace:*",
     "@wa/storage": "workspace:*",
