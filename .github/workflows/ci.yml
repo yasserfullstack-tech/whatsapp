@@ -36,6 +36,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_URL: http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
+      AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-auth-emails.jsonl
       CREDENTIAL_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       META_GRAPH_API_VERSION: v26.0
       META_APP_ID: "123456789"

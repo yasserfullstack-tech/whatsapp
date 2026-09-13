@@ -32,7 +32,16 @@ export function AuthForm({ mode }: AuthFormProps) {
         setError(result.error.message ?? messages.auth.authenticationFailed);
         return;
       }
-      router.push("/dashboard");
+
+      const requiresSecondFactor = !isSignUp && Boolean(
+        (result.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect,
+      );
+      if (requiresSecondFactor) {
+        router.push("/two-factor");
+        return;
+      }
+
+      router.push(isSignUp ? `/verify-email?email=${encodeURIComponent(email)}` : "/dashboard");
       router.refresh();
     } finally {
       setPending(false);
@@ -44,6 +53,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       {isSignUp ? <label><span>{messages.auth.name}</span><input autoComplete="name" name="name" placeholder={messages.auth.namePlaceholder} required /></label> : null}
       <label><span>{messages.auth.email}</span><input autoComplete="email" name="email" placeholder={messages.auth.emailPlaceholder} required type="email" /></label>
       <label><span>{messages.auth.password}</span><input autoComplete={isSignUp ? "new-password" : "current-password"} minLength={10} name="password" placeholder={messages.auth.passwordPlaceholder} required type="password" /></label>
+      {!isSignUp ? <p className="authSwitch"><Link href="/forgot-password">Forgot password?</Link></p> : null}
       {error ? <p className="formError" role="alert">{error}</p> : null}
       <button className="primary authSubmit" disabled={pending} type="submit">{pending ? messages.auth.pleaseWait : isSignUp ? messages.auth.createAccount : messages.auth.signIn}</button>
       <p className="authSwitch">
