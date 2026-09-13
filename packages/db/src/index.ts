@@ -6,6 +6,7 @@ import * as suppressionSchema from "./suppression-schema";
 import * as audienceSchema from "./audience-schema";
 import * as adminSchema from "./admin-schema";
 import * as workspaceSettingsSchema from "./workspace-settings-schema";
+import * as notificationSchema from "./notification-schema";
 
 export const schema = {
   ...coreSchema,
@@ -14,6 +15,7 @@ export const schema = {
   ...audienceSchema,
   ...adminSchema,
   ...workspaceSettingsSchema,
+  ...notificationSchema,
 };
 export * from "./schema";
 export * from "./contact-import-schema";
@@ -21,6 +23,7 @@ export * from "./suppression-schema";
 export * from "./audience-schema";
 export * from "./admin-schema";
 export * from "./workspace-settings-schema";
+export * from "./notification-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {

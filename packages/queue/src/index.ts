@@ -6,6 +6,7 @@ export const SEND_QUEUE_NAME = "whatsapp-send";
 export const WEBHOOK_QUEUE_NAME = "whatsapp-webhooks";
 export const CONTACT_IMPORT_QUEUE_NAME = "contact-imports";
 export const CAMPAIGN_DISPATCH_QUEUE_NAME = "campaign-dispatch";
+export const NOTIFICATION_EMAIL_QUEUE_NAME = "notification-email";
 
 export type CampaignVariableBinding = {
   index: number;
@@ -39,6 +40,10 @@ export type CampaignDispatchJob = {
 
 export type WebhookProcessJob = {
   eventId: string;
+};
+
+export type NotificationEmailJob = {
+  deliveryId: string;
 };
 
 export function createRedisClient(redisUrl: string): Redis {
@@ -97,6 +102,18 @@ export function createCampaignDispatchQueue(redisUrl: string): Queue<CampaignDis
       backoff: { type: "exponential", delay: 5_000 },
       removeOnComplete: true,
       removeOnFail: true,
+    },
+  });
+}
+
+export function createNotificationEmailQueue(redisUrl: string): Queue<NotificationEmailJob> {
+  return new Queue<NotificationEmailJob>(NOTIFICATION_EMAIL_QUEUE_NAME, {
+    connection: createBullConnection(redisUrl),
+    defaultJobOptions: {
+      attempts: 5,
+      backoff: { type: "exponential", delay: 30_000 },
+      removeOnComplete: 5_000,
+      removeOnFail: 20_000,
     },
   });
 }
