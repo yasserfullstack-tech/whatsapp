@@ -13,5 +13,6 @@ coverage
 *.tsbuildinfo
 playwright-report
 test-results
+load-results
 packages/db/drizzle/meta/*_snapshot.json
 !packages/db/drizzle/meta/0000_snapshot.json

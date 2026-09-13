@@ -1,0 +1,16 @@
+{
+  "name": "@wa/load-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fake-meta": "cd ../.. && bun apps/load-test/src/fake-meta.ts",
+    "run": "cd ../.. && bun apps/load-test/src/run.ts",
+    "webhook-flood": "cd ../.. && bun apps/load-test/src/webhook-flood.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wa/credentials": "workspace:*",
+    "@wa/db": "workspace:*",
+    "@wa/queue": "workspace:*"
+  }
+}

@@ -22,7 +22,12 @@
     "infra:up": "docker compose up -d postgres valkey",
     "infra:down": "docker compose down",
     "observability:up": "docker compose --profile observability up -d prometheus grafana",
-    "observability:down": "docker compose --profile observability stop prometheus grafana"
+    "observability:down": "docker compose --profile observability stop prometheus grafana",
+    "load:infra:up": "docker compose -f docker-compose.load.yml up -d --wait",
+    "load:infra:down": "docker compose -f docker-compose.load.yml down --remove-orphans",
+    "load:fake-meta": "bun run --filter @wa/load-test fake-meta",
+    "load:run": "bun run --filter @wa/load-test run",
+    "load:webhooks": "bun run --filter @wa/load-test webhook-flood"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
