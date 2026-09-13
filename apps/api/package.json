@@ -11,6 +11,7 @@
     "@wa/config": "workspace:*",
     "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",
+    "@wa/observability": "workspace:*",
     "@wa/queue": "workspace:*",
     "drizzle-orm": "0.45.2",
     "hono": "4.13.7",

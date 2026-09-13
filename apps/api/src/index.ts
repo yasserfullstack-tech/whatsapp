@@ -1,21 +1,81 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import { logger } from "hono/logger";
 import { eq } from "drizzle-orm";
 import { loadApiEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import { parseWhatsAppWebhook } from "@wa/meta/webhooks";
+import { createLogger, MetricsRegistry } from "@wa/observability";
 import { createWebhookQueue } from "@wa/queue";
 import { z } from "zod";
 import { verifyMetaWebhookSignature } from "./webhook-signature";
 
 const env = loadApiEnv();
-const app = new Hono();
+const app = new Hono<{ Variables: { requestId: string } }>();
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
 const webhookQueue = createWebhookQueue(env.REDIS_URL);
+const log = createLogger({ service: "api" });
+const metrics = new MetricsRegistry();
 
-app.use(logger());
+metrics.defineCounter("whatsapp_http_requests_total", "HTTP requests handled by the API", ["method", "route", "status"]);
+metrics.defineCounter("whatsapp_http_errors_total", "HTTP responses with status 4xx or 5xx", ["method", "route", "status"]);
+metrics.defineHistogram("whatsapp_http_request_duration_seconds", "HTTP request latency in seconds", ["method", "route"]);
+metrics.defineCounter("whatsapp_webhooks_received_total", "Meta webhook POST requests received");
+metrics.defineCounter("whatsapp_webhook_errors_total", "Meta webhook requests rejected or unavailable", ["reason"]);
+metrics.defineHistogram("whatsapp_readiness_check_duration_seconds", "Readiness dependency check latency in seconds", ["dependency"]);
+
+function metricRoute(path: string): string {
+  return path
+    .replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,36}(?=\/|$)/gi, "/:id")
+    .replace(/\/\d+(?=\/|$)/g, "/:id");
+}
+
+function safeRequestId(value: string | undefined): string {
+  if (value && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value)) return value;
+  return randomUUID();
+}
+
+app.use("*", async (c, next) => {
+  const requestId = safeRequestId(c.req.header("x-request-id"));
+  c.set("requestId", requestId);
+  c.header("x-request-id", requestId);
+
+  const startedAt = performance.now();
+  let failed = false;
+
+  try {
+    await next();
+  } catch (error) {
+    failed = true;
+    log.error("http_request_unhandled_error", {
+      requestId,
+      method: c.req.method,
+      route: metricRoute(c.req.path),
+      error,
+    });
+    throw error;
+  } finally {
+    const route = metricRoute(c.req.path);
+    const status = failed ? 500 : c.res.status;
+    const durationSeconds = (performance.now() - startedAt) / 1_000;
+    const labels = { method: c.req.method, route, status: String(status) };
+
+    metrics.incCounter("whatsapp_http_requests_total", labels);
+    metrics.observeHistogram("whatsapp_http_request_duration_seconds", durationSeconds, {
+      method: c.req.method,
+      route,
+    });
+    if (status >= 400) metrics.incCounter("whatsapp_http_errors_total", labels);
+
+    log.info("http_request_completed", {
+      requestId,
+      method: c.req.method,
+      route,
+      status,
+      durationMs: Math.round(durationSeconds * 1_000 * 100) / 100,
+    });
+  }
+});
 
 app.get("/health", (c) =>
   c.json({
@@ -24,6 +84,49 @@ app.get("/health", (c) =>
     timestamp: new Date().toISOString(),
   }),
 );
+
+app.get("/ready", async (c) => {
+  const checks: Record<string, "ok" | "error"> = { database: "ok", redis: "ok" };
+
+  const dbStartedAt = performance.now();
+  try {
+    await database.client`select 1`;
+  } catch (error) {
+    checks.database = "error";
+    log.error("readiness_check_failed", { requestId: c.get("requestId"), dependency: "database", error });
+  } finally {
+    metrics.observeHistogram("whatsapp_readiness_check_duration_seconds", (performance.now() - dbStartedAt) / 1_000, {
+      dependency: "database",
+    });
+  }
+
+  const redisStartedAt = performance.now();
+  try {
+    const redis = await webhookQueue.client;
+    await redis.ping();
+  } catch (error) {
+    checks.redis = "error";
+    log.error("readiness_check_failed", { requestId: c.get("requestId"), dependency: "redis", error });
+  } finally {
+    metrics.observeHistogram("whatsapp_readiness_check_duration_seconds", (performance.now() - redisStartedAt) / 1_000, {
+      dependency: "redis",
+    });
+  }
+
+  const body = {
+    ok: checks.database === "ok" && checks.redis === "ok",
+    service: "api",
+    checks,
+    timestamp: new Date().toISOString(),
+  };
+
+  return body.ok ? c.json(body, 200) : c.json(body, 503);
+});
+
+app.get("/metrics", (c) => {
+  c.header("content-type", metrics.contentType);
+  return c.body(metrics.render());
+});
 
 app.get("/api/v1/meta/webhook", (c) => {
   const mode = c.req.query("hub.mode");
@@ -38,10 +141,12 @@ app.get("/api/v1/meta/webhook", (c) => {
 });
 
 app.post("/api/v1/meta/webhook", async (c) => {
+  metrics.incCounter("whatsapp_webhooks_received_total");
   const rawBody = await c.req.text();
   const signature = c.req.header("x-hub-signature-256");
 
   if (!verifyMetaWebhookSignature(rawBody, signature, env.META_APP_SECRET)) {
+    metrics.incCounter("whatsapp_webhook_errors_total", { reason: "invalid_signature" });
     return c.text("Invalid webhook signature", 401);
   }
 
@@ -49,10 +154,12 @@ app.post("/api/v1/meta/webhook", async (c) => {
   try {
     payload = JSON.parse(rawBody);
   } catch {
+    metrics.incCounter("whatsapp_webhook_errors_total", { reason: "invalid_json" });
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
   if (!payload || typeof payload !== "object" || (payload as Record<string, unknown>).object !== "whatsapp_business_account") {
+    metrics.incCounter("whatsapp_webhook_errors_total", { reason: "unsupported_object" });
     return c.json({ error: "Unsupported webhook object" }, 400);
   }
 
@@ -77,7 +184,10 @@ app.post("/api/v1/meta/webhook", async (c) => {
       .limit(1)
   )[0];
 
-  if (!event) return c.json({ error: "Could not persist webhook" }, 500);
+  if (!event) {
+    metrics.incCounter("whatsapp_webhook_errors_total", { reason: "persistence" });
+    return c.json({ error: "Could not persist webhook" }, 500);
+  }
 
   if (!event.processedAt) {
     try {
@@ -87,7 +197,13 @@ app.post("/api/v1/meta/webhook", async (c) => {
         { jobId: `webhook-${event.id}` },
       );
     } catch (error) {
-      console.error("Could not queue persisted Meta webhook", { eventId: event.id, error });
+      metrics.incCounter("whatsapp_webhook_errors_total", { reason: "queue_unavailable" });
+      log.error("meta_webhook_queue_failed", {
+        requestId: c.get("requestId"),
+        jobId: `webhook-${event.id}`,
+        eventId: event.id,
+        error,
+      });
       return c.json({ error: "Webhook persisted but processing is temporarily unavailable" }, 503);
     }
   }
@@ -119,4 +235,4 @@ const server = Bun.serve({
   fetch: app.fetch,
 });
 
-console.log(`API listening on ${server.url}`);
+log.info("service_started", { url: server.url.toString() });
