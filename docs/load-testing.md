@@ -8,6 +8,8 @@ The campaign runner starts a dedicated worker with a Bun preload that intercepts
 
 The webhook-flood runner uses the same preload for its worker. Even though the webhook test does not intentionally enqueue campaign sends, any unexpected WhatsApp `/messages` request is redirected to localhost instead of Meta.
 
+The resilience runner goes further: it refuses remote Postgres and Redis URLs entirely, uses `docker-compose.load-chaos.yml`, and tears down its durable local volumes after every run. Its controlled worker-exit hook is active only when `NODE_ENV=test` and `LOAD_WORKER_EXIT_AFTER_MS` is a positive number.
+
 ## Quick start
 
 ```bash
@@ -64,8 +66,23 @@ bun run load:webhooks -- --events=100000 --concurrency=500 --timeout-ms=300000
 
 The webhook runner flushes the isolated load-test Valkey database before starting. Do not run it concurrently with another load benchmark using the same load-test ports.
 
+## Resilience scenarios
+
+These runs are intentionally separate from normal CI and the routine load-smoke workflow because they restart local dependencies or change worker topology. Use the direct runner so the destructive behavior is explicit:
+
+```bash
+bun apps/load-test/src/chaos.ts --chaos=redis-restart --scenario=baseline-1000 --recipients=10000
+bun apps/load-test/src/chaos.ts --chaos=worker-restart --scenario=baseline-1000 --recipients=10000
+bun apps/load-test/src/chaos.ts --chaos=postgres-pressure --scenario=baseline-1000 --recipients=10000
+bun apps/load-test/src/chaos.ts --chaos=multi-worker --scenario=baseline-1000 --recipients=10000 --extra-workers=2
+```
+
+`redis-restart` uses append-only local Valkey storage so queued jobs survive the restart. `worker-restart` asks the test-only preload to exit the original worker after the configured fault delay, then starts a replacement worker against the same queues. `postgres-pressure` runs concurrent aggregate scans inside the isolated Postgres container while the campaign is active. `multi-worker` adds repeatable extra worker processes to the same queues so scaling behavior can be compared with the single-worker baseline.
+
+Useful resilience overrides are `--fault-after-ms`, `--extra-workers`, `--mps`, `--worker-concurrency`, and `--timeout-ms`.
+
 ## Metrics currently captured
 
 The campaign report records snapshot completion timing, time-to-first-message, stable submitted throughput, fake-Meta p50/p95/p99 latency, Redis memory, send-queue depth, Postgres CPU when Docker stats are available, Postgres connections, approximate database writes/sec, worker CPU and RSS, retry volume, and failed-job volume.
 
-The remaining chaos phase should add Redis restart/recovery, worker crash/restart, deliberate Postgres pressure, and repeatable multi-worker scaling runs. Those tests should remain separate from the normal benchmark path so a routine load run cannot unexpectedly restart infrastructure.
+The resilience runner writes a separate JSON/Markdown event timeline alongside the underlying campaign report so the injected fault can be correlated with queue depth, throughput, latency, retries, failures, and worker resource peaks.

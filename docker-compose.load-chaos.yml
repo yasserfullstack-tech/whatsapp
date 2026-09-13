@@ -1,0 +1,35 @@
+services:
+  load-postgres:
+    image: postgres:17-alpine
+    container_name: whatsapp-load-postgres
+    environment:
+      POSTGRES_DB: whatsapp_load
+      POSTGRES_USER: whatsapp
+      POSTGRES_PASSWORD: whatsapp
+    ports:
+      - "55432:5432"
+    volumes:
+      - load-chaos-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsapp -d whatsapp_load"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  load-valkey:
+    image: valkey/valkey:8-alpine
+    container_name: whatsapp-load-valkey
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "always"]
+    ports:
+      - "56379:6379"
+    volumes:
+      - load-chaos-valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  load-chaos-postgres:
+  load-chaos-valkey:
