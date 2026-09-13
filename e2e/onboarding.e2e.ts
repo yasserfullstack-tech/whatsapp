@@ -156,3 +156,35 @@ test("onboarding automatically recognizes work completed outside the guide", asy
   await expect(page.locator('[data-step="consent"]')).toContainText("Incomplete");
   await expect(page.locator('[data-step="campaign"]')).toContainText("Incomplete");
 });
+
+test("onboarding state is isolated between organizations", async ({ browser }, testInfo) => {
+  const contextA = await browser.newContext({ baseURL: "http://127.0.0.1:3000" });
+  const contextB = await browser.newContext({ baseURL: "http://127.0.0.1:3000" });
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  try {
+    const accountA = await createVerifiedWorkspace(pageA, `tenant-a-${testInfo.project.name}`);
+    const accountB = await createVerifiedWorkspace(pageB, `tenant-b-${testInfo.project.name}`);
+    const organizationB = await organizationForEmail(accountB.email);
+    const now = new Date();
+
+    await database.db.insert(schema.organizationOnboarding).values({
+      organizationId: organizationB,
+      consentConfirmedAt: now,
+      completedAt: now,
+      updatedAt: now,
+    });
+
+    await pageA.goto("/onboarding");
+    await expect(pageA.locator('[data-step="consent"]')).toContainText("Incomplete");
+    await expect(pageA.getByText("Onboarding is complete.", { exact: false })).toHaveCount(0);
+
+    await pageB.goto("/onboarding");
+    await expect(pageB.getByText("Onboarding is complete.", { exact: false })).toBeVisible();
+    expect(await organizationForEmail(accountA.email)).not.toBe(organizationB);
+  } finally {
+    await contextA.close();
+    await contextB.close();
+  }
+});
