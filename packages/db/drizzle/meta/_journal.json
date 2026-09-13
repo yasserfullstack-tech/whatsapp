@@ -36,6 +36,13 @@
       "when": 1789287838716,
       "tag": "0004_workspace-settings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789299960776,
+      "tag": "0005_billing-foundation",
+      "breakpoints": true
     }
   ]
 }
