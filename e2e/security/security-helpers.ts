@@ -41,6 +41,29 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
   });
   expect(signUp.ok(), `sign-up failed: ${await signUp.text()}`).toBeTruthy();
 
+  const authRows = await database.client`
+    SELECT id
+    FROM auth_user
+    WHERE email = ${email}
+    LIMIT 1
+  ` as unknown as Array<{ id: string }>;
+  const authUser = authRows[0];
+  if (!authUser) throw new Error(`Could not find Better Auth user for ${email}`);
+
+  // Email verification is production-required. For this tenant-isolation fixture,
+  // verify the generated test account directly in the database, then establish a
+  // real Better Auth session through the normal sign-in endpoint.
+  await database.client`
+    UPDATE auth_user
+    SET email_verified = true, updated_at = now()
+    WHERE id = ${authUser.id}
+  `;
+
+  const signIn = await api.post("/api/auth/sign-in/email", {
+    data: { email, password },
+  });
+  expect(signIn.ok(), `sign-in failed: ${await signIn.text()}`).toBeTruthy();
+
   // Any authenticated workspace route forces creation of the application user,
   // organization, and owner membership through ensureWorkspace().
   const bootstrap = await api.post("/api/audiences/segments", {
@@ -53,15 +76,6 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
     },
   });
   expect(bootstrap.status(), `workspace bootstrap failed: ${await bootstrap.text()}`).toBe(201);
-
-  const authRows = await database.client`
-    SELECT id
-    FROM auth_user
-    WHERE email = ${email}
-    LIMIT 1
-  ` as unknown as Array<{ id: string }>;
-  const authUser = authRows[0];
-  if (!authUser) throw new Error(`Could not find Better Auth user for ${email}`);
 
   const workspaceRows = await database.client`
     SELECT u.id AS "appUserId", om.organization_id AS "organizationId"
