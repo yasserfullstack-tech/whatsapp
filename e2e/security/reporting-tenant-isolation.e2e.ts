@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  closeSecurityDatabase,
   createSecurityTenant,
   destroySecurityTenant,
   securitySql,
@@ -36,7 +35,8 @@ test.describe.serial("reporting tenant isolation", () => {
   test.afterAll(async () => {
     if (tenantB) await destroySecurityTenant(tenantB);
     if (tenantA) await destroySecurityTenant(tenantA);
-    await closeSecurityDatabase();
+    // The security suite reuses one worker. tenant-isolation.e2e.ts owns the
+    // shared helper connection shutdown after the later security files finish.
   });
 
   test("foreign campaign filters cannot expose another tenant through CSV reports", async () => {
