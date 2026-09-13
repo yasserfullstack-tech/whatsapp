@@ -22,6 +22,21 @@ jobs:
         run: bun run load:run -- --scenario=baseline-80 --recipients=1000 --timeout-ms=120000
       - name: 1k webhook smoke
         run: bun run load:webhooks -- --events=1000 --concurrency=50 --timeout-ms=120000
+      - name: Cleanup load infrastructure
+        if: always()
+        run: bun run load:infra:down
+
+  webhook-flood-100k:
+    if: github.head_ref == 'feat/webhook-reliability'
+    needs: load-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install
       - name: 100k webhook flood
         run: bun run load:webhooks -- --events=100000 --concurrency=400 --timeout-ms=300000
       - name: Cleanup load infrastructure
