@@ -52,9 +52,9 @@ Do not pass raw request bodies, Meta access tokens, encryption keys, passwords, 
 
 ## Sentry
 
-Set `SENTRY_DSN` to enable Sentry error reporting in API and worker processes. `SENTRY_ENVIRONMENT` defaults to the process environment and `SENTRY_TRACES_SAMPLE_RATE` defaults to `0.05`.
+Set `SENTRY_DSN` to enable Sentry error reporting in API and worker processes. `SENTRY_ENVIRONMENT` defaults to the process environment.
 
-Sentry is configured with `sendDefaultPii: false`. Before events are sent, request bodies, cookies, query strings, request environment data, user data, and non-allowlisted headers are removed. Structured log context is passed through the same secret redaction used by JSON logs, and exception messages are sanitized before capture.
+Sentry is configured for error reporting only (`tracesSampleRate: 0`) and with `sendDefaultPii: false`. Before error events are sent, request bodies, cookies, query strings, request environment data, user data, and non-allowlisted headers are removed. Structured log context is passed through the same secret redaction used by JSON logs, and exception messages are sanitized before capture. Prometheus remains the source of performance telemetry.
 
 ## Cardinality
 

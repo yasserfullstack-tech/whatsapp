@@ -53,18 +53,13 @@ export function sanitizeForLog(fields: LogFields): LogFields {
   return sanitize(fields, 0, new WeakSet<object>()) as LogFields;
 }
 
-function sentrySampleRate(): number {
-  const parsed = Number.parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.05");
-  return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0.05;
-}
-
 function initSentryIfConfigured(service: string) {
   if (sentryInitialized || !process.env.SENTRY_DSN) return;
 
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || "development",
-    tracesSampleRate: sentrySampleRate(),
+    tracesSampleRate: 0,
     sendDefaultPii: false,
     beforeSend(event) {
       delete event.user;
