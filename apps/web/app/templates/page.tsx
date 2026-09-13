@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
+import { FirstUseEmptyState } from "@/components/first-use-empty-state";
 import { TemplateManager } from "@/components/template-manager";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function TemplatesPage() {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, localeTag, locale } = await getI18n();
   const number = new Intl.NumberFormat(localeTag);
   const [templates, wabas] = await Promise.all([
     db.select().from(schema.templates).where(eq(schema.templates.organizationId, workspace.organizationId)).orderBy(desc(schema.templates.updatedAt)),
@@ -32,6 +33,7 @@ export default async function TemplatesPage() {
         <article className="statCard"><span>{messages.ui.pending}</span><strong>{number.format(pending)}</strong><p>{messages.ui.waitingMetaReview}</p></article>
         <article className="statCard"><span>{messages.ui.rejected}</span><strong>{number.format(rejected)}</strong><p>{messages.ui.needsRevision}</p></article>
       </section>
+      {templates.length === 0 ? <FirstUseEmptyState kind="templates" locale={locale} /> : null}
       <section className="panel" style={{ marginTop: 18 }}><TemplateManager wabas={wabas.map(({ wabaId, label }) => ({ wabaId, label }))} /></section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.library}</p><h2>{messages.ui.syncedTemplates}</h2></div></div>
         {templates.length ? <div className="numberList" style={{ marginTop: 14 }}>{templates.map((template) => <div className="numberRow" key={template.id} style={{ alignItems: "start" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><strong>{template.name}</strong><span className="subtitle">{template.language}</span><span className="subtitle">{template.category}</span></div><p style={{ margin: "7px 0 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{template.bodyPreview ?? messages.ui.noBodyPreview}</p>{template.rejectionReason ? <p style={{ margin: "7px 0 0", color: "var(--danger)", fontSize: 12 }}>Meta: {template.rejectionReason}</p> : null}</div><div className="numberMeta"><span className={template.status === "approved" ? "status connected" : "status"}>{template.status}</span><span>WABA {template.wabaId}</span></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">T</div><h3>{messages.ui.noTemplatesSynced}</h3><p>{messages.ui.noTemplatesDescription}</p></div>}
