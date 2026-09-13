@@ -11,6 +11,7 @@ export default defineConfig({
     "./src/contact-import-schema.ts",
     "./src/suppression-schema.ts",
     "./src/audience-schema.ts",
+    "./src/admin-schema.ts",
   ],
   out: "./drizzle",
   dbCredentials: {

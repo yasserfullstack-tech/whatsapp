@@ -4,12 +4,14 @@ import * as coreSchema from "./schema";
 import * as contactImportSchema from "./contact-import-schema";
 import * as suppressionSchema from "./suppression-schema";
 import * as audienceSchema from "./audience-schema";
+import * as adminSchema from "./admin-schema";
 
-export const schema = { ...coreSchema, ...contactImportSchema, ...suppressionSchema, ...audienceSchema };
+export const schema = { ...coreSchema, ...contactImportSchema, ...suppressionSchema, ...audienceSchema, ...adminSchema };
 export * from "./schema";
 export * from "./contact-import-schema";
 export * from "./suppression-schema";
 export * from "./audience-schema";
+export * from "./admin-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {
