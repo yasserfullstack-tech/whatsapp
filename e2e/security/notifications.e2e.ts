@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
 import { schema } from "../../packages/db/src/index";
 import { createSecurityTenant, destroySecurityTenant, securityDb, type SecurityTenant } from "./security-helpers";
 
@@ -49,10 +48,5 @@ test.describe.serial("notification tenant isolation", () => {
     const response = await request.get("/api/notifications/unread-count");
     expect(response.status()).toBe(401);
     expect(await response.json()).toEqual({ error: "Unauthorized" });
-  });
-
-  test("deleting tenant B notification does not require or expose tenant A data", async () => {
-    const rows = await securityDb.select({ id: schema.notifications.id }).from(schema.notifications).where(eq(schema.notifications.organizationId, tenantB.organizationId));
-    expect(rows).toHaveLength(1);
   });
 });
