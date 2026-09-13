@@ -6,6 +6,7 @@ const englishPages = [
   ["/audiences", "Lists and reusable segments"],
   ["/templates", "Message templates"],
   ["/campaigns", "Launch a WhatsApp campaign"],
+  ["/settings/data", "Data"],
 ] as const;
 
 const arabicPages = [
@@ -13,6 +14,7 @@ const arabicPages = [
   ["/audiences", "القوائم والشرائح القابلة لإعادة الاستخدام"],
   ["/templates", "قوالب الرسائل"],
   ["/campaigns", "إطلاق حملة واتساب"],
+  ["/settings/data", "البيانات"],
 ] as const;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -79,9 +81,13 @@ test("English and Arabic UI remains usable across responsive viewports", async (
     await expectNoHorizontalOverflow(page);
   }
 
+  await page.goto("/settings/data");
+  await expect(page.getByRole("button", { name: "Schedule deletion" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Delete account permanently" })).toBeDisabled();
+
   await page.getByRole("button", { name: "العربية" }).click();
   await expectDirection(page, "ar", "rtl");
-  await expect(page.getByRole("heading", { name: "إطلاق حملة واتساب" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "البيانات" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "التنقل الرئيسي" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
