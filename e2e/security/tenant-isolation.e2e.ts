@@ -1,11 +1,11 @@
 import { expect, request, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import {
   closeSecurityDatabase,
   createSecurityTenant,
   destroySecurityTenant,
   securityDb,
+  securitySql,
   seedTenantResources,
   type SecurityTenant,
   type TenantResources,
@@ -30,16 +30,16 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
     await seedTenantResources(tenantA.organizationId);
     tenantBResources = await seedTenantResources(tenantB.organizationId);
 
-    const [tenantAPhone, tenantATemplate, tenantBPhone, tenantBTemplate] = await Promise.all([
-      securityDb.select({ id: schema.whatsappPhoneNumbers.id }).from(schema.whatsappPhoneNumbers)
-        .where(eq(schema.whatsappPhoneNumbers.organizationId, tenantA.organizationId)).limit(1).then((rows) => rows[0]),
-      securityDb.select({ id: schema.templates.id }).from(schema.templates)
-        .where(eq(schema.templates.organizationId, tenantA.organizationId)).limit(1).then((rows) => rows[0]),
-      securityDb.select({ id: schema.whatsappPhoneNumbers.id }).from(schema.whatsappPhoneNumbers)
-        .where(eq(schema.whatsappPhoneNumbers.organizationId, tenantB.organizationId)).limit(1).then((rows) => rows[0]),
-      securityDb.select({ id: schema.templates.id }).from(schema.templates)
-        .where(eq(schema.templates.organizationId, tenantB.organizationId)).limit(1).then((rows) => rows[0]),
+    const [tenantAPhoneRows, tenantATemplateRows, tenantBPhoneRows, tenantBTemplateRows] = await Promise.all([
+      securitySql`SELECT id FROM whatsapp_phone_numbers WHERE organization_id = ${tenantA.organizationId} LIMIT 1`,
+      securitySql`SELECT id FROM templates WHERE organization_id = ${tenantA.organizationId} LIMIT 1`,
+      securitySql`SELECT id FROM whatsapp_phone_numbers WHERE organization_id = ${tenantB.organizationId} LIMIT 1`,
+      securitySql`SELECT id FROM templates WHERE organization_id = ${tenantB.organizationId} LIMIT 1`,
     ]);
+    const tenantAPhone = (tenantAPhoneRows as unknown as Array<{ id: string }>)[0];
+    const tenantATemplate = (tenantATemplateRows as unknown as Array<{ id: string }>)[0];
+    const tenantBPhone = (tenantBPhoneRows as unknown as Array<{ id: string }>)[0];
+    const tenantBTemplate = (tenantBTemplateRows as unknown as Array<{ id: string }>)[0];
     const [tenantBList] = await securityDb.insert(schema.contactLists)
       .values({ organizationId: tenantB.organizationId, name: "Tenant B private list" })
       .returning({ id: schema.contactLists.id });
@@ -176,15 +176,12 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
 
   test("workspace data export enforces the role matrix", async () => {
     for (const role of ["viewer", "member"] as const) {
-      await securityDb.update(schema.organizationMembers).set({ role })
-        .where(eq(schema.organizationMembers.organizationId, tenantB.organizationId));
+      await securitySql`UPDATE organization_members SET role = ${role} WHERE organization_id = ${tenantB.organizationId}`;
       expect((await tenantB.api.get("/api/settings/data/export")).status(), `${role} must not export workspace data`).toBe(403);
     }
-    await securityDb.update(schema.organizationMembers).set({ role: "admin" })
-      .where(eq(schema.organizationMembers.organizationId, tenantB.organizationId));
+    await securitySql`UPDATE organization_members SET role = 'admin' WHERE organization_id = ${tenantB.organizationId}`;
     expect((await tenantB.api.get("/api/settings/data/export")).status()).toBe(200);
-    await securityDb.update(schema.organizationMembers).set({ role: "owner" })
-      .where(eq(schema.organizationMembers.organizationId, tenantB.organizationId));
+    await securitySql`UPDATE organization_members SET role = 'owner' WHERE organization_id = ${tenantB.organizationId}`;
   });
 
   test("workspace owners are not platform administrators", async () => {
@@ -195,8 +192,7 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
 
   test("stored organization names cannot inject executable markup", async () => {
     const payload = '<script>globalThis.__security_xss=1</script><img src=x onerror="globalThis.__security_xss=2">';
-    await securityDb.update(schema.organizations).set({ name: payload, updatedAt: new Date() })
-      .where(eq(schema.organizations.id, tenantB.organizationId));
+    await securitySql`UPDATE organizations SET name = ${payload} WHERE id = ${tenantB.organizationId}`;
     const response = await tenantB.api.get("/settings/general");
     expect(response.status()).toBe(200);
     const html = await response.text();
