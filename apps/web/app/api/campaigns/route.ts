@@ -30,6 +30,7 @@ const createCampaignSchema = z.object({
   templateId: z.uuid(),
   audience: audienceSelectionSchema,
   bindings: z.array(bindingSchema).max(20).default([]),
+  onboardingTest: z.boolean().optional().default(false),
 });
 
 function requiredVariableIndexes(body: string | null): number[] {
@@ -104,6 +105,9 @@ export async function POST(request: Request) {
   if (eligibleContacts === 0) {
     return NextResponse.json({ error: "The selected audience has no currently eligible, non-suppressed contacts" }, { status: 400 });
   }
+  if (parsed.data.onboardingTest && eligibleContacts > 5) {
+    return NextResponse.json({ error: "Onboarding test campaigns are limited to 5 eligible contacts" }, { status: 400 });
+  }
 
   const campaignId = await db.transaction(async (tx) => {
     const [campaign] = await tx
@@ -144,6 +148,16 @@ export async function POST(request: Request) {
       .where(eq(schema.campaigns.id, campaignId));
     console.error("Could not queue campaign dispatcher", error);
     return NextResponse.json({ error: "Campaign was created but could not be queued" }, { status: 503 });
+  }
+
+  if (parsed.data.onboardingTest) {
+    const now = new Date();
+    await db.insert(schema.organizationOnboarding)
+      .values({ organizationId, testCampaignId: campaignId, updatedAt: now })
+      .onConflictDoUpdate({
+        target: schema.organizationOnboarding.organizationId,
+        set: { testCampaignId: campaignId, updatedAt: now },
+      });
   }
 
   return NextResponse.json({
