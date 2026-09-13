@@ -3,6 +3,7 @@ import { count, desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AudienceManager } from "@/components/audience-manager";
+import { FirstUseEmptyState } from "@/components/first-use-empty-state";
 import { requireAuthContext } from "@/lib/auth-context";
 import { countEligibleAudience } from "@/lib/audience-server";
 import { getI18n } from "@/lib/i18n/server";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AudiencesPage() {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, localeTag, locale } = await getI18n();
   const number = new Intl.NumberFormat(localeTag);
   const date = new Intl.DateTimeFormat(localeTag, { dateStyle: "medium" });
   const organizationId = workspace.organizationId;
@@ -34,6 +35,7 @@ export default async function AudiencesPage() {
         <article className="statCard"><span>{messages.ui.listMemberships}</span><strong>{number.format(listRows.reduce((sum, list) => sum + list.memberCount, 0))}</strong><p>{messages.ui.acrossLists}</p></article>
         <article className="statCard"><span>{messages.ui.safety}</span><strong>{messages.ui.alwaysOn}</strong><p>{messages.ui.optOutSafety}</p></article>
       </section>
+      {listRows.length === 0 && segments.length === 0 ? <FirstUseEmptyState kind="audiences" locale={locale} /> : null}
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.dynamicSegment}</p><h2>{messages.ui.buildFilters}</h2><p className="subtitle">{messages.ui.filterDescription}</p></div></div><AudienceManager lists={listRows.map((list) => ({ id: list.id, name: list.name, memberCount: list.memberCount }))} /></section>
       <section className="mainGrid">
         <article className="panel campaignsPanel"><div className="panelHeader"><div><p className="eyebrow">{messages.ui.staticLists}</p><h2>{listRows.length ? messages.ui.importedAudiences : messages.ui.noLists}</h2></div></div>
