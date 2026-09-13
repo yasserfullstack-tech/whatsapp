@@ -30,28 +30,17 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
     await seedTenantResources(tenantA.organizationId);
     tenantBResources = await seedTenantResources(tenantB.organizationId);
 
-    const [tenantAPhone] = await securityDb
-      .select({ id: schema.whatsappPhoneNumbers.id })
-      .from(schema.whatsappPhoneNumbers)
-      .where(eq(schema.whatsappPhoneNumbers.organizationId, tenantA.organizationId))
-      .limit(1);
-    const [tenantATemplate] = await securityDb
-      .select({ id: schema.templates.id })
-      .from(schema.templates)
-      .where(eq(schema.templates.organizationId, tenantA.organizationId))
-      .limit(1);
-    const [tenantBPhone] = await securityDb
-      .select({ id: schema.whatsappPhoneNumbers.id })
-      .from(schema.whatsappPhoneNumbers)
-      .where(eq(schema.whatsappPhoneNumbers.organizationId, tenantB.organizationId))
-      .limit(1);
-    const [tenantBTemplate] = await securityDb
-      .select({ id: schema.templates.id })
-      .from(schema.templates)
-      .where(eq(schema.templates.organizationId, tenantB.organizationId))
-      .limit(1);
-    const [tenantBList] = await securityDb
-      .insert(schema.contactLists)
+    const [tenantAPhone, tenantATemplate, tenantBPhone, tenantBTemplate] = await Promise.all([
+      securityDb.select({ id: schema.whatsappPhoneNumbers.id }).from(schema.whatsappPhoneNumbers)
+        .where(eq(schema.whatsappPhoneNumbers.organizationId, tenantA.organizationId)).limit(1).then((rows) => rows[0]),
+      securityDb.select({ id: schema.templates.id }).from(schema.templates)
+        .where(eq(schema.templates.organizationId, tenantA.organizationId)).limit(1).then((rows) => rows[0]),
+      securityDb.select({ id: schema.whatsappPhoneNumbers.id }).from(schema.whatsappPhoneNumbers)
+        .where(eq(schema.whatsappPhoneNumbers.organizationId, tenantB.organizationId)).limit(1).then((rows) => rows[0]),
+      securityDb.select({ id: schema.templates.id }).from(schema.templates)
+        .where(eq(schema.templates.organizationId, tenantB.organizationId)).limit(1).then((rows) => rows[0]),
+    ]);
+    const [tenantBList] = await securityDb.insert(schema.contactLists)
       .values({ organizationId: tenantB.organizationId, name: "Tenant B private list" })
       .returning({ id: schema.contactLists.id });
 
@@ -86,35 +75,29 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
   });
 
   test("Organization A cannot control Organization B campaign", async () => {
-    const response = await tenantA.api.post(`/api/campaigns/${tenantBResources.campaignId}/control`, {
-      data: { action: "pause" },
-    });
+    const response = await tenantA.api.post(`/api/campaigns/${tenantBResources.campaignId}/control`, { data: { action: "pause" } });
     expect(response.status()).toBe(404);
     expect(await response.json()).toEqual({ error: "Campaign not found" });
   });
 
-  test("Organization A cannot read Organization B import", async () => {
-    const response = await tenantA.api.get(`/api/contact-imports/${tenantBResources.contactImportId}`);
-    expect(response.status()).toBe(404);
-    expect(await response.json()).toEqual({ error: "Import not found" });
+  test("Organization A cannot read or queue Organization B import", async () => {
+    const read = await tenantA.api.get(`/api/contact-imports/${tenantBResources.contactImportId}`);
+    expect(read.status()).toBe(404);
+    expect(await read.json()).toEqual({ error: "Import not found" });
+
+    const queue = await tenantA.api.post(`/api/contact-imports/${tenantBResources.contactImportId}`);
+    expect(queue.status()).toBe(404);
+    expect(await queue.json()).toEqual({ error: "Import not found" });
   });
 
-  test("Organization A cannot queue Organization B import", async () => {
-    const response = await tenantA.api.post(`/api/contact-imports/${tenantBResources.contactImportId}`);
-    expect(response.status()).toBe(404);
-    expect(await response.json()).toEqual({ error: "Import not found" });
-  });
-
-  test("Organization A cannot suppress Organization B contact", async () => {
-    const response = await tenantA.api.post(`/api/contacts/${tenantBResources.contactId}/suppress`, {
+  test("Organization A cannot change Organization B contact consent", async () => {
+    const suppress = await tenantA.api.post(`/api/contacts/${tenantBResources.contactId}/suppress`, {
       data: { reason: "security regression test" },
     });
-    expect(response.status()).toBe(404);
-    expect(await response.json()).toEqual({ error: "Contact not found" });
-  });
+    expect(suppress.status()).toBe(404);
+    expect(await suppress.json()).toEqual({ error: "Contact not found" });
 
-  test("Organization A cannot restore consent for Organization B contact", async () => {
-    const response = await tenantA.api.post(`/api/contacts/${tenantBResources.contactId}/resubscribe`, {
+    const restore = await tenantA.api.post(`/api/contacts/${tenantBResources.contactId}/resubscribe`, {
       data: {
         consentSource: "security regression test",
         consentedAt: new Date().toISOString(),
@@ -122,8 +105,8 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
         confirmation: true,
       },
     });
-    expect(response.status()).toBe(404);
-    expect(await response.json()).toEqual({ error: "Contact not found" });
+    expect(restore.status()).toBe(404);
+    expect(await restore.json()).toEqual({ error: "Contact not found" });
   });
 
   test("Organization A cannot reference Organization B list in a segment", async () => {
@@ -193,21 +176,14 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
 
   test("workspace data export enforces the role matrix", async () => {
     for (const role of ["viewer", "member"] as const) {
-      await securityDb
-        .update(schema.organizationMembers)
-        .set({ role })
+      await securityDb.update(schema.organizationMembers).set({ role })
         .where(eq(schema.organizationMembers.organizationId, tenantB.organizationId));
-      const response = await tenantB.api.get("/api/settings/data/export");
-      expect(response.status(), `${role} must not export workspace data`).toBe(403);
+      expect((await tenantB.api.get("/api/settings/data/export")).status(), `${role} must not export workspace data`).toBe(403);
     }
-    await securityDb
-      .update(schema.organizationMembers)
-      .set({ role: "admin" })
+    await securityDb.update(schema.organizationMembers).set({ role: "admin" })
       .where(eq(schema.organizationMembers.organizationId, tenantB.organizationId));
     expect((await tenantB.api.get("/api/settings/data/export")).status()).toBe(200);
-    await securityDb
-      .update(schema.organizationMembers)
-      .set({ role: "owner" })
+    await securityDb.update(schema.organizationMembers).set({ role: "owner" })
       .where(eq(schema.organizationMembers.organizationId, tenantB.organizationId));
   });
 
@@ -219,9 +195,7 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
 
   test("stored organization names cannot inject executable markup", async () => {
     const payload = '<script>globalThis.__security_xss=1</script><img src=x onerror="globalThis.__security_xss=2">';
-    await securityDb
-      .update(schema.organizations)
-      .set({ name: payload, updatedAt: new Date() })
+    await securityDb.update(schema.organizations).set({ name: payload, updatedAt: new Date() })
       .where(eq(schema.organizations.id, tenantB.organizationId));
     const response = await tenantB.api.get("/settings/general");
     expect(response.status()).toBe(200);
@@ -230,28 +204,22 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
     expect(html).not.toContain("<img src=x");
   });
 
-  test("rejects oversized or non-CSV upload metadata before signing", async () => {
+  test("rejects oversized, non-CSV, and unconfirmed upload metadata before signing", async () => {
+    const base = { defaultCountry: "IQ", optInSource: "security test" };
     const oversized = await tenantB.api.post("/api/contact-imports/presign", {
-      data: {
-        fileName: "contacts.csv",
-        sizeBytes: MAX_CSV_BYTES + 1,
-        defaultCountry: "IQ",
-        optInSource: "security test",
-        confirmedOptIn: true,
-      },
+      data: { ...base, fileName: "contacts.csv", sizeBytes: MAX_CSV_BYTES + 1, confirmedOptIn: true },
     });
     expect(oversized.status()).toBe(400);
 
     const wrongType = await tenantB.api.post("/api/contact-imports/presign", {
-      data: {
-        fileName: "contacts.xlsx",
-        sizeBytes: 1024,
-        defaultCountry: "IQ",
-        optInSource: "security test",
-        confirmedOptIn: true,
-      },
+      data: { ...base, fileName: "contacts.xlsx", sizeBytes: 1024, confirmedOptIn: true },
     });
     expect(wrongType.status()).toBe(400);
+
+    const noConsent = await tenantB.api.post("/api/contact-imports/presign", {
+      data: { ...base, fileName: "contacts.csv", sizeBytes: 1024, confirmedOptIn: false },
+    });
+    expect(noConsent.status()).toBe(400);
   });
 
   test("presigned upload is tenant-scoped, sanitized, expiring, and content-type bound", async () => {
@@ -284,11 +252,9 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
     expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).toContain("content-type");
   });
 
-  test("expired authenticated sessions are rejected", async () => {
-    await securityDb
-      .update(schema.authSession)
-      .set({ expiresAt: new Date(0), updatedAt: new Date() })
-      .where(eq(schema.authSession.userId, tenantA.authUserId));
+  test("revoked authenticated sessions are rejected", async () => {
+    const signOut = await tenantA.api.post("/api/auth/sign-out");
+    expect(signOut.ok(), await signOut.text()).toBeTruthy();
     const response = await tenantA.api.get("/api/settings/data/export");
     expect(response.status()).toBe(401);
   });
