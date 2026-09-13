@@ -35,8 +35,8 @@ export function MfaSecurityCard() {
   const [newBackupCodes, setNewBackupCodes] = useState<string[] | null>(null);
 
   useEffect(() => {
-    if (!enrollment) setEnabled(sessionMfaEnabled);
-  }, [enrollment, sessionMfaEnabled]);
+    if (sessionMfaEnabled) setEnabled(true);
+  }, [sessionMfaEnabled]);
 
   async function startEnrollment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,7 +159,7 @@ export function MfaSecurityCard() {
         <div className="authForm">
           <div>
             <h3>1. Scan this QR code</h3>
-            <p className="subtitle">Scan with your authenticator app. The setup secret stays in this browser view only for enrollment.</p>
+            <p className="subtitle">Scan with your authenticator app. This setup QR is shown only while you are enrolling.</p>
             <div style={{ background: "white", display: "inline-block", padding: 16 }}>
               <QRCode aria-label="Authenticator setup QR code" size={192} value={enrollment.totpURI} />
             </div>
