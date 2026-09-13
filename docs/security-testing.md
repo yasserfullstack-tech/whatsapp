@@ -1,78 +1,77 @@
-# Security testing branch
+# Security testing
 
-This branch is a security regression harness. Production fixes discovered here should normally be implemented in small `fix/security-*` branches and merged independently.
+This suite is the security regression harness for the multi-tenant application. Production fixes discovered by the suite should be merged with the regression that proves the boundary.
 
 ## Core rule: tenant isolation
 
-For every tenant-owned resource, a caller from Organization A using an identifier that belongs to Organization B must receive `404` or `403`. The response must never include Organization B data, metadata, secrets, object keys, phone numbers, template contents, analytics, or existence-sensitive detail.
+For every tenant-owned resource, a caller from Organization A using an identifier that belongs to Organization B must receive `404`, `403`, or a non-enumerating validation response. The response must never include Organization B data, metadata, secrets, object keys, phone numbers, template contents, analytics, or existence-sensitive detail.
 
-Tenant filters must be enforced server-side at the data-access boundary. A client-supplied organization ID is never authoritative.
+Tenant filters are enforced server-side at the data-access boundary. Client-supplied organization identifiers and workspace-selection cookies are never authoritative.
 
 ## Current executable coverage
 
-The security Playwright suite currently provisions two real authenticated users/workspaces against PostgreSQL, seeds Organization B resources, then attacks them using Organization A's session.
+The Playwright security suite provisions real authenticated users/workspaces against PostgreSQL, seeds tenant-owned resources, and attacks them through the application HTTP boundary.
 
-Implemented cross-tenant regressions:
+Cross-tenant and authorization regressions cover:
 
-- campaign detail IDOR
-- campaign control IDOR
-- contact import read IDOR
-- contact import queue IDOR
-- contact suppression IDOR
-- contact consent restoration IDOR
+- campaign detail and campaign-control IDOR
+- contact-import read and queue IDOR
+- contact suppression and consent-restoration IDOR
+- foreign list IDs embedded in segment definitions
+- foreign WhatsApp phone-number IDs in campaign creation
+- foreign template IDs in campaign creation
+- forged workspace-selection cookies
+- workspace data-export role enforcement
+- workspace export exclusion of credential keys and encrypted secret material
+- workspace-owner versus platform-administrator separation
 
-Implemented anonymous-access probes:
+Request and abuse regressions cover:
 
-- audience preview
-- segment creation
-- campaign creation/detail/control
-- contact-import presign/read/queue
-- contact suppression/resubscribe
-- template creation/sync
-- embedded WhatsApp signup completion
+- anonymous access to protected application APIs, including settings export
+- malformed opaque, JWT-shaped, and UUID-shaped session tokens
+- revoked authenticated sessions through the real sign-out lifecycle
+- cross-site mutation requests rejected by the Next.js request boundary
+- stored markup/XSS payload escaping in workspace-controlled text
+- oversized and invalid CSV upload metadata
+- presigned upload tenant prefix, filename sanitization, expiry, and signed `content-type`
+- production browser-hardening headers
 
-Implemented bad-session probes:
+Existing lower-level tests also cover Meta webhook signature validation and structured-log secret redaction.
 
-- unknown opaque session token
-- JWT-shaped invalid session token
-- UUID-shaped invalid session token
+## Coverage matrix
 
-All are required to fail with `401 Unauthorized` on protected APIs.
+`N/A` means the application does not currently expose an identifier-bearing endpoint for that resource. When such an endpoint is added, the corresponding regression should land in the same feature PR.
 
-## Required coverage matrix
-
-| Area | Cross-tenant IDOR | Authorization roles | Anonymous | Abuse/input | Status |
+| Area | Cross-tenant / isolation | Authorization | Anonymous / session | Abuse / leakage | Current status |
 | --- | --- | --- | --- | --- | --- |
-| contacts | partial | pending | partial | pending | active |
-| lists | pending | pending | indirect | pending | next |
-| segments | pending | pending | covered create | pending | next |
-| templates | pending | pending | covered | pending | next |
-| campaigns | covered existing ID routes | pending | covered | invalid session covered | active |
-| campaign recipients | pending | pending | pending | pending | next |
-| imports | covered existing ID routes | pending | covered | malformed upload pending | active |
-| phone numbers | pending | pending | pending | pending | next |
-| consent records | partial via contact actions | pending | partial | pending | active |
-| suppressions | partial via contact actions | pending | partial | pending | active |
-| analytics | pending | pending | pending | pending | future endpoint |
-| settings | pending | pending | pending | pending | feature branch |
-| members | pending | pending | pending | pending | feature branch |
-| credentials | pending | pending | pending | secret leakage pending | next |
-| admin endpoints | pending | platform-admin matrix pending | pending | pending | feature branch |
+| contacts | suppress/resubscribe IDOR covered | authenticated workspace boundary | covered on existing actions | stored user text escaped by React | covered for current endpoints |
+| lists | foreign list reference rejected | tenant-scoped validation | indirect through protected segment API | schema validation | covered for current endpoints |
+| segments | tenant-owned list filters enforced | authenticated workspace boundary | create covered | input schema + CSRF boundary | covered for current endpoints |
+| templates | foreign template campaign reference rejected | tenant-scoped campaign validation | create/sync covered | response does not expose foreign template | covered for current endpoints |
+| campaigns | detail/control IDOR + foreign phone/template references covered | authenticated workspace boundary | create/detail/control covered | malformed sessions + CSRF covered | covered for current endpoints |
+| campaign recipients | N/A — no public recipient-by-id endpoint | N/A | N/A | N/A | add regression with endpoint |
+| imports | read/queue IDOR covered | authenticated workspace boundary | presign/read/queue covered | size/type validation + signed-upload restrictions | covered for current endpoints |
+| phone numbers | foreign campaign reference rejected | tenant-scoped campaign validation | embedded signup protected | no foreign phone metadata leakage | covered for current endpoints |
+| consent records | enforced through contact IDOR actions | authenticated workspace boundary | protected | evidence input validated | covered for current endpoints |
+| suppressions | enforced through contact IDOR actions | authenticated workspace boundary | protected | input validated | covered for current endpoints |
+| analytics | N/A — no standalone analytics API | N/A | N/A | N/A | add regression with endpoint |
+| settings | forged workspace cookie rejected; export stays tenant-scoped | workspace role matrix + export role E2E | export anonymous access covered | secret-free export + CSRF boundary | covered for current surfaces |
+| members | tenant context + workspace permission matrix | Owner/Admin/Member/Viewer matrix unit-tested | server-rendered/settings boundary | server-side actions re-check permissions | covered for current surfaces |
+| credentials | never selected into workspace export | tenant-scoped credential lookup | protected indirectly | export and logger secret-leakage regressions | covered for current surfaces |
+| admin | workspace owner is not platform admin | separate platform-admin grant boundary | protected | no workspace-role escalation | covered for current surfaces |
 
-## Abuse suites to add as the corresponding endpoints land
+## Remaining rules for future endpoints
 
-- authorization matrix for Owner/Admin/Member/Viewer and platform administrators
-- expired and revoked session behavior; malformed/unknown sessions are already covered
-- CSRF on state-changing cookie-authenticated endpoints
-- reflected/stored XSS payloads across user-controlled fields
-- SQL injection payload corpus for search/filter/sort inputs
-- oversized JSON, CSV, and multipart bodies
-- malformed CSV and upload metadata
-- invalid Meta webhook signatures beyond the existing signature unit tests
-- webhook replay/idempotency behavior
-- R2 organization-prefix isolation
-- presigned URL method/content-type/expiry/key restrictions
-- secret leakage in API responses, logs, build output, and error messages
+The security suite should grow with the product rather than invent endpoints that do not exist. Add focused regressions when new surfaces introduce:
+
+- list, segment, template, phone-number, recipient, analytics, credential, or member ID routes
+- search/filter/sort parameters that create new SQL-query construction paths
+- direct multipart or raw CSV upload endpoints
+- additional platform-admin mutation endpoints
+- new R2 object-read/download URLs
+- new webhook event types or replay semantics
+
+For all new state-changing cookie-authenticated custom `/api/*` routes, the shared request boundary applies automatically. Better Auth routes retain Better Auth's own trusted-origin handling.
 
 ## CI security gates
 
@@ -81,9 +80,10 @@ All are required to fail with `401 Unauthorized` on protected APIs.
 - `bun audit --audit-level=high` for dependency vulnerabilities
 - Gitleaks repository-history secret scanning
 - CodeQL JavaScript/TypeScript `security-extended` static analysis
-- the isolated security Playwright suite against clean PostgreSQL and Valkey services
+- the isolated Playwright security suite against clean PostgreSQL and Valkey services
+- isolated fake R2 signing credentials for presign-policy tests; no real storage account is contacted
 
-Container/image scanning is intentionally deferred until container images become part of the deployment path.
+Container/image scanning remains deferred until container images become part of the deployment path.
 
 ## Running locally
 
@@ -102,7 +102,7 @@ The suite uses generated `example.test` accounts and removes the organizations, 
 
 Prefer black-box HTTP tests. Seed the victim resource directly in the database only when the normal creation flow requires unrelated external systems such as Meta or R2. Always authenticate as a different organization for the attack request and assert both:
 
-1. the response is `404` or `403`; and
+1. the response is `404`, `403`, or a non-enumerating validation response; and
 2. the victim resource was not read, changed, queued, deleted, or leaked through the response.
 
-Whenever an ID-bearing endpoint is added, its cross-tenant regression should be added in the same feature PR or immediately in this branch.
+Whenever an identifier-bearing endpoint is added, its cross-tenant regression should be added in the same feature PR.
