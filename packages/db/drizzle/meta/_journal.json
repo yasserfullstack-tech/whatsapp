@@ -43,6 +43,13 @@
       "when": 1789299960776,
       "tag": "0005_billing-foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789325399458,
+      "tag": "0006_webhook-reliability",
+      "breakpoints": true
     }
   ]
 }

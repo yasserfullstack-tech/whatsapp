@@ -224,12 +224,14 @@ async function main() {
     let accepted = 0;
     let requestFailures = 0;
     const floodStartedAt = Date.now();
+    const deadline = floodStartedAt + timeoutMs;
 
     const sender = async () => {
       for (;;) {
         const index = nextIndex;
         nextIndex += 1;
         if (index >= events) return;
+        if (Date.now() >= deadline) return;
 
         const body = JSON.stringify({
           object: "whatsapp_business_account",
@@ -263,6 +265,7 @@ async function main() {
               "x-hub-signature-256": signature,
             },
             body,
+            signal: AbortSignal.timeout(Math.max(1, Math.min(30_000, deadline - Date.now()))),
           });
           requestLatencies.push(performance.now() - startedAt);
           if (response.ok) accepted += 1;
@@ -277,7 +280,6 @@ async function main() {
     await Promise.all(Array.from({ length: Math.min(concurrency, events) }, () => sender()));
     const ingestFinishedAt = Date.now();
 
-    const deadline = Date.now() + timeoutMs;
     let processed = 0;
     while (Date.now() < deadline) {
       const [row] = await client`
