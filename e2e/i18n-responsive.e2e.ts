@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 const englishPages = [
@@ -25,17 +26,48 @@ async function expectDirection(page: Page, lang: "en" | "ar", dir: "ltr" | "rtl"
   await expect(page.locator("html")).toHaveAttribute("dir", dir);
 }
 
+async function capturedVerificationUrl(email: string) {
+  const captureFile = process.env.AUTH_EMAIL_CAPTURE_FILE;
+  if (!captureFile) throw new Error("AUTH_EMAIL_CAPTURE_FILE is required for browser E2E");
+
+  let verificationUrl: string | undefined;
+  await expect.poll(async () => {
+    try {
+      const content = await readFile(captureFile, "utf8");
+      const messages = content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { to?: string; subject?: string; text?: string });
+      const message = messages.findLast((entry) => entry.to === email && entry.subject === "Verify your email address");
+      verificationUrl = message?.text?.match(/https?:\/\/\S+/)?.[0];
+      return Boolean(verificationUrl);
+    } catch {
+      return false;
+    }
+  }, { timeout: 10_000 }).toBe(true);
+
+  if (!verificationUrl) throw new Error(`Verification email was not captured for ${email}`);
+  return verificationUrl;
+}
+
 test("English and Arabic UI remains usable across responsive viewports", async ({ page }, testInfo) => {
   const suffix = `${testInfo.project.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toLowerCase().replace(/[^a-z0-9-]/g, "");
   const email = `e2e-${suffix}@example.com`;
+  const password = "E2e-password-123!";
 
   await page.goto("/sign-up");
   await expectDirection(page, "en", "ltr");
   await expect(page.getByRole("heading", { name: "Create your workspace" })).toBeVisible();
   await page.getByLabel("Name").fill(`E2E ${testInfo.project.name}`);
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("E2e-password-123!");
+  await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page).toHaveURL(/\/verify-email\?email=/);
+  await expect(page.getByRole("heading", { name: "Verify your email" })).toBeVisible();
+
+  const verificationUrl = await capturedVerificationUrl(email);
+  await page.goto(verificationUrl);
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
