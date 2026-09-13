@@ -11,10 +11,11 @@ import {
   type TenantResources,
 } from "./security-helpers";
 
-test.describe.serial("cross-tenant IDOR isolation", () => {
+const MAX_CSV_BYTES = 250 * 1024 * 1024;
+
+test.describe.serial("cross-tenant and API security boundaries", () => {
   let tenantA: SecurityTenant;
   let tenantB: SecurityTenant;
-  let tenantAResources: TenantResources;
   let tenantBResources: TenantResources;
   let tenantAPhoneId: string;
   let tenantATemplateId: string;
@@ -26,7 +27,7 @@ test.describe.serial("cross-tenant IDOR isolation", () => {
   test.beforeAll(async () => {
     tenantA = await createSecurityTenant("org-a");
     tenantB = await createSecurityTenant("org-b");
-    tenantAResources = await seedTenantResources(tenantA.organizationId);
+    await seedTenantResources(tenantA.organizationId);
     tenantBResources = await seedTenantResources(tenantB.organizationId);
 
     const [tenantAPhone] = await securityDb
@@ -229,6 +230,60 @@ test.describe.serial("cross-tenant IDOR isolation", () => {
     expect(html).not.toContain("<img src=x");
   });
 
+  test("rejects oversized or non-CSV upload metadata before signing", async () => {
+    const oversized = await tenantB.api.post("/api/contact-imports/presign", {
+      data: {
+        fileName: "contacts.csv",
+        sizeBytes: MAX_CSV_BYTES + 1,
+        defaultCountry: "IQ",
+        optInSource: "security test",
+        confirmedOptIn: true,
+      },
+    });
+    expect(oversized.status()).toBe(400);
+
+    const wrongType = await tenantB.api.post("/api/contact-imports/presign", {
+      data: {
+        fileName: "contacts.xlsx",
+        sizeBytes: 1024,
+        defaultCountry: "IQ",
+        optInSource: "security test",
+        confirmedOptIn: true,
+      },
+    });
+    expect(wrongType.status()).toBe(400);
+  });
+
+  test("presigned upload is tenant-scoped, sanitized, expiring, and content-type bound", async () => {
+    const response = await tenantB.api.post("/api/contact-imports/presign", {
+      data: {
+        fileName: "../../private/contacts.csv",
+        sizeBytes: 1024,
+        defaultCountry: "IQ",
+        optInSource: "security test",
+        confirmedOptIn: true,
+      },
+    });
+    expect(response.status(), await response.text()).toBe(200);
+    const body = await response.json() as {
+      importId: string;
+      uploadUrl: string;
+      contentType: string;
+      expiresInSeconds: number;
+      maxBytes: number;
+    };
+    expect(body.contentType).toBe("text/csv");
+    expect(body.expiresInSeconds).toBe(1800);
+    expect(body.maxBytes).toBe(MAX_CSV_BYTES);
+
+    const url = new URL(body.uploadUrl);
+    const path = decodeURIComponent(url.pathname);
+    expect(path).toContain(`/${tenantB.organizationId}/contact-imports/${body.importId}/`);
+    expect(path).not.toContain("..");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("1800");
+    expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).toContain("content-type");
+  });
+
   test("expired authenticated sessions are rejected", async () => {
     await securityDb
       .update(schema.authSession)
@@ -237,6 +292,4 @@ test.describe.serial("cross-tenant IDOR isolation", () => {
     const response = await tenantA.api.get("/api/settings/data/export");
     expect(response.status()).toBe(401);
   });
-
-  void tenantAResources;
 });
