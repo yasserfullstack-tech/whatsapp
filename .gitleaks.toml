@@ -1,0 +1,15 @@
+title = "WhatsApp security scanning"
+
+[extend]
+useDefault = true
+
+# Only known, non-production fixture values are allowlisted. Keep workflow and
+# example files in scope so newly committed real credentials are still detected.
+[[allowlists]]
+description = "Documented local and CI-only credential fixtures"
+regexTarget = "secret"
+regexes = [
+  '''^ci-only-[A-Za-z0-9_-]+$''',
+  '''^replace-with-at-least-32-random-characters$''',
+  '''^replace-me-with-a-long-random-token$''',
+]

@@ -1,11 +1,10 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./e2e/security",
   testMatch: /.*\.e2e\.ts/,
-  testIgnore: /security\/.*\.e2e\.ts/,
   fullyParallel: false,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "line" : "html",
   use: {
@@ -20,8 +19,9 @@ export default defineConfig({
     timeout: 120_000,
   },
   projects: [
-    { name: "desktop-1440", use: { browserName: "chromium", viewport: { width: 1440, height: 900 } } },
-    { name: "tablet-768", use: { browserName: "chromium", viewport: { width: 768, height: 1024 } } },
-    { name: "mobile-390", use: { browserName: "chromium", viewport: { width: 390, height: 844 } } },
+    {
+      name: "security-api",
+      use: { browserName: "chromium" },
+    },
   ],
 });
