@@ -12,6 +12,7 @@ import {
 } from "@wa/meta";
 import { getAuthContext } from "@/lib/auth-context";
 import { db, getCredentialEncryptionKey, getMetaServerConfig } from "@/lib/server";
+import { requireWorkspaceAction } from "@/lib/workspace-access";
 
 const payloadSchema = z.object({
   code: z.string().min(1).max(4_096),
@@ -23,6 +24,12 @@ const payloadSchema = z.object({
 export async function POST(request: Request) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    requireWorkspaceAction(context.workspace.role, "whatsapp.manage");
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const parsed = payloadSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
