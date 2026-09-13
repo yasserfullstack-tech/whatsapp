@@ -1,5 +1,5 @@
 import { expect, request, test } from "@playwright/test";
-import { schema } from "@wa/db";
+import { schema } from "../../packages/db/src/index";
 import {
   closeSecurityDatabase,
   createSecurityTenant,
