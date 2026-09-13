@@ -6,6 +6,7 @@ export const settingsNavMessages: Record<Locale, {
   team: string;
   whatsapp: string;
   security: string;
+  notifications: string;
   billing: string;
   data: string;
 }> = {
@@ -15,6 +16,7 @@ export const settingsNavMessages: Record<Locale, {
     team: "Team",
     whatsapp: "WhatsApp",
     security: "Security",
+    notifications: "Notifications",
     billing: "Billing",
     data: "Data",
   },
@@ -24,6 +26,7 @@ export const settingsNavMessages: Record<Locale, {
     team: "الفريق",
     whatsapp: "واتساب",
     security: "الأمان",
+    notifications: "الإشعارات",
     billing: "الفوترة",
     data: "البيانات",
   },

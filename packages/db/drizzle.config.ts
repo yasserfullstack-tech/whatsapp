@@ -15,6 +15,7 @@ export default defineConfig({
     "./src/workspace-settings-schema.ts",
     "./src/billing-schema.ts",
     "./src/onboarding-schema.ts",
+    "./src/notification-schema.ts",
   ],
   out: "./drizzle",
   dbCredentials: {
