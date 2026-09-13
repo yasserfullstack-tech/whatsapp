@@ -6,6 +6,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const expectedPublicTables = [
   "auth_account",
   "auth_session",
+  "auth_two_factor",
   "auth_user",
   "auth_verification",
   "audience_segments",
@@ -59,8 +60,8 @@ try {
   const migrationRows = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations
   `;
-  if ((migrationRows[0]?.count ?? 0) < 4) {
-    throw new Error("Expected all committed migrations in drizzle.__drizzle_migrations");
+  if ((migrationRows[0]?.count ?? 0) < 5) {
+    throw new Error("Expected all five committed migrations in drizzle.__drizzle_migrations");
   }
 
   console.log("Migration smoke check passed", {
