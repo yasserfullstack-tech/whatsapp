@@ -11,6 +11,14 @@ function requiredEnv(name: string): string {
   return value;
 }
 
+function optionalPositiveIntegerEnv(name: string): number | undefined {
+  const value = process.env[name];
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
 const database = createDatabase(requiredEnv("DATABASE_URL"));
 
 export const db = database.db;
@@ -35,6 +43,7 @@ export const auth = createAppAuth({
   trustedOrigins: [...new Set([appUrl, authUrl])],
   secureCookies: process.env.NODE_ENV === "production",
   secondaryStorage: redisStorage({ client: authRedis, keyPrefix: "wa:auth:" }),
+  signUpRateLimitMax: optionalPositiveIntegerEnv("AUTH_SIGNUP_RATE_LIMIT_MAX"),
   sendEmail: sendAuthEmail,
 });
 
