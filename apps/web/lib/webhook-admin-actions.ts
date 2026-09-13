@@ -66,7 +66,7 @@ export async function retryWebhookEventAction(formData: FormData) {
     await webhookQueue.add(
       "process-meta-webhook",
       { eventId: event.id },
-      { jobId: `webhook-${event.id}-manual-${now.getTime()}` },
+      { jobId: `webhook-${event.id}` },
     );
   } catch (error) {
     await db
