@@ -9,6 +9,14 @@ if (!["localhost", "127.0.0.1", "::1", "fake-meta"].includes(target.hostname) &&
   throw new Error("META_SEND_API_BASE_URL must point to a local fake service unless LOAD_ALLOW_REMOTE=1 is explicitly set");
 }
 
+const crashAfterMs = Number(process.env.LOAD_WORKER_EXIT_AFTER_MS);
+if (process.env.NODE_ENV === "test" && Number.isFinite(crashAfterMs) && crashAfterMs > 0) {
+  setTimeout(() => {
+    console.error(`[load-chaos] intentionally exiting worker after ${crashAfterMs}ms`);
+    process.exit(86);
+  }, crashAfterMs).unref();
+}
+
 const originalFetch = globalThis.fetch;
 
 const redirectFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
