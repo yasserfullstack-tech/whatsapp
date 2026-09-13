@@ -2,6 +2,7 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MfaSecurityCard } from "@/components/mfa-security-card";
 import { authClient } from "@/lib/auth-client";
 
 type SecuritySession = {
@@ -210,10 +211,7 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
         )}
       </section>
 
-      <section className="panel" style={{ gridColumn: "1 / -1" }}>
-        <div className="panelHeader"><div><p className="eyebrow">Multi-factor authentication</p><h2>TOTP + recovery codes</h2><p className="subtitle">The MFA data model and enrollment flow are the next security layer. Platform administrators will be able to enforce this capability separately from workspace roles.</p></div></div>
-        <button className="secondary" disabled type="button">Enable MFA — foundation pending migration</button>
-      </section>
+      <MfaSecurityCard />
     </div>
   );
 }
