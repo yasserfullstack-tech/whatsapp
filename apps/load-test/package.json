@@ -5,6 +5,7 @@
   "scripts": {
     "fake-meta": "cd ../.. && bun apps/load-test/src/fake-meta.ts",
     "run": "cd ../.. && bun apps/load-test/src/run.ts",
+    "reporting": "cd ../.. && bun apps/load-test/src/reporting.ts",
     "webhook-flood": "cd ../.. && bun apps/load-test/src/webhook-flood.ts",
     "typecheck": "tsc --noEmit"
   },

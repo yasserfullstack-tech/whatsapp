@@ -4,7 +4,7 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { useI18n } from "@/components/i18n-provider";
 
-type ActiveNav = "overview" | "contacts" | "audiences" | "templates" | "campaigns" | "settings";
+type ActiveNav = "overview" | "contacts" | "audiences" | "templates" | "campaigns" | "reports" | "settings";
 
 export function AppSidebar({ active, workspaceName, email, initials }: { active: ActiveNav; workspaceName: string; email: string; initials: string }) {
   const { messages } = useI18n();
@@ -14,7 +14,7 @@ export function AppSidebar({ active, workspaceName, email, initials }: { active:
     { key: "audiences" as const, label: messages.nav.audiences, href: "/audiences" },
     { key: "templates" as const, label: messages.nav.templates, href: "/templates" },
     { key: "campaigns" as const, label: messages.nav.campaigns, href: "/campaigns" },
-    { key: "reports" as const, label: messages.nav.reports, href: "/campaigns" },
+    { key: "reports" as const, label: messages.nav.reports, href: "/reports" },
     { key: "settings" as const, label: messages.nav.settings, href: "/settings" },
   ];
 
