@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { ensureDefaultBilling } from "@wa/billing";
 import { schema } from "@wa/db";
 import { db } from "./server";
 
@@ -68,9 +69,12 @@ export async function ensureWorkspace(
   preferredOrganizationId?: string | null,
 ): Promise<WorkspaceContext> {
   const existing = await findWorkspace(user.id, preferredOrganizationId);
-  if (existing) return existing;
+  if (existing) {
+    await ensureDefaultBilling(db, existing.organizationId);
+    return existing;
+  }
 
-  return db.transaction(async (tx) => {
+  const workspace = await db.transaction(async (tx) => {
     let appUser = (
       await tx.select().from(schema.users).where(eq(schema.users.externalAuthId, user.id)).limit(1)
     )[0];
@@ -137,7 +141,10 @@ export async function ensureWorkspace(
       organizationId: organization.id,
       organizationName: organization.name,
       organizationSlug: organization.slug,
-      role: "owner",
+      role: "owner" as const,
     };
   });
+
+  await ensureDefaultBilling(db, workspace.organizationId);
+  return workspace;
 }
