@@ -41,7 +41,7 @@ jobs:
       META_APP_ID: "123456789"
       META_APP_SECRET: ci-only-meta-secret
       META_CONFIG_ID: ci-only-config-id
-      META_VERIFY_TOKEN: ci-only-verify-token
+      META_VERIFY_TOKEN: ci-only-meta-verify-token
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -51,14 +51,16 @@ jobs:
         shell: bash
         run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
       - run: bun install
-      - name: Check migration drift
+      - name: Generate data lifecycle migration artifacts
         run: |
-          bun run db:generate -- --name=ci-drift
-          if [ -n "$(git status --porcelain -- packages/db/drizzle)" ]; then
-            echo "Schema and committed Drizzle migrations are out of sync."
-            git status --short -- packages/db/drizzle
-            exit 1
-          fi
+          bun run db:generate -- --name=data-lifecycle
+          echo "===== GENERATED SQL ====="
+          cat packages/db/drizzle/0005_data-lifecycle.sql
+          echo "===== GENERATED SNAPSHOT ====="
+          cat packages/db/drizzle/snapshot-artifacts/0005_snapshot.json.zlib.b64
+          echo "===== GENERATED JOURNAL ====="
+          cat packages/db/drizzle/meta/_journal.json
+          exit 1
       - name: Apply migrations to clean PostgreSQL
         run: bun run db:migrate
       - name: Verify migrated schema

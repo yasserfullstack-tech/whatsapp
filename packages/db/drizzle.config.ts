@@ -13,6 +13,7 @@ export default defineConfig({
     "./src/audience-schema.ts",
     "./src/admin-schema.ts",
     "./src/workspace-settings-schema.ts",
+    "./src/data-lifecycle-schema.ts",
   ],
   out: "./drizzle",
   dbCredentials: {
