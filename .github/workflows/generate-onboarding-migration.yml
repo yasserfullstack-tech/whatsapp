@@ -10,6 +10,8 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
     steps:
       - uses: actions/checkout@v4
         with:
