@@ -65,15 +65,20 @@ export function createSendQueue(redisUrl: string): Queue<SendMessageJob> {
   });
 }
 
+export const WEBHOOK_DEFAULT_JOB_OPTIONS = {
+  attempts: 12,
+  backoff: { type: "exponential" as const, delay: 1_000 },
+  // PostgreSQL is the durable webhook inbox and dead-letter store. Removing
+  // terminal Redis jobs prevents an old completed/failed job ID from blocking
+  // DB-driven reconciliation after queue loss, worker crashes, or Redis restarts.
+  removeOnComplete: true,
+  removeOnFail: true,
+} as const;
+
 export function createWebhookQueue(redisUrl: string): Queue<WebhookProcessJob> {
   return new Queue<WebhookProcessJob>(WEBHOOK_QUEUE_NAME, {
     connection: createBullConnection(redisUrl),
-    defaultJobOptions: {
-      attempts: 12,
-      backoff: { type: "exponential", delay: 1_000 },
-      removeOnComplete: 10_000,
-      removeOnFail: 50_000,
-    },
+    defaultJobOptions: WEBHOOK_DEFAULT_JOB_OPTIONS,
   });
 }
 
