@@ -58,11 +58,6 @@ function sentrySampleRate(): number {
   return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0.05;
 }
 
-function stripQueryString(value: string | undefined): string | undefined {
-  if (!value) return value;
-  return value.split("?", 1)[0];
-}
-
 function initSentryIfConfigured(service: string) {
   if (sentryInitialized || !process.env.SENTRY_DSN) return;
 
@@ -72,19 +67,19 @@ function initSentryIfConfigured(service: string) {
     tracesSampleRate: sentrySampleRate(),
     sendDefaultPii: false,
     beforeSend(event) {
-      event.user = undefined;
+      delete event.user;
 
       if (event.request) {
         const headers: Record<string, string> = {};
         for (const [key, value] of Object.entries(event.request.headers ?? {})) {
-          if (SAFE_SENTRY_HEADERS.has(key.toLowerCase())) headers[key] = value;
+          if (SAFE_SENTRY_HEADERS.has(key.toLowerCase()) && typeof value === "string") headers[key] = value;
         }
         event.request.headers = headers;
-        event.request.url = stripQueryString(event.request.url);
-        event.request.query_string = undefined;
-        event.request.cookies = undefined;
-        event.request.data = undefined;
-        event.request.env = undefined;
+        if (event.request.url) event.request.url = event.request.url.split("?", 1)[0] ?? event.request.url;
+        delete event.request.query_string;
+        delete event.request.cookies;
+        delete event.request.data;
+        delete event.request.env;
       }
 
       if (event.extra) event.extra = sanitizeForLog(event.extra);
