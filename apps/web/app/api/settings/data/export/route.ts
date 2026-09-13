@@ -40,15 +40,16 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null) as { kind?: unknown } | null;
   if (!isExportKind(body?.kind)) return NextResponse.json({ error: "Invalid export kind" }, { status: 400 });
+  const kind = body.kind;
 
-  const identity = createExportIdentity(context.workspace.organizationId, context.workspace.organizationSlug, body.kind);
+  const identity = createExportIdentity(context.workspace.organizationId, context.workspace.organizationSlug, kind);
   const createdAt = new Date();
   await db.transaction(async (tx) => {
     await tx.insert(schema.dataExportJobs).values({
       id: identity.id,
       organizationId: context.workspace.organizationId,
       requestedByUserId: context.workspace.userId,
-      kind: body.kind,
+      kind,
       objectKey: identity.objectKey,
       fileName: identity.fileName,
       status: "queued",
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
       action: "data.export.requested",
       targetType: "data_export_job",
       targetId: identity.id,
-      metadata: { kind: body.kind },
+      metadata: { kind },
     });
     await tx.insert(schema.dataLifecycleAuditLogs).values({
       organizationId: context.workspace.organizationId,
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
       action: "export.requested",
       targetType: "data_export_job",
       targetId: identity.id,
-      metadata: { kind: body.kind, createdAt: createdAt.toISOString() },
+      metadata: { kind, createdAt: createdAt.toISOString() },
     });
   });
 
@@ -77,5 +78,5 @@ export async function POST(request: Request) {
     exportJobId: identity.id,
   }, { jobId: `data-export-${identity.id}` }).catch(() => undefined);
 
-  return NextResponse.json({ id: identity.id, kind: body.kind, status: "queued", createdAt: createdAt.toISOString() }, { status: 202 });
+  return NextResponse.json({ id: identity.id, kind, status: "queued", createdAt: createdAt.toISOString() }, { status: 202 });
 }

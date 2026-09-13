@@ -38,17 +38,18 @@ export async function putStoredObject(input: {
   client: S3Client;
   bucket: string;
   key: string;
-  body: PutObjectCommandInput["Body"];
+  body: NonNullable<PutObjectCommandInput["Body"]>;
   contentType: string;
   contentLength?: number;
 }) {
-  return input.client.send(new PutObjectCommand({
+  const command: PutObjectCommandInput = {
     Bucket: input.bucket,
     Key: input.key,
     Body: input.body,
     ContentType: input.contentType,
-    ContentLength: input.contentLength,
-  }));
+  };
+  if (input.contentLength !== undefined) command.ContentLength = input.contentLength;
+  return input.client.send(new PutObjectCommand(command));
 }
 
 export async function deleteStoredObject(input: { client: S3Client; bucket: string; key: string }) {
