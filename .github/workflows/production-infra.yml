@@ -58,7 +58,7 @@ jobs:
             -e CADDY_EMAIL=ops@example.test \
             -e CADDY_MAX_REQUEST_BODY=16MB \
             -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: Validate Prometheus configuration
         run: |
