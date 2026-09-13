@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { schema } from "@wa/db";
 import { auth, db } from "./server";
-import { ensureWorkspace } from "./workspace";
+import { ensureWorkspace, WORKSPACE_COOKIE } from "./workspace";
 
 export async function getAuthContext() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -19,11 +19,15 @@ export async function getAuthContext() {
   )[0];
   if (userControl?.disabled) redirect("/account-disabled");
 
-  const workspace = await ensureWorkspace({
-    id: session.user.id,
-    email: session.user.email,
-    name: session.user.name,
-  });
+  const cookieStore = await cookies();
+  const workspace = await ensureWorkspace(
+    {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    },
+    cookieStore.get(WORKSPACE_COOKIE)?.value,
+  );
 
   const organizationControl = (
     await db

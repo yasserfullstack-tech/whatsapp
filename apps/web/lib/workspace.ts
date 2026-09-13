@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { db } from "./server";
 
@@ -7,6 +7,8 @@ type AuthUser = {
   email: string;
   name: string;
 };
+
+export const WORKSPACE_COOKIE = "wa_workspace_id";
 
 export type WorkspaceContext = {
   userId: string;
@@ -25,26 +27,47 @@ function slugPart(input: string): string {
   return normalized || "workspace";
 }
 
-async function findWorkspace(externalAuthId: string): Promise<WorkspaceContext | null> {
-  const rows = await db
-    .select({
-      userId: schema.users.id,
-      organizationId: schema.organizations.id,
-      organizationName: schema.organizations.name,
-      organizationSlug: schema.organizations.slug,
-      role: schema.organizationMembers.role,
-    })
-    .from(schema.users)
-    .innerJoin(schema.organizationMembers, eq(schema.organizationMembers.userId, schema.users.id))
-    .innerJoin(schema.organizations, eq(schema.organizations.id, schema.organizationMembers.organizationId))
+async function findWorkspace(
+  externalAuthId: string,
+  preferredOrganizationId?: string | null,
+): Promise<WorkspaceContext | null> {
+  const selectWorkspace = () =>
+    db
+      .select({
+        userId: schema.users.id,
+        organizationId: schema.organizations.id,
+        organizationName: schema.organizations.name,
+        organizationSlug: schema.organizations.slug,
+        role: schema.organizationMembers.role,
+      })
+      .from(schema.users)
+      .innerJoin(schema.organizationMembers, eq(schema.organizationMembers.userId, schema.users.id))
+      .innerJoin(schema.organizations, eq(schema.organizations.id, schema.organizationMembers.organizationId));
+
+  if (preferredOrganizationId) {
+    const preferred = await selectWorkspace()
+      .where(
+        and(
+          eq(schema.users.externalAuthId, externalAuthId),
+          eq(schema.organizations.id, preferredOrganizationId),
+        ),
+      )
+      .limit(1);
+    if (preferred[0]) return preferred[0];
+  }
+
+  const rows = await selectWorkspace()
     .where(eq(schema.users.externalAuthId, externalAuthId))
     .limit(1);
 
   return rows[0] ?? null;
 }
 
-export async function ensureWorkspace(user: AuthUser): Promise<WorkspaceContext> {
-  const existing = await findWorkspace(user.id);
+export async function ensureWorkspace(
+  user: AuthUser,
+  preferredOrganizationId?: string | null,
+): Promise<WorkspaceContext> {
+  const existing = await findWorkspace(user.id, preferredOrganizationId);
   if (existing) return existing;
 
   return db.transaction(async (tx) => {
