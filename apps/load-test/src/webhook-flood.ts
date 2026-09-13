@@ -57,6 +57,13 @@ function percentile(values: number[], quantile: number): number {
   return sorted[index] ?? 0;
 }
 
+async function settleWithTimeout(promise: Promise<unknown>, timeoutMs = 5_000): Promise<void> {
+  await Promise.race([
+    promise.then(() => undefined, () => undefined),
+    Bun.sleep(timeoutMs),
+  ]);
+}
+
 function parseRedisMemory(info: string): number {
   const match = info.match(/^used_memory:(\d+)$/m);
   return match ? Number(match[1]) : 0;
@@ -362,18 +369,20 @@ async function main() {
     sampling = false;
     api.kill("SIGTERM");
     worker.kill("SIGTERM");
-    await Promise.allSettled([api.exited, worker.exited]);
+    await settleWithTimeout(Promise.allSettled([api.exited, worker.exited]));
+    try { api.kill("SIGKILL"); } catch {}
+    try { worker.kill("SIGKILL"); } catch {}
     await client`DELETE FROM webhook_events WHERE phone_number_id = ${phoneNumberId}`.catch(() => undefined);
     if (organizationId) {
       await client`DELETE FROM organizations WHERE id = ${organizationId}::uuid`.catch(() => undefined);
     }
-    await webhookQueue.close().catch(() => undefined);
-    if (redis.status !== "end") await redis.quit().catch(() => undefined);
-    await database.client.end().catch(() => undefined);
+    await settleWithTimeout(webhookQueue.close());
+    if (redis.status !== "end") await settleWithTimeout(redis.quit());
+    await settleWithTimeout(database.client.end());
   }
 }
 
-main().catch((error) => {
+main().then(() => process.exit(0)).catch((error) => {
   console.error(error);
   process.exit(1);
 });

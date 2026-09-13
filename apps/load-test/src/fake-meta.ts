@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 type FakeMetaConfig = {
   latencyMs: number;
   jitterMs: number;
@@ -170,7 +172,7 @@ const server = Bun.serve({
       }
 
       const to = typeof body?.to === "string" ? body.to : "unknown";
-      const id = `wamid.load.${Date.now().toString(36)}.${state.requests.toString(36)}`;
+      const id = `wamid.load.${Date.now().toString(36)}.${randomUUID()}`;
       state.succeeded += 1;
       return json({
         messaging_product: "whatsapp",

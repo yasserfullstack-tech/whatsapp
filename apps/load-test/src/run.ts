@@ -145,6 +145,13 @@ async function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
   throw new Error(`Timed out waiting for ${url}`);
 }
 
+async function settleWithTimeout(promise: Promise<unknown>, timeoutMs = 5_000): Promise<void> {
+  await Promise.race([
+    promise.then(() => undefined, () => undefined),
+    Bun.sleep(timeoutMs),
+  ]);
+}
+
 function parseRedisMemory(info: string): number {
   const match = info.match(/^used_memory:(\d+)$/m);
   return match ? Number(match[1]) : 0;
@@ -237,11 +244,15 @@ async function main() {
   const runId = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const organizationIds: string[] = [];
   const campaignIds: string[] = [];
-  const startedAt = Date.now();
+  let startedAt = 0;
   const samples: MetricSample[] = [];
 
   try {
     await redis.connect();
+    await Promise.all([
+      dispatchQueue.obliterate({ force: true }),
+      sendQueue.obliterate({ force: true }),
+    ]);
     await client`DELETE FROM organizations WHERE slug LIKE 'load-%'`;
     await fetch(`${FAKE_META_URL}/__reset`, { method: "POST" });
 
@@ -346,6 +357,8 @@ async function main() {
       WHERE datname = current_database()
     `;
     const baselineWrites = Number(baselineStats[0]?.writes ?? 0);
+
+    startedAt = Date.now();
 
     for (let index = 0; index < campaignIds.length; index += 1) {
       const campaignId = campaignIds[index]!;
@@ -521,19 +534,21 @@ async function main() {
   } finally {
     worker.kill("SIGTERM");
     fakeMeta.kill("SIGTERM");
-    await Promise.allSettled([worker.exited, fakeMeta.exited]);
+    await settleWithTimeout(Promise.allSettled([worker.exited, fakeMeta.exited]));
+    try { worker.kill("SIGKILL"); } catch {}
+    try { fakeMeta.kill("SIGKILL"); } catch {}
     if (organizationIds.length && process.env.LOAD_KEEP_DATA !== "1") {
       for (const organizationId of organizationIds) {
         await client`DELETE FROM organizations WHERE id = ${organizationId}::uuid`;
       }
     }
-    await Promise.allSettled([dispatchQueue.close(), sendQueue.close()]);
-    if (redis.status !== "end") await redis.quit().catch(() => undefined);
-    await database.client.end().catch(() => undefined);
+    await settleWithTimeout(Promise.allSettled([dispatchQueue.close(), sendQueue.close()]));
+    if (redis.status !== "end") await settleWithTimeout(redis.quit());
+    await settleWithTimeout(database.client.end());
   }
 }
 
-main().catch((error) => {
+main().then(() => process.exit(0)).catch((error) => {
   console.error(error);
   process.exit(1);
 });
