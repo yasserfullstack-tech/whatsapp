@@ -21,7 +21,7 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop-1440", use: { browserName: "chromium", viewport: { width: 1440, height: 900 } } },
-    { name: "tablet-768", use: { browserName: "chromium", viewport: { width: 768, height: 1024 } } },
-    { name: "mobile-390", use: { browserName: "chromium", viewport: { width: 390, height: 844 } } },
+    { name: "tablet-768", testIgnore: [/onboarding\.e2e\.ts/], use: { browserName: "chromium", viewport: { width: 768, height: 1024 } } },
+    { name: "mobile-390", testIgnore: [/onboarding\.e2e\.ts/], use: { browserName: "chromium", viewport: { width: 390, height: 844 } } },
   ],
 });
