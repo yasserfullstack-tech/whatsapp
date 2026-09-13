@@ -1,3 +1,5 @@
+import * as Sentry from "@sentry/bun";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Record<string, unknown>;
 
@@ -6,6 +8,8 @@ const SENSITIVE_KEY = /authorization|cookie|token|secret|password|credential|api
 const CREDENTIAL_URL = /\b(https?|postgres(?:ql)?|redis):\/\/[^\s/@:]+:[^\s/@]+@/gi;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+\/=:-]+/gi;
 const QUERY_SECRET = /([?&](?:access_token|token|secret|password|api_key|key)=)[^&\s]+/gi;
+const SAFE_SENTRY_HEADERS = new Set(["accept", "content-type", "host", "user-agent", "x-request-id", "x-forwarded-proto"]);
+let sentryInitialized = false;
 
 function scrubString(value: string): string {
   return value
@@ -49,6 +53,93 @@ export function sanitizeForLog(fields: LogFields): LogFields {
   return sanitize(fields, 0, new WeakSet<object>()) as LogFields;
 }
 
+function sentrySampleRate(): number {
+  const parsed = Number.parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.05");
+  return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0.05;
+}
+
+function stripQueryString(value: string | undefined): string | undefined {
+  if (!value) return value;
+  return value.split("?", 1)[0];
+}
+
+function initSentryIfConfigured(service: string) {
+  if (sentryInitialized || !process.env.SENTRY_DSN) return;
+
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || "development",
+    tracesSampleRate: sentrySampleRate(),
+    sendDefaultPii: false,
+    beforeSend(event) {
+      event.user = undefined;
+
+      if (event.request) {
+        const headers: Record<string, string> = {};
+        for (const [key, value] of Object.entries(event.request.headers ?? {})) {
+          if (SAFE_SENTRY_HEADERS.has(key.toLowerCase())) headers[key] = value;
+        }
+        event.request.headers = headers;
+        event.request.url = stripQueryString(event.request.url);
+        event.request.query_string = undefined;
+        event.request.cookies = undefined;
+        event.request.data = undefined;
+        event.request.env = undefined;
+      }
+
+      if (event.extra) event.extra = sanitizeForLog(event.extra);
+      if (event.contexts) {
+        for (const [key, context] of Object.entries(event.contexts)) {
+          if (context && typeof context === "object") {
+            event.contexts[key] = sanitizeForLog(context as LogFields);
+          }
+        }
+      }
+      if (event.breadcrumbs) {
+        event.breadcrumbs = event.breadcrumbs.map((breadcrumb) => ({
+          ...breadcrumb,
+          ...(breadcrumb.data ? { data: sanitizeForLog(breadcrumb.data) } : {}),
+        }));
+      }
+
+      return event;
+    },
+    initialScope: {
+      tags: { service },
+    },
+  });
+
+  sentryInitialized = true;
+}
+
+function safeError(error: Error): Error {
+  const sanitized = sanitizeForLog({ message: error.message });
+  const message = typeof sanitized.message === "string" ? sanitized.message : "Unhandled error";
+  const result = new Error(message);
+  result.name = error.name;
+  if (error.stack) {
+    const stackLines = error.stack.split("\n");
+    result.stack = [`${result.name}: ${result.message}`, ...stackLines.slice(1)].join("\n");
+  }
+  return result;
+}
+
+function reportError(service: string, event: string, fields: LogFields, context: LogFields) {
+  if (!sentryInitialized) return;
+  try {
+    const safeFields = sanitizeForLog({ ...context, ...fields });
+    Sentry.withScope((scope) => {
+      scope.setTag("service", service);
+      scope.setTag("log.event", event);
+      scope.setContext("log", safeFields);
+      if (fields.error instanceof Error) Sentry.captureException(safeError(fields.error));
+      else Sentry.captureMessage(event, "error");
+    });
+  } catch {
+    // Observability must never make the application fail.
+  }
+}
+
 export interface Logger {
   child(fields: LogFields): Logger;
   debug(event: string, fields?: LogFields): void;
@@ -58,6 +149,7 @@ export interface Logger {
 }
 
 export function createLogger(options: { service: string; base?: LogFields }): Logger {
+  initSentryIfConfigured(options.service);
   const base = sanitizeForLog(options.base ?? {});
 
   const build = (childFields: LogFields): Logger => {
@@ -75,6 +167,7 @@ export function createLogger(options: { service: string; base?: LogFields }): Lo
       const line = `${JSON.stringify(entry)}\n`;
       if (level === "error" || level === "warn") process.stderr.write(line);
       else process.stdout.write(line);
+      if (level === "error") reportError(options.service, event, fields, context);
     };
 
     return {

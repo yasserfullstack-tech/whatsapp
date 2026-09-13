@@ -14,7 +14,7 @@ Worker observability server (`WORKER_METRICS_PORT`, default `9464`):
 
 - `GET /health` — process liveness only.
 - `GET /ready` — verifies PostgreSQL and Redis are reachable.
-- `GET /metrics` — worker, queue, campaign, webhook, and CSV metrics.
+- `GET /metrics` — worker, queue, campaign, webhook, CSV, and Meta API metrics.
 
 Keep `/metrics` and `/ready` private in production. Expose them only to the internal monitoring network or Prometheus scraper.
 
@@ -38,6 +38,12 @@ The shared logger recursively redacts keys that look like tokens, secrets, passw
 
 Do not pass raw request bodies, Meta access tokens, encryption keys, passwords, full secrets, credential ciphertext, or presigned credentials to logging calls even with redaction enabled.
 
+## Sentry
+
+Set `SENTRY_DSN` to enable Sentry error reporting in API and worker processes. `SENTRY_ENVIRONMENT` defaults to the process environment and `SENTRY_TRACES_SAMPLE_RATE` defaults to `0.05`.
+
+Sentry is configured with `sendDefaultPii: false`. Before events are sent, request bodies, cookies, query strings, request environment data, user data, and non-allowlisted headers are removed. Structured log context is passed through the same secret redaction used by JSON logs, and exception messages are sanitized before capture.
+
 ## Cardinality
 
-Organization, campaign, recipient, and job IDs belong in logs and traces, not Prometheus labels. Metrics intentionally use bounded labels such as queue, state, method, route, status, dependency, and error reason.
+Organization, campaign, recipient, and job IDs belong in logs and traces, not Prometheus labels. Metrics intentionally use bounded labels such as queue, state, method, route, status, dependency, operation, and error reason.
