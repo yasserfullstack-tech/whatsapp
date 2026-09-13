@@ -31,13 +31,13 @@ function failureDetails(status: WhatsAppMessageStatus): { code: string | null; m
 }
 
 async function applyStatus(db: Database, status: WhatsAppMessageStatus): Promise<void> {
-  const at = eventTime(status);
+  const at = eventTime(status).toISOString();
 
   if (status.status === "sent") {
     await db.execute(sql`
       UPDATE campaign_recipients
       SET
-        sent_at = COALESCE(sent_at, ${at}),
+        sent_at = COALESCE(sent_at, ${at}::timestamptz),
         status = CASE
           WHEN status IN ('pending', 'queued', 'submitted', 'sent') THEN 'sent'::recipient_status
           ELSE status
@@ -52,7 +52,7 @@ async function applyStatus(db: Database, status: WhatsAppMessageStatus): Promise
     await db.execute(sql`
       UPDATE campaign_recipients
       SET
-        delivered_at = COALESCE(delivered_at, ${at}),
+        delivered_at = COALESCE(delivered_at, ${at}::timestamptz),
         status = CASE
           WHEN status IN ('pending', 'queued', 'submitted', 'sent', 'delivered') THEN 'delivered'::recipient_status
           ELSE status
@@ -67,7 +67,7 @@ async function applyStatus(db: Database, status: WhatsAppMessageStatus): Promise
     await db.execute(sql`
       UPDATE campaign_recipients
       SET
-        read_at = COALESCE(read_at, ${at}),
+        read_at = COALESCE(read_at, ${at}::timestamptz),
         status = CASE
           WHEN status <> 'failed' THEN 'read'::recipient_status
           ELSE status
@@ -82,7 +82,7 @@ async function applyStatus(db: Database, status: WhatsAppMessageStatus): Promise
   await db.execute(sql`
     UPDATE campaign_recipients
     SET
-      failed_at = COALESCE(failed_at, ${at}),
+      failed_at = COALESCE(failed_at, ${at}::timestamptz),
       error_code = COALESCE(${failure.code}, error_code),
       last_error = COALESCE(${failure.message}, last_error),
       status = CASE
