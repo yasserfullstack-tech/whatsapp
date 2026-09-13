@@ -69,7 +69,8 @@ function labelText(labels: Record<string, string>, extra?: [string, string]): st
 
 export class MetricsRegistry {
   readonly contentType = "text/plain; version=0.0.4; charset=utf-8";
-  private readonly definitions = new Map<string, Definition>();
+  private static readonly sharedDefinitions = new Map<string, Definition>();
+  private readonly definitions = MetricsRegistry.sharedDefinitions;
 
   defineCounter(name: string, help: string, labelNames: readonly string[] = []) {
     this.define(name, { type: "counter", help, labelNames, series: new Map() });
@@ -167,8 +168,20 @@ export class MetricsRegistry {
 
   private define(name: string, definition: Definition) {
     assertMetricName(name);
-    if (this.definitions.has(name)) throw new Error(`Metric already defined: ${name}`);
-    this.definitions.set(name, definition);
+    const existing = this.definitions.get(name);
+    if (!existing) {
+      this.definitions.set(name, definition);
+      return;
+    }
+
+    const sameLabels = existing.labelNames.length === definition.labelNames.length &&
+      existing.labelNames.every((label, index) => label === definition.labelNames[index]);
+    const sameBuckets = existing.type !== "histogram" || definition.type !== "histogram" ||
+      (existing.buckets.length === definition.buckets.length && existing.buckets.every((bucket, index) => bucket === definition.buckets[index]));
+
+    if (existing.type !== definition.type || existing.help !== definition.help || !sameLabels || !sameBuckets) {
+      throw new Error(`Metric already defined with a different shape: ${name}`);
+    }
   }
 
   private get<T extends Definition["type"]>(name: string, type: T): Extract<Definition, { type: T }> {

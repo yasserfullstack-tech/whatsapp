@@ -1,3 +1,5 @@
+import { MetricsRegistry } from "@wa/observability";
+
 export type TemplateComponent = {
   type: "header" | "body" | "button";
   sub_type?: "quick_reply" | "url";
@@ -27,6 +29,12 @@ type CloudClientOptions = {
   graphApiVersion: string;
 };
 
+const metrics = new MetricsRegistry();
+metrics.defineCounter("whatsapp_meta_requests_total", "Meta Graph API requests by operation and response status", ["operation", "status"]);
+metrics.defineCounter("whatsapp_meta_errors_total", "Meta Graph API HTTP and network errors by operation and response status", ["operation", "status"]);
+metrics.defineCounter("whatsapp_meta_429_total", "Meta Graph API HTTP 429 responses by operation", ["operation"]);
+metrics.defineHistogram("whatsapp_meta_request_duration_seconds", "Meta Graph API request latency in seconds", ["operation"]);
+
 export class MetaApiError extends Error {
   constructor(
     message: string,
@@ -46,6 +54,28 @@ async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
+async function metaFetch(operation: string, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const startedAt = performance.now();
+  let status = "network_error";
+
+  try {
+    const response = await fetch(input, init);
+    status = String(response.status);
+    metrics.incCounter("whatsapp_meta_requests_total", { operation, status });
+    if (!response.ok) {
+      metrics.incCounter("whatsapp_meta_errors_total", { operation, status });
+      if (response.status === 429) metrics.incCounter("whatsapp_meta_429_total", { operation });
+    }
+    return response;
+  } catch (error) {
+    metrics.incCounter("whatsapp_meta_requests_total", { operation, status });
+    metrics.incCounter("whatsapp_meta_errors_total", { operation, status });
+    throw error;
+  } finally {
+    metrics.observeHistogram("whatsapp_meta_request_duration_seconds", (performance.now() - startedAt) / 1_000, { operation });
+  }
+}
+
 async function assertMetaResponse(response: Response, message: string): Promise<unknown> {
   const body = await readJson(response);
   if (!response.ok) {
@@ -59,7 +89,7 @@ export class WhatsAppCloudClient {
 
   async sendTemplate(input: SendTemplateInput): Promise<SentTemplateMessage> {
     const endpoint = `https://graph.facebook.com/${this.options.graphApiVersion}/${input.phoneNumberId}/messages`;
-    const response = await fetch(endpoint, {
+    const response = await metaFetch("send_template", endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.options.accessToken}`,
@@ -112,7 +142,7 @@ export async function exchangeEmbeddedSignupCode(
   endpoint.searchParams.set("client_secret", input.appSecret);
   endpoint.searchParams.set("code", input.code);
 
-  const response = await fetch(endpoint);
+  const response = await metaFetch("exchange_signup_code", endpoint);
   const body = await assertMetaResponse(response, "Could not exchange Meta Embedded Signup code");
 
   if (!isRecord(body) || typeof body.access_token !== "string") {
@@ -150,7 +180,7 @@ export async function getWhatsAppPhoneNumber(
     "id,display_phone_number,verified_name,quality_rating,platform_type,throughput",
   );
 
-  const response = await fetch(endpoint, {
+  const response = await metaFetch("get_phone_number", endpoint, {
     headers: { Authorization: `Bearer ${input.accessToken}` },
   });
   const body = await assertMetaResponse(response, "Could not read the WhatsApp phone number from Meta");
@@ -179,7 +209,7 @@ type SubscribeAppInput = {
 
 export async function subscribeAppToWaba(input: SubscribeAppInput): Promise<void> {
   const endpoint = `https://graph.facebook.com/${input.graphApiVersion}/${input.wabaId}/subscribed_apps`;
-  const response = await fetch(endpoint, {
+  const response = await metaFetch("subscribe_waba", endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${input.accessToken}` },
   });
@@ -239,7 +269,7 @@ export async function listMessageTemplates(input: {
     endpoint.searchParams.set("limit", "100");
     if (after) endpoint.searchParams.set("after", after);
 
-    const response = await fetch(endpoint, {
+    const response = await metaFetch("list_templates", endpoint, {
       headers: { Authorization: `Bearer ${input.accessToken}` },
     });
     const body = await assertMetaResponse(response, "Could not load message templates from Meta");
@@ -296,7 +326,7 @@ export async function createMessageTemplate(
   }
 
   const endpoint = `https://graph.facebook.com/${input.graphApiVersion}/${input.wabaId}/message_templates`;
-  const response = await fetch(endpoint, {
+  const response = await metaFetch("create_template", endpoint, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.accessToken}`,
