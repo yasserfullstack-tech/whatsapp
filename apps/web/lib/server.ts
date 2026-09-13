@@ -2,7 +2,14 @@ import { redisStorage } from "@better-auth/redis-storage";
 import { Redis } from "ioredis";
 import { createAppAuth } from "@wa/auth";
 import { createDatabase } from "@wa/db";
-import { createCampaignDispatchQueue, createContactImportQueue, createSendQueue, createWebhookQueue } from "@wa/queue";
+import {
+  createCampaignDispatchQueue,
+  createContactImportQueue,
+  createDataExportQueue,
+  createDataLifecycleQueue,
+  createSendQueue,
+  createWebhookQueue,
+} from "@wa/queue";
 import { sendAuthEmail } from "@/lib/auth-email";
 
 function requiredEnv(name: string): string {
@@ -12,7 +19,6 @@ function requiredEnv(name: string): string {
 }
 
 const database = createDatabase(requiredEnv("DATABASE_URL"));
-
 export const db = database.db;
 export const databaseClient = database.client;
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -20,6 +26,8 @@ export const contactImportQueue = createContactImportQueue(redisUrl);
 export const campaignDispatchQueue = createCampaignDispatchQueue(redisUrl);
 export const sendQueue = createSendQueue(redisUrl);
 export const webhookQueue = createWebhookQueue(redisUrl);
+export const dataExportQueue = createDataExportQueue(redisUrl);
+export const dataLifecycleQueue = createDataLifecycleQueue(redisUrl);
 
 const globalForAuthRedis = globalThis as unknown as { authRedis?: Redis };
 const authRedis = globalForAuthRedis.authRedis ?? new Redis(redisUrl, { maxRetriesPerRequest: 3 });
