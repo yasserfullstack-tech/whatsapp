@@ -7,6 +7,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required for security E2E tes
 
 const database = createDatabase(databaseUrl);
 export const securityDb = database.db;
+export const securitySql = database.client;
 
 export type SecurityTenant = {
   api: APIRequestContext;
