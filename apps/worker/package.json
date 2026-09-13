@@ -12,6 +12,7 @@
     "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",
     "@wa/meta": "workspace:*",
+    "@wa/observability": "workspace:*",
     "@wa/queue": "workspace:*",
     "@wa/storage": "workspace:*",
     "bullmq": "6.3.4",

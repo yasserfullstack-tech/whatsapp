@@ -20,7 +20,9 @@
     "db:verify": "bun run --filter @wa/db db:verify",
     "db:push:dev": "bun run --filter @wa/db db:push:dev",
     "infra:up": "docker compose up -d postgres valkey",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "observability:up": "docker compose --profile observability up -d prometheus grafana",
+    "observability:down": "docker compose --profile observability stop prometheus grafana"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
