@@ -19,6 +19,9 @@ const expectedPublicTables = [
   "contact_lists",
   "contacts",
   "credential_secrets",
+  "data_export_jobs",
+  "data_lifecycle_audit_logs",
+  "data_retention_policies",
   "organization_admin_settings",
   "organization_invitations",
   "organization_members",
@@ -32,6 +35,7 @@ const expectedPublicTables = [
   "webhook_events",
   "whatsapp_phone_numbers",
   "workspace_audit_logs",
+  "workspace_deletion_requests",
   "workspace_preferences",
 ] as const;
 
@@ -46,22 +50,18 @@ try {
   `;
   const existing = new Set(tables.map((row) => row.table_name));
   const missing = expectedPublicTables.filter((table) => !existing.has(table));
-  if (missing.length) {
-    throw new Error(`Migration smoke check is missing tables: ${missing.join(", ")}`);
-  }
+  if (missing.length) throw new Error(`Migration smoke check is missing tables: ${missing.join(", ")}`);
 
   const migrationTable = await sql<{ relation: string | null }[]>`
     SELECT to_regclass('drizzle.__drizzle_migrations')::text AS relation
   `;
-  if (!migrationTable[0]?.relation) {
-    throw new Error("Drizzle migration log table was not created");
-  }
+  if (!migrationTable[0]?.relation) throw new Error("Drizzle migration log table was not created");
 
   const migrationRows = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations
   `;
-  if ((migrationRows[0]?.count ?? 0) < 5) {
-    throw new Error("Expected all five committed migrations in drizzle.__drizzle_migrations");
+  if ((migrationRows[0]?.count ?? 0) < 6) {
+    throw new Error("Expected all six committed migrations in drizzle.__drizzle_migrations");
   }
 
   console.log("Migration smoke check passed", {
