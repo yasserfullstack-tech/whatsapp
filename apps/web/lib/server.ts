@@ -1,6 +1,9 @@
+import { redisStorage } from "@better-auth/redis-storage";
+import { Redis } from "ioredis";
 import { createAppAuth } from "@wa/auth";
 import { createDatabase } from "@wa/db";
 import { createCampaignDispatchQueue, createContactImportQueue } from "@wa/queue";
+import { sendAuthEmail } from "@/lib/auth-email";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -16,10 +19,21 @@ const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
 export const contactImportQueue = createContactImportQueue(redisUrl);
 export const campaignDispatchQueue = createCampaignDispatchQueue(redisUrl);
 
+const globalForAuthRedis = globalThis as unknown as { authRedis?: Redis };
+const authRedis = globalForAuthRedis.authRedis ?? new Redis(redisUrl, { maxRetriesPerRequest: 3 });
+if (process.env.NODE_ENV !== "production") globalForAuthRedis.authRedis = authRedis;
+
+const authUrl = requiredEnv("BETTER_AUTH_URL");
+const appUrl = process.env.APP_URL ?? authUrl;
+
 export const auth = createAppAuth({
   db,
-  baseUrl: requiredEnv("BETTER_AUTH_URL"),
+  baseUrl: authUrl,
   secret: requiredEnv("BETTER_AUTH_SECRET"),
+  trustedOrigins: [...new Set([appUrl, authUrl])],
+  secureCookies: process.env.NODE_ENV === "production",
+  secondaryStorage: redisStorage({ client: authRedis, keyPrefix: "wa:auth:" }),
+  sendEmail: sendAuthEmail,
 });
 
 export function getMetaServerConfig() {
