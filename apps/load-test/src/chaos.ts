@@ -7,6 +7,7 @@ const DEFAULT_DATABASE_URL = "postgres://whatsapp:whatsapp@127.0.0.1:55432/whats
 const DEFAULT_REDIS_URL = "redis://127.0.0.1:56379";
 const FAKE_META_URL = "http://127.0.0.1:4100";
 const COMPOSE = ["docker", "compose", "-f", "docker-compose.load-chaos.yml"];
+let nextExtraWorkerMetricsPort = 19200;
 
 function argument(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -62,6 +63,7 @@ function spawnWorker(input: {
   mps: number;
   concurrency: number;
 }) {
+  const metricsPort = nextExtraWorkerMetricsPort++;
   return Bun.spawn(
     ["bun", "--preload", "./apps/load-test/src/fetch-redirect.ts", "apps/worker/src/index.ts"],
     {
@@ -78,6 +80,7 @@ function spawnWorker(input: {
         WEBHOOK_CONCURRENCY: "200",
         CAMPAIGN_DISPATCH_CONCURRENCY: "100",
         CONTACT_IMPORT_CONCURRENCY: "2",
+        WORKER_METRICS_PORT: String(metricsPort),
         R2_ACCOUNT_ID: "load-test",
         R2_ACCESS_KEY_ID: "load-test",
         R2_SECRET_ACCESS_KEY: "load-test",
