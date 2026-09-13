@@ -5,7 +5,7 @@ import { loadApiEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import { parseWhatsAppWebhook } from "@wa/meta/webhooks";
 import { createLogger, MetricsRegistry } from "@wa/observability";
-import { createWebhookQueue } from "@wa/queue";
+import { createRedisClient, createWebhookQueue } from "@wa/queue";
 import { z } from "zod";
 import { verifyMetaWebhookSignature } from "./webhook-signature";
 
@@ -14,6 +14,7 @@ const app = new Hono<{ Variables: { requestId: string } }>();
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
 const webhookQueue = createWebhookQueue(env.REDIS_URL);
+const readinessRedis = createRedisClient(env.REDIS_URL);
 const log = createLogger({ service: "api" });
 const metrics = new MetricsRegistry();
 let dbStatsWarningLogged = false;
@@ -130,8 +131,7 @@ app.get("/ready", async (c) => {
 
   const redisStartedAt = performance.now();
   try {
-    const redis = await webhookQueue.client;
-    await redis.ping();
+    await readinessRedis.ping();
   } catch (error) {
     checks.redis = "error";
     log.error("readiness_check_failed", { requestId: c.get("requestId"), dependency: "redis", error });
