@@ -28,7 +28,7 @@ test("public site is bilingual and responsive", async ({ page }) => {
 
   await expectDirection(page, "en", "ltr");
   await expect(page.getByRole("heading", { name: /Run high-volume WhatsApp campaigns/ })).toBeVisible();
-  await expect(page.getByText(/500,000 recipients/)).toBeVisible();
+  await expect(page.locator(".mkt-scale-note")).toContainText("500,000 recipients");
   await expectNoHorizontalOverflow(page);
 
   for (const [path, heading] of englishPages) {
