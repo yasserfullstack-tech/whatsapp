@@ -23,13 +23,8 @@ const globalForAuthRedis = globalThis as unknown as { authRedis?: Redis };
 const authRedis = globalForAuthRedis.authRedis ?? new Redis(redisUrl, { maxRetriesPerRequest: 3 });
 if (process.env.NODE_ENV !== "production") globalForAuthRedis.authRedis = authRedis;
 
-if (process.env.NODE_ENV === "production") {
-  requiredEnv("RESEND_API_KEY");
-  requiredEnv("AUTH_EMAIL_FROM");
-}
-
-const appUrl = requiredEnv("APP_URL");
 const authUrl = requiredEnv("BETTER_AUTH_URL");
+const appUrl = process.env.APP_URL ?? authUrl;
 
 export const auth = createAppAuth({
   db,
