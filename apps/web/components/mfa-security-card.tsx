@@ -10,7 +10,12 @@ type Enrollment = {
   verified: boolean;
 };
 
-function errorMessage(error: { message?: string | null; code?: string | null } | null | undefined, fallback: string) {
+type AuthError = {
+  message?: string | null | undefined;
+  code?: string | null | undefined;
+};
+
+function errorMessage(error: AuthError | null | undefined, fallback: string) {
   if (error?.code === "ACCOUNT_TEMPORARILY_LOCKED") {
     return "Too many failed MFA attempts. Try again after the temporary lock expires.";
   }
