@@ -309,7 +309,6 @@ async function applyMarketingOptOut(
 }
 
 async function claimWebhookEvent(db: Database, eventId: string) {
-  const staleBefore = new Date(Date.now() - WEBHOOK_STALE_PROCESSING_MS);
   const [event] = await db
     .update(schema.webhookEvents)
     .set({
@@ -326,7 +325,6 @@ async function claimWebhookEvent(db: Database, eventId: string) {
       or(
         sql`${schema.webhookEvents.processingStatus} <> 'processing'`,
         isNull(schema.webhookEvents.processingStartedAt),
-        lt(schema.webhookEvents.processingStartedAt, staleBefore),
       ),
     ))
     .returning({
@@ -476,10 +474,12 @@ async function refreshWebhookInboxMetrics(db: Database): Promise<void> {
         WHERE ${schema.webhookEvents.deadLetteredAt} IS NOT NULL
       )::int`,
       oldestUnprocessedAgeSeconds: sql<number>`COALESCE(
-        EXTRACT(EPOCH FROM (now() - MIN(${schema.webhookEvents.createdAt}))) FILTER (
-          WHERE ${schema.webhookEvents.processedAt} IS NULL
-            AND ${schema.webhookEvents.deadLetteredAt} IS NULL
-        ),
+        EXTRACT(EPOCH FROM (
+          now() - (MIN(${schema.webhookEvents.createdAt}) FILTER (
+            WHERE ${schema.webhookEvents.processedAt} IS NULL
+              AND ${schema.webhookEvents.deadLetteredAt} IS NULL
+          ))
+        )),
         0
       )::double precision`,
     })
@@ -540,8 +540,29 @@ export async function reconcileWebhookInbox(input: {
     const reason = shouldReconcileWebhookEvent(event, now);
     if (!reason) continue;
 
+    const jobId = `webhook-${event.id}`;
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (["active", "waiting", "delayed", "prioritized", "waiting-children"].includes(state)) {
+        continue;
+      }
+      try {
+        await existing.remove();
+      } catch (error) {
+        log.warn("webhook_reconciliation_terminal_job_remove_failed", {
+          eventId: event.id,
+          jobId,
+          state,
+          error,
+        });
+        continue;
+      }
+    }
+
     if (reason === "stale_processing") {
-      await db
+      if (!event.processingStartedAt) continue;
+      const [recovered] = await db
         .update(schema.webhookEvents)
         .set({
           processingStatus: "retry",
@@ -551,22 +572,19 @@ export async function reconcileWebhookInbox(input: {
         })
         .where(and(
           eq(schema.webhookEvents.id, event.id),
+          eq(schema.webhookEvents.processingStatus, "processing"),
+          eq(schema.webhookEvents.processingStartedAt, event.processingStartedAt),
           isNull(schema.webhookEvents.processedAt),
           isNull(schema.webhookEvents.deadLetteredAt),
-        ));
-    } else {
-      const existing = await queue.getJob(`webhook-${event.id}`);
-      if (existing) continue;
+        ))
+        .returning({ id: schema.webhookEvents.id });
+      if (!recovered) continue;
     }
 
     await queue.add(
       "process-meta-webhook",
       { eventId: event.id },
-      {
-        jobId: reason === "stale_processing"
-          ? `webhook-${event.id}-reconcile-${Math.floor(now.getTime() / WEBHOOK_RECONCILE_INTERVAL_MS)}`
-          : `webhook-${event.id}`,
-      },
+      { jobId },
     );
     metrics.incCounter("whatsapp_webhook_reconciled_total", { reason });
     requeued += 1;
