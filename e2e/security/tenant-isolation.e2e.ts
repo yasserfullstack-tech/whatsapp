@@ -249,7 +249,10 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
   });
 
   test("revoked authenticated sessions are rejected", async () => {
-    const signOut = await tenantA.api.post("/api/auth/sign-out", { data: {} });
+    const signOut = await tenantA.api.post("/api/auth/sign-out", {
+      data: {},
+      headers: { origin: "http://127.0.0.1:3000" },
+    });
     expect(signOut.ok(), await signOut.text()).toBeTruthy();
     const response = await tenantA.api.get("/api/settings/data/export");
     expect(response.status()).toBe(401);
