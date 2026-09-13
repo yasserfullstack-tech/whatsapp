@@ -8,7 +8,7 @@
 .settingsFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
 .settingsFields label { display: grid; gap: 7px; }
 .settingsFields label > span { font-size: 13px; font-weight: 750; }
-.settingsFields input, .settingsFields select { width: 100%; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); }
+.settingsFields input, .settingsFields select, .dangerBlock input[type="text"], .dangerBlock input:not([type]) { width: 100%; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); }
 .settingsFields input:disabled, .settingsFields select:disabled { background: var(--surface-2); color: var(--muted); opacity: 1; }
 .settingsHint { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .settingsList { display: grid; gap: 10px; margin-top: 18px; }
@@ -24,9 +24,29 @@
 .settingsCallout { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }
 .settingsCallout p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .settingsStats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 0; }
+.dataLifecycleGrid { display: grid; gap: 18px; margin-top: 18px; }
+.dataSectionHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.dataSectionHeader h2, .dangerPanel h2 { margin: 0; }
+.dataSectionHeader p { margin: 7px 0 0; max-width: 760px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.dataActionGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.dataRetentionFields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dataSaveButton { margin-top: 18px; }
+.dangerPanel { border-color: #efc9c9; }
+.dangerBlock { display: grid; gap: 10px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.dangerBlock p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.dangerBlock label:not(.destructiveCheck) { display: grid; gap: 7px; max-width: 620px; }
+.dangerBlock label > span { font-size: 12px; font-weight: 750; }
+.destructiveCheck { display: flex; align-items: flex-start; gap: 9px; max-width: 720px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.destructiveCheck input { margin-top: 2px; }
+.dangerButton { width: fit-content; padding: 10px 14px; border: 1px solid #b42318; border-radius: 10px; background: #fff5f4; color: #8a1c13; font-weight: 800; cursor: pointer; }
+.dangerButton:disabled { cursor: not-allowed; opacity: .45; }
 
+@media (max-width: 980px) {
+  .dataActionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dataRetentionFields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 760px) {
-  .settingsFields, .settingsStats { grid-template-columns: 1fr; }
-  .settingsListRow, .settingsPhoneRow { align-items: flex-start; flex-direction: column; }
+  .settingsFields, .settingsStats, .dataActionGrid, .dataRetentionFields { grid-template-columns: 1fr; }
+  .settingsListRow, .settingsPhoneRow, .dataSectionHeader { align-items: flex-start; flex-direction: column; }
   .settingsMetrics { width: 100%; justify-content: space-between; }
 }
