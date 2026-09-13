@@ -1,5 +1,6 @@
 import { betterAuth, type SecondaryStorage } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { twoFactor } from "better-auth/plugins";
 import { schema, type createDatabase } from "@wa/db";
 
 type Database = ReturnType<typeof createDatabase>["db"];
@@ -42,8 +43,28 @@ export function createAppAuth(input: CreateAppAuthInput) {
         session: schema.authSession,
         account: schema.authAccount,
         verification: schema.authVerification,
+        twoFactor: schema.authTwoFactor,
       },
     }),
+    plugins: [
+      twoFactor({
+        issuer: "WhatsApp Campaigns",
+        totpOptions: {
+          digits: 6,
+          period: 30,
+        },
+        backupCodeOptions: {
+          amount: 10,
+          length: 10,
+          storeBackupCodes: "encrypted",
+        },
+        accountLockout: {
+          enabled: true,
+          maxFailedAttempts: 5,
+          durationSeconds: 15 * 60,
+        },
+      }),
+    ],
     advanced: {
       useSecureCookies: secureCookies,
       disableCSRFCheck: false,
