@@ -82,9 +82,11 @@ test.describe("product workflows", () => {
       await page.locator('select[name="status"]').selectOption("suppressed");
       await page.getByRole("button", { name: /apply filters/i }).click();
       await expect(page).toHaveURL(/status=suppressed/);
+      await page.reload();
       row = page.locator(".contactRow").filter({ hasText: "Imported E2E Contact" });
       await expect(row).toBeVisible();
       await row.getByRole("button", { name: "Record new consent" }).click();
+      await expect(page.getByRole("button", { name: "Restore eligibility" })).toBeVisible();
       await page.locator('input[name="consentSource"]').fill("E2E signed web form");
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
       await page.locator('input[name="confirmation"]').check();
@@ -322,6 +324,7 @@ test.describe("product workflows", () => {
       await expect(page).toHaveURL(/\/settings\/team$/);
       await page.goto("/settings/general");
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
+      await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
       await health.expectHealthy();
     } finally {
       await destroyTenant(invited);
