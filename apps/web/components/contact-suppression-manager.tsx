@@ -8,6 +8,7 @@ type ContactRow = { id: string; phoneE164: string; displayName: string | null; o
 type ConsentEvent = { id: string; phoneE164: string; eventType: string; source: string; note: string | null; occurredAt: string };
 type Props = { contacts: ContactRow[]; events: ConsentEvent[]; canSuppress: boolean; canResubscribe: boolean };
 type ActionMode = "suppress" | "resubscribe";
+type ContactAction = { mode: ActionMode; contactId: string };
 function localDateTimeDefault(): string { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 16); }
 
 export function ContactSuppressionManager({ contacts, events, canSuppress, canResubscribe }: Props) {
@@ -17,11 +18,12 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [action, setAction] = useState<ContactAction | null | undefined>(undefined);
 
   useEffect(() => { setHydrated(true); }, []);
 
-  const requestedMode = searchParams.get("contactAction");
-  const requestedContactId = searchParams.get("contactId");
+  const requestedMode = action === undefined ? searchParams.get("contactAction") : action?.mode ?? null;
+  const requestedContactId = action === undefined ? searchParams.get("contactId") : action?.contactId ?? null;
   const selected = requestedContactId ? contacts.find((contact) => contact.id === requestedContactId) ?? null : null;
   const selectedEligible = selected ? selected.optedIn && !selected.unsubscribedAt && !selected.suppressedAt : false;
   const mode: ActionMode | null = requestedMode === "suppress" && selected && canSuppress && !selected.suppressedAt
@@ -42,13 +44,19 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
     return query ? `/contacts?${query}` : "/contacts";
   }
 
+  function replaceActionUrl(nextMode?: ActionMode, contactId?: string) {
+    window.history.replaceState(window.history.state, "", actionUrl(nextMode, contactId));
+  }
+
   function openAction(contact: ContactRow, nextMode: ActionMode) {
     setMessage(null);
-    router.replace(actionUrl(nextMode, contact.id), { scroll: false });
+    setAction({ mode: nextMode, contactId: contact.id });
+    replaceActionUrl(nextMode, contact.id);
   }
 
   function close() {
-    router.replace(actionUrl(), { scroll: false });
+    setAction(null);
+    replaceActionUrl();
   }
 
   async function submitSuppress(event: FormEvent<HTMLFormElement>) {
@@ -59,7 +67,9 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? messages.ui.suppressFailed);
       setMessage(format(messages.ui.suppressedSuccess, { phone: selected.phoneE164 }));
-      router.replace(actionUrl(), { scroll: false });
+      setAction(null);
+      replaceActionUrl();
+      router.refresh();
     }
     catch (error) { setMessage(error instanceof Error ? error.message : messages.ui.suppressFailed); }
     finally { setBusy(false); }
@@ -75,7 +85,9 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? messages.ui.restoreFailed);
       setMessage(format(messages.ui.restoredSuccess, { phone: selected.phoneE164 }));
-      router.replace(actionUrl(), { scroll: false });
+      setAction(null);
+      replaceActionUrl();
+      router.refresh();
     }
     catch (error) { setMessage(error instanceof Error ? error.message : messages.ui.restoreFailed); }
     finally { setBusy(false); }
