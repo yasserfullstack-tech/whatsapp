@@ -10,7 +10,7 @@ Tenant filters are enforced server-side at the data-access boundary. Client-supp
 
 ## Current executable coverage
 
-The Playwright security suite provisions real authenticated users and workspaces against PostgreSQL and Valkey, seeds tenant-owned resources, and attacks them through the production-built application HTTP boundary. Lower-level Bun tests cover worker, webhook, persistence, and utility boundaries that are safer and more deterministic below the browser layer.
+The Playwright security suite provisions real authenticated users and workspaces against PostgreSQL and Valkey, seeds tenant-owned resources, and attacks them through the production-built application HTTP boundary. Lower-level Bun tests cover worker, webhook, persistence, parser, and utility boundaries that are safer and more deterministic below the browser layer.
 
 ### Tenant isolation and IDOR
 
@@ -44,7 +44,9 @@ The suite verifies:
 - a workspace owner does not automatically become a platform administrator
 - platform administrator access requires the separate platform-admin grant/bootstrap boundary
 - disabling a user also blocks previously granted platform-admin access
-- server actions re-resolve the authenticated workspace and permissions instead of trusting hidden IDs
+- a normal workspace user cannot replay a valid platform-admin user-disable server action
+- a normal workspace owner cannot replay a valid platform-admin organization-suspension server action
+- server actions re-resolve the authenticated workspace and permissions instead of trusting hidden IDs or a captured action token
 
 ### Authentication and session abuse
 
@@ -75,6 +77,9 @@ Executable regressions cover:
 - invitation acceptance only creates membership in the intended workspace
 - concurrent workspace-deletion requests serialize so only one active destructive schedule can be created
 - workspace-deletion scheduling remains owner-only and requires recent authentication
+- concurrent account-deletion requests can complete only once
+- account deletion records its completed lifecycle audit in the same transaction as the destructive user deletion, preventing duplicate or false completion records
+- account deletion remains blocked while the user still owns a workspace
 
 ### Request boundary, injection, XSS, and uploads
 
@@ -92,6 +97,10 @@ Executable regressions cover:
 - upload object keys constrained to the authenticated tenant prefix
 - uploaded filenames sanitized before becoming object-key components
 - presigned upload expiry and signed `content-type` restrictions
+- contact-import parser rejection of oversized individual records and malformed quoted CSV
+- BOM and blank-line handling without manufacturing import rows
+- hostile spreadsheet-formula and SQL-like CSV cell contents remaining inert parser data
+- live worker parser and row safety limits remaining enabled, including the per-record and total-row caps
 - completed export downloads signed only for tenant-owned keys, with short-lived download URLs and `Cache-Control: no-store`
 - CSV/report export cells hardened against spreadsheet-formula execution
 
@@ -121,25 +130,25 @@ Existing lower-level tests cover:
 | templates | foreign template campaign reference rejected | tenant-scoped campaign validation | create/sync protected | no foreign template leakage | covered for current endpoints |
 | campaigns | detail/control IDOR + foreign phone/template references | role matrix | create/detail/control protected | bad sessions + CSRF covered | covered for current endpoints |
 | campaign recipients | worker claim requires org + campaign + recipient | queue-side tenant boundary | no public recipient-by-id route | forged queue job regression | covered at current worker boundary |
-| imports | read/queue IDOR covered | role matrix | presign/read/queue protected | size/type/key/signing restrictions covered | content-parser fuzzing remains below |
+| imports | read/queue IDOR covered | role matrix | presign/read/queue protected | signing restrictions plus malformed/oversized/parser-hostile CSV cases | parser-level abuse covered; full hostile R2 object E2E remains |
 | phone numbers | foreign campaign/server-action reference rejected | role matrix | embedded signup protected | credential remains untouched on foreign-ID tamper | covered for current surfaces |
 | consent records | contact IDOR actions stay tenant-scoped | admin/owner boundaries | protected | evidence input validated | covered for current surfaces |
 | suppressions | contact IDOR actions stay tenant-scoped | admin/owner boundaries | protected | input validated | covered for current surfaces |
 | analytics/reports | foreign campaign filters cannot expose tenant B | authenticated workspace boundary | protected | CSV output hardened | covered for current report surfaces |
-| settings | forged workspace selector rejected; exports tenant-scoped | Owner/Admin/Member/Viewer matrix | protected | CSRF + secret-free export | covered for current surfaces |
+| settings/data lifecycle | forged workspace selector rejected; exports tenant-scoped | Owner/Admin/Member/Viewer matrix | protected | CSRF, secret-free export, workspace/account deletion concurrency | covered for current surfaces |
 | members/invitations | hidden foreign membership ID rejected; invitation workspace fixed | role matrix + email binding | protected where required | expiry + single-use/replay covered | covered for current surfaces |
 | credentials/object storage | tenant prefix and lookup boundaries | workspace/platform boundaries | protected indirectly | exports omit secrets; presigns short-lived | covered for current surfaces |
 | billing | account/subscription/usage/invoice scoped to workspace | authenticated workspace boundary | protected | foreign billing sentinel absent | covered for current read surfaces |
 | notifications | user + organization scoped | authenticated user boundary | unread endpoint protected | no foreign unread leakage | covered for current surfaces |
-| platform admin | workspace ownership cannot grant access | separate admin grant + disabled-user check | protected | workspace-role escalation rejected | central guard covered; mutation probes can grow |
+| platform admin | workspace ownership cannot grant access | separate admin grant + disabled-user check | protected | captured user-disable and organization-suspend actions rejected for normal users | representative mutations covered; continue per-action probes |
 | webhooks | durable inbox and recipient updates tenant-aware | signed external boundary | N/A | HMAC, duplicate, replay, Redis/DB failure covered | covered at current API/worker boundary |
 
 ## Known remaining high-value coverage
 
 The current branch intentionally does not claim that every future attack class is exhausted. The following additions remain worthwhile:
 
-- run adversarial **CSV object contents** through the actual contact-import parser/worker path (malformed quoting, very large records, hostile Unicode, pathological column counts, invalid phones, duplicate-heavy files, and parser failure cleanup). Current tests cover upload metadata, signing policy, tenant object keys, and the worker's surrounding import behavior, but not a full hostile R2 object fixture end-to-end.
-- add direct black-box submissions for each newly added platform-admin mutation. Current mutations share `requirePlatformAdmin()`, and the grant/disabled-user boundary is tested, but every future admin action should receive its own negative mutation probe where practical.
+- run adversarial **stored R2 CSV objects** through the complete contact-import worker integration, including hostile Unicode, pathological column counts, invalid-phone floods, duplicate-heavy files, and parser-failure cleanup. Parser-level malformed quoting, oversized-record, BOM/blank-line, and hostile-cell behavior is already executable; the remaining gap is the full object-storage-to-worker path.
+- add direct black-box negative submissions for the remaining platform-admin mutations such as organization reactivation and plan/limit changes, and require each newly added admin action to ship with its own negative mutation probe where practical.
 - add container/image vulnerability scanning to the release/deployment security pipeline when the image-release gate is finalized.
 - continue adding explicit IDOR tests whenever new recipient, credential, analytics, member, template, list, phone-number, or other identifier-bearing routes are introduced.
 
