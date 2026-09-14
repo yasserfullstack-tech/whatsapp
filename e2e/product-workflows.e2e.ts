@@ -54,7 +54,7 @@ test.describe("product workflows", () => {
       const health = await guardBrowser(page);
       await page.goto("/dashboard#contacts");
 
-      const csv = "phone,name\n+15551234567,Imported E2E Contact\n+15557654321,Second Imported Contact\n";
+      const csv = "phone,name\n+14155552671,Imported E2E Contact\n+12025550123,Second Imported Contact\n";
       await page.locator('input[type="file"]').setInputFiles({ name: "contacts-e2e.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
       const country = page.getByLabel("Country");
       if (await country.count()) await country.fill("US");
@@ -140,7 +140,7 @@ test.describe("product workflows", () => {
       await connect.click();
       await expect(page.getByText(/connected/i).first()).toBeVisible({ timeout: 15_000 });
       await page.reload();
-      await expect(page.getByText("E2E WhatsApp", { exact: false })).toBeVisible();
+      await expect(page.getByText("E2E WhatsApp", { exact: true })).toBeVisible();
       const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
       expect(rows).toHaveLength(1);
       expect(rows[0]?.phoneNumberId).toBe("e2e-phone");
