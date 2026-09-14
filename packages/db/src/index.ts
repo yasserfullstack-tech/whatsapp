@@ -7,6 +7,7 @@ import * as audienceSchema from "./audience-schema";
 import * as adminSchema from "./admin-schema";
 import * as workspaceSettingsSchema from "./workspace-settings-schema";
 import * as billingSchema from "./billing-schema";
+import * as onboardingSchema from "./onboarding-schema";
 
 export const schema = {
   ...coreSchema,
@@ -16,6 +17,7 @@ export const schema = {
   ...adminSchema,
   ...workspaceSettingsSchema,
   ...billingSchema,
+  ...onboardingSchema,
 };
 export * from "./schema";
 export * from "./contact-import-schema";
@@ -24,6 +26,7 @@ export * from "./audience-schema";
 export * from "./admin-schema";
 export * from "./workspace-settings-schema";
 export * from "./billing-schema";
+export * from "./onboarding-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {
