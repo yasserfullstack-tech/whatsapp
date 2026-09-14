@@ -64,8 +64,8 @@ test.describe.serial("account state, billing, and data isolation", () => {
     const entitlementId = randomUUID();
     const usageId = randomUUID();
     const invoiceId = randomUUID();
-    const periodStart = new Date(Date.now() - 24 * 60 * 60 * 1_000);
-    const periodEnd = new Date(Date.now() + 29 * 24 * 60 * 60 * 1_000);
+    const periodStart = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString();
+    const periodEnd = new Date(Date.now() + 29 * 24 * 60 * 60 * 1_000).toISOString();
 
     await securitySql`
       INSERT INTO plans (id, organization_id, code, name, is_custom)
