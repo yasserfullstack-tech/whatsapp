@@ -18,6 +18,7 @@ type CreateAppAuthInput = {
   trustedOrigins?: string[];
   secureCookies?: boolean;
   secondaryStorage?: SecondaryStorage;
+  signInRateLimitMax?: number | undefined;
   signUpRateLimitMax?: number | undefined;
   sendEmail: (message: AuthEmailMessage) => Promise<void>;
 };
@@ -126,7 +127,7 @@ export function createAppAuth(input: CreateAppAuthInput) {
       window: 60,
       max: 100,
       customRules: {
-        "/sign-in/email": { window: 60, max: 5 },
+        "/sign-in/email": { window: 60, max: input.signInRateLimitMax ?? 5 },
         "/sign-up/email": { window: 60 * 10, max: input.signUpRateLimitMax ?? 5 },
         "/request-password-reset": { window: 60 * 15, max: 3 },
         "/reset-password": { window: 60 * 15, max: 5 },
