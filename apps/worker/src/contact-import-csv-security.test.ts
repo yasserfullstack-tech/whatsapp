@@ -46,8 +46,8 @@ describe("contact import CSV security policy", () => {
     );
     expect(rows).toHaveLength(1);
     const row = rows[0];
-    expect(row?.[" Phone Number "]).toBe("+15551234567");
-    expect(row?.[" Display-Name "]).toContain("HYPERLINK");
+    expect(row?.["Phone Number"]).toBe("+15551234567");
+    expect(row?.["Display-Name"]).toContain("HYPERLINK");
     expect(row?.extra).toBe("%27 OR 1=1 --");
   });
 
