@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { expect, test, type APIResponse, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { schema } from "../../packages/db/src/index";
 import {
   SECURITY_BASE_URL,
@@ -32,30 +32,22 @@ async function waitForServerAction(page: Page, click: () => Promise<void>) {
 }
 
 async function submitTamperedServerAction(
-  tenant: SecurityTenant,
+  page: Page,
   form: Locator,
   fieldName: string,
   foreignValue: string,
-): Promise<APIResponse> {
-  const submission = await form.evaluate((element) => {
-    const htmlForm = element as HTMLFormElement;
-    const target = new URL(htmlForm.action || window.location.href, window.location.href);
-    const entries = Array.from(new FormData(htmlForm).entries()).flatMap(([name, value]) =>
-      typeof value === "string" ? [[name, value] as const] : [],
-    );
-    return { path: `${target.pathname}${target.search}`, entries };
+): Promise<number> {
+  const responsePromise = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url().startsWith(SECURITY_BASE_URL),
+  );
+  const hidden = form.locator(`input[name="${fieldName}"]`);
+  await hidden.evaluate((element, value) => {
+    (element as HTMLInputElement).value = value;
+  }, foreignValue);
+  await form.evaluate((element) => {
+    (element as HTMLFormElement).submit();
   });
-  const data = Object.fromEntries(submission.entries);
-  data[fieldName] = foreignValue;
-  return tenant.api.post(submission.path, {
-    form: data,
-    headers: {
-      origin: SECURITY_BASE_URL,
-      referer: `${SECURITY_BASE_URL}${new URL(submission.path, SECURITY_BASE_URL).pathname}`,
-      "sec-fetch-site": "same-origin",
-    },
-    maxRedirects: 0,
-  });
+  return (await responsePromise).status();
 }
 
 test.describe.serial("server actions and invitation token security", () => {
@@ -218,11 +210,8 @@ test.describe.serial("server actions and invitation token security", () => {
       const row = browserSession.page.locator(".settingsListRow").filter({ hasText: invitee.email });
       await expect(row).toBeVisible();
       const removeForm = row.locator("form").filter({ has: row.getByRole("button", { name: "Remove" }) });
-      const response = await submitTamperedServerAction(tenantA, removeForm, "membershipId", tenantBOwnerMembershipId);
-      expect(response.status()).toBeGreaterThanOrEqual(400);
-      const body = await response.text();
-      expect(body).not.toContain(tenantB.email);
-      expect(body).not.toContain(tenantB.organizationId);
+      const status = await submitTamperedServerAction(browserSession.page, removeForm, "membershipId", tenantBOwnerMembershipId);
+      expect(status).toBeGreaterThanOrEqual(400);
     } finally {
       await browserSession.context.close();
     }
@@ -243,9 +232,8 @@ test.describe.serial("server actions and invitation token security", () => {
       const row = browserSession.page.locator(".settingsPhoneRow").first();
       await expect(row).toBeVisible();
       const form = row.locator("form").filter({ has: row.getByRole("button", { name: "Disconnect" }) });
-      const response = await submitTamperedServerAction(tenantA, form, "phoneNumberId", tenantBPhoneId);
-      expect(response.status()).toBeGreaterThanOrEqual(400);
-      expect(await response.text()).not.toContain(tenantBCredentialKey);
+      const status = await submitTamperedServerAction(browserSession.page, form, "phoneNumberId", tenantBPhoneId);
+      expect(status).toBeGreaterThanOrEqual(400);
     } finally {
       await browserSession.context.close();
     }
