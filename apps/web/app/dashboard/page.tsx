@@ -83,7 +83,7 @@ export default async function DashboardPage() {
             <div className="panelHeader"><div><p className="eyebrow">{messages.ui.whatsappSetup}</p><h2>{phoneNumbers.length ? messages.ui.connectedNumbers : messages.ui.noNumberConnected}</h2></div></div>
             {phoneNumbers.length ? <div className="numberList">{phoneNumbers.map((phone) => (
               <div className="numberRow" key={phone.id}><div><strong>{phone.verifiedName ?? messages.common.whatsappBusiness}</strong><p>{phone.displayPhoneNumber ?? phone.phoneNumberId}</p></div><div className="numberMeta"><span>{number.format(phone.throughputMps)} msg/s</span><span className={phone.status === "connected" ? "status connected" : "status"}>{phone.status === "connected" ? messages.common.connected : phone.status}</span></div></div>
-            ))}</div> : <div className="emptyState"><div className="emptyIcon">W</div><h3>{messages.ui.connectFirstNumber}</h3><p>{messages.ui.metaIdentityDescription}</p></div>}
+            ))}</div> : <div className="emptyState"><div className="emptyIcon">W</div><h3>{messages.ui.connectFirstNumber}</h3><p>{messages.ui.metaIdentityDescription}</p>{canManageWhatsApp ? <Link className="secondary" href="/settings/whatsapp">{messages.ui.connectWhatsapp}</Link> : null}</div>}
           </article>
 
           <aside className="panel readinessPanel">
