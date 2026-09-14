@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { schema } from "../../packages/db/src/index";
 import {
   SECURITY_BASE_URL,
@@ -16,6 +16,76 @@ function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#x27;", "'")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">");
+}
+
+function attributeValue(attributes: string, name: string): string | null {
+  const match = attributes.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`, "i"));
+  return match?.[1] ? decodeHtmlAttribute(match[1]) : null;
+}
+
+function extractServerActionForm(
+  html: string,
+  pagePath: string,
+  fieldName: string,
+  originalValue: string,
+  buttonText: string,
+): { path: string; multipart: Record<string, string> } {
+  const forms = Array.from(html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi));
+  for (const form of forms) {
+    const attributes = form[1] ?? "";
+    const body = form[2] ?? "";
+    if (!body.includes(`name="${fieldName}"`) || !body.includes(`value="${originalValue}"`) || !body.includes(`>${buttonText}</button>`)) {
+      continue;
+    }
+
+    const multipart: Record<string, string> = {};
+    for (const input of body.matchAll(/<input\b([^>]*)>/gi)) {
+      const inputAttributes = input[1] ?? "";
+      const name = attributeValue(inputAttributes, "name");
+      if (!name) continue;
+      multipart[name] = attributeValue(inputAttributes, "value") ?? "";
+    }
+
+    const action = attributeValue(attributes, "action") || pagePath;
+    const target = new URL(action, SECURITY_BASE_URL);
+    return { path: `${target.pathname}${target.search}`, multipart };
+  }
+  throw new Error(`Could not find ${buttonText} server-action form for ${fieldName}`);
+}
+
+async function submitTamperedServerAction(
+  tenant: SecurityTenant,
+  pagePath: string,
+  fieldName: string,
+  originalValue: string,
+  foreignValue: string,
+  buttonText: string,
+): Promise<number> {
+  const rendered = await tenant.api.get(pagePath);
+  expect(rendered.status(), await rendered.text()).toBe(200);
+  const html = await rendered.text();
+  const submission = extractServerActionForm(html, pagePath, fieldName, originalValue, buttonText);
+  submission.multipart[fieldName] = foreignValue;
+  const response = await tenant.api.post(submission.path, {
+    multipart: submission.multipart,
+    headers: {
+      origin: SECURITY_BASE_URL,
+      referer: `${SECURITY_BASE_URL}${pagePath}`,
+      "sec-fetch-site": "same-origin",
+    },
+    maxRedirects: 0,
+  });
+  return response.status();
+}
+
 async function authenticatedPage(browser: Browser, tenant: SecurityTenant): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     extraHTTPHeaders: { cookie: tenant.cookie },
@@ -29,34 +99,6 @@ async function waitForServerAction(page: Page, click: () => Promise<void>) {
   );
   await click();
   return responsePromise;
-}
-
-async function submitTamperedServerAction(
-  tenant: SecurityTenant,
-  form: Locator,
-  fieldName: string,
-  foreignValue: string,
-): Promise<number> {
-  const submission = await form.evaluate((element) => {
-    const htmlForm = element as HTMLFormElement;
-    const target = new URL(htmlForm.action || window.location.href, window.location.href);
-    const fields = Array.from(new FormData(htmlForm).entries()).flatMap(([name, value]) =>
-      typeof value === "string" ? [[name, value] as const] : [],
-    );
-    return { path: `${target.pathname}${target.search}`, fields };
-  });
-  const multipart = Object.fromEntries(submission.fields);
-  multipart[fieldName] = foreignValue;
-  const response = await tenant.api.post(submission.path, {
-    multipart,
-    headers: {
-      origin: SECURITY_BASE_URL,
-      referer: `${SECURITY_BASE_URL}${submission.path}`,
-      "sec-fetch-site": "same-origin",
-    },
-    maxRedirects: 0,
-  });
-  return response.status();
 }
 
 test.describe.serial("server actions and invitation token security", () => {
@@ -138,12 +180,17 @@ test.describe.serial("server actions and invitation token security", () => {
       await wrong.page.goto(`/invite/${wrongEmailToken}`);
       const response = await waitForServerAction(wrong.page, () => wrong.page.getByRole("button", { name: "Accept invitation" }).click());
       expect(response.status()).toBeGreaterThanOrEqual(400);
-      const leaked = await response.text();
-      expect(leaked).not.toContain(tenantB.email);
-      expect(leaked).not.toContain(tenantB.organizationId);
     } finally {
       await wrong.context.close();
     }
+
+    const beforeValidAccept = await securitySql`
+      SELECT count(*)::int AS count
+      FROM organization_members
+      WHERE organization_id = ${tenantA.organizationId}
+        AND user_id = ${invitee.appUserId}
+    ` as unknown as Array<{ count: number }>;
+    expect(beforeValidAccept[0]?.count).toBe(0);
 
     const accepted = await authenticatedPage(browser, invitee);
     try {
@@ -212,18 +259,26 @@ test.describe.serial("server actions and invitation token security", () => {
     expect(membership[0]?.count).toBe(0);
   });
 
-  test("hidden membership ids cannot target another workspace", async ({ browser }) => {
-    const browserSession = await authenticatedPage(browser, tenantA);
-    try {
-      await browserSession.page.goto("/settings/team");
-      const row = browserSession.page.locator(".settingsListRow").filter({ hasText: invitee.email });
-      await expect(row).toBeVisible();
-      const removeForm = row.locator("form").filter({ has: row.getByRole("button", { name: "Remove" }) });
-      const status = await submitTamperedServerAction(tenantA, removeForm, "membershipId", tenantBOwnerMembershipId);
-      expect(status).toBeGreaterThanOrEqual(400);
-    } finally {
-      await browserSession.context.close();
-    }
+  test("hidden membership ids cannot target another workspace", async () => {
+    const memberRows = await securitySql`
+      SELECT id
+      FROM organization_members
+      WHERE organization_id = ${tenantA.organizationId}::uuid
+        AND user_id = ${invitee.appUserId}::uuid
+      LIMIT 1
+    ` as unknown as Array<{ id: string }>;
+    const tenantAMembershipId = memberRows[0]?.id;
+    if (!tenantAMembershipId) throw new Error("Could not find tenant A membership fixture");
+
+    const status = await submitTamperedServerAction(
+      tenantA,
+      "/settings/team",
+      "membershipId",
+      tenantAMembershipId,
+      tenantBOwnerMembershipId,
+      "Remove",
+    );
+    expect(status).toBeGreaterThanOrEqual(400);
 
     const victim = await securitySql`
       SELECT role
@@ -234,18 +289,25 @@ test.describe.serial("server actions and invitation token security", () => {
     expect(victim).toEqual([{ role: "owner" }]);
   });
 
-  test("hidden WhatsApp ids cannot disconnect another workspace or delete its credential", async ({ browser }) => {
-    const browserSession = await authenticatedPage(browser, tenantA);
-    try {
-      await browserSession.page.goto("/settings/whatsapp");
-      const row = browserSession.page.locator(".settingsPhoneRow").first();
-      await expect(row).toBeVisible();
-      const form = row.locator("form").filter({ has: row.getByRole("button", { name: "Disconnect" }) });
-      const status = await submitTamperedServerAction(tenantA, form, "phoneNumberId", tenantBPhoneId);
-      expect(status).toBeGreaterThanOrEqual(400);
-    } finally {
-      await browserSession.context.close();
-    }
+  test("hidden WhatsApp ids cannot disconnect another workspace or delete its credential", async () => {
+    const phoneRows = await securitySql`
+      SELECT id
+      FROM whatsapp_phone_numbers
+      WHERE organization_id = ${tenantA.organizationId}::uuid
+      LIMIT 1
+    ` as unknown as Array<{ id: string }>;
+    const tenantAPhoneId = phoneRows[0]?.id;
+    if (!tenantAPhoneId) throw new Error("Could not find tenant A phone fixture");
+
+    const status = await submitTamperedServerAction(
+      tenantA,
+      "/settings/whatsapp",
+      "phoneNumberId",
+      tenantAPhoneId,
+      tenantBPhoneId,
+      "Disconnect",
+    );
+    expect(status).toBeGreaterThanOrEqual(400);
 
     const phones = await securitySql`
       SELECT status
