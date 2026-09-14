@@ -160,7 +160,7 @@ test.describe("full route and authorization inventory", () => {
       await page.getByLabel("Password").fill(account.password);
       await page.getByRole("button", { name: "Sign in" }).click();
       await expect(page).toHaveURL(/\/sign-in$/);
-      await expect(page.getByRole("alert")).toContainText(/email|verif/i);
+      await expect(page.getByText("Email not verified", { exact: true })).toBeVisible();
       expect(await capturedEmailUrl(account.email, "Verify your email address")).toContain("/api/auth/verify-email");
       await page.goto("/dashboard");
       await expect(page).toHaveURL(/\/sign-in(?:\?|$)/);
