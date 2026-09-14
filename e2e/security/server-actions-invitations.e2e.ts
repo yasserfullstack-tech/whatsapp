@@ -197,7 +197,10 @@ test.describe.serial("server actions and invitation token security", () => {
         (element as HTMLInputElement).value = foreignId;
       }, tenantBOwnerMembershipId);
 
-      const response = await waitForServerAction(browserSession.page, () => removeForm.getByRole("button", { name: "Remove" }).click());
+      const response = await waitForServerAction(
+        browserSession.page,
+        () => removeForm.getByRole("button", { name: "Remove" }).click({ noWaitAfter: true }),
+      );
       expect(response.status()).toBeGreaterThanOrEqual(400);
       const body = await response.text();
       expect(body).not.toContain(tenantB.email);
@@ -227,7 +230,10 @@ test.describe.serial("server actions and invitation token security", () => {
         (element as HTMLInputElement).value = foreignId;
       }, tenantBPhoneId);
 
-      const response = await waitForServerAction(browserSession.page, () => form.getByRole("button", { name: "Disconnect" }).click());
+      const response = await waitForServerAction(
+        browserSession.page,
+        () => form.getByRole("button", { name: "Disconnect" }).click({ noWaitAfter: true }),
+      );
       expect(response.status()).toBeGreaterThanOrEqual(400);
       expect(await response.text()).not.toContain(tenantBCredentialKey);
     } finally {

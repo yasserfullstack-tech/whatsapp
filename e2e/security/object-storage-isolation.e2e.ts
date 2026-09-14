@@ -16,19 +16,19 @@ test.describe.serial("object storage isolation", () => {
   test.beforeAll(async () => {
     tenantA = await createSecurityTenant("storage-a");
     tenantB = await createSecurityTenant("storage-b");
+    malformedExportId = randomUUID();
 
-    const [job] = await securityDb.insert(schema.dataExportJobs).values({
+    await securityDb.insert(schema.dataExportJobs).values({
+      id: malformedExportId,
       organizationId: tenantB.organizationId,
       requestedByUserId: tenantB.appUserId,
       kind: "workspace",
       status: "completed",
-      objectKey: `${tenantA.organizationId}/exports/${randomUUID()}/foreign.ndjson`,
+      objectKey: `${tenantA.organizationId}/data-exports/${malformedExportId}/${randomUUID()}.ndjson`,
       fileName: "foreign.ndjson",
       expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
       completedAt: new Date(),
-    }).returning({ id: schema.dataExportJobs.id });
-    if (!job) throw new Error("Could not seed malformed export job");
-    malformedExportId = job.id;
+    });
   });
 
   test.afterAll(async () => {

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { schema } from "@wa/db";
-import { createPresignedDownload, createR2Client } from "@wa/storage";
+import { createPresignedDownload, createR2Client, isObjectKeyWithinPrefix } from "@wa/storage";
 import { getAuthContext } from "@/lib/auth-context";
 import { db, getR2ServerConfig } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
@@ -21,6 +21,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!job) return NextResponse.json({ error: "Export not found" }, { status: 404 });
   if (job.status !== "completed") return NextResponse.json({ error: "Export is not ready" }, { status: 409 });
   if (!job.expiresAt || job.expiresAt.getTime() <= Date.now()) return NextResponse.json({ error: "Export has expired" }, { status: 410 });
+
+  const expectedPrefix = `${context.workspace.organizationId}/data-exports/${job.id}/`;
+  if (!isObjectKeyWithinPrefix(job.objectKey, expectedPrefix)) {
+    return NextResponse.json({ error: "Export storage key is invalid" }, { status: 409 });
+  }
 
   const config = getR2ServerConfig();
   const url = await createPresignedDownload({

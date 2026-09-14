@@ -11,6 +11,15 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export type R2Config = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string };
 
+export function isObjectKeyWithinPrefix(key: string, prefix: string): boolean {
+  if (!key || !prefix || !prefix.endsWith("/")) return false;
+  if (key.startsWith("/") || key.includes("\\") || key.includes("\0")) return false;
+  if (!key.startsWith(prefix) || key.length <= prefix.length) return false;
+
+  const segments = key.split("/");
+  return !segments.some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
 export function createR2Client(config: R2Config): S3Client {
   return new S3Client({
     region: "auto",

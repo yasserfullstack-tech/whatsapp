@@ -22,31 +22,42 @@ test.describe.serial("account state, billing, and data isolation", () => {
     tenantA = await createSecurityTenant("state-data-a");
     tenantB = await createSecurityTenant("state-data-b");
 
-    const completedExport = await securityDb.insert(schema.dataExportJobs).values({
-      organizationId: tenantB.organizationId,
-      requestedByUserId: tenantB.appUserId,
-      kind: "workspace",
-      status: "completed",
-      objectKey: `${tenantB.organizationId}/exports/security-completed.ndjson`,
-      fileName: "security-completed.ndjson",
-      expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
-      completedAt: new Date(),
-    }).returning({ id: schema.dataExportJobs.id });
-    const expiredExport = await securityDb.insert(schema.dataExportJobs).values({
-      organizationId: tenantB.organizationId,
-      requestedByUserId: tenantB.appUserId,
-      kind: "workspace",
-      status: "completed",
-      objectKey: `${tenantB.organizationId}/exports/security-expired.ndjson`,
-      fileName: "security-expired.ndjson",
-      expiresAt: new Date(Date.now() - 60_000),
-      completedAt: new Date(Date.now() - 120_000),
-    }).returning({ id: schema.dataExportJobs.id });
-    tenantBExportId = completedExport[0]?.id ?? "";
-    tenantBExpiredExportId = expiredExport[0]?.id ?? "";
-    if (!tenantBExportId || !tenantBExpiredExportId) throw new Error("Could not seed export security fixtures");
+    tenantBExportId = randomUUID();
+    tenantBExpiredExportId = randomUUID();
+    await securityDb.insert(schema.dataExportJobs).values([
+      {
+        id: tenantBExportId,
+        organizationId: tenantB.organizationId,
+        requestedByUserId: tenantB.appUserId,
+        kind: "workspace",
+        status: "completed",
+        objectKey: `${tenantB.organizationId}/data-exports/${tenantBExportId}/${randomUUID()}.ndjson`,
+        fileName: "security-completed.ndjson",
+        expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
+        completedAt: new Date(),
+      },
+      {
+        id: tenantBExpiredExportId,
+        organizationId: tenantB.organizationId,
+        requestedByUserId: tenantB.appUserId,
+        kind: "workspace",
+        status: "completed",
+        objectKey: `${tenantB.organizationId}/data-exports/${tenantBExpiredExportId}/${randomUUID()}.ndjson`,
+        fileName: "security-expired.ndjson",
+        expiresAt: new Date(Date.now() - 60_000),
+        completedAt: new Date(Date.now() - 120_000),
+      },
+    ]);
 
-    const accountId = randomUUID();
+    const accountRows = await securitySql`
+      SELECT id
+      FROM billing_accounts
+      WHERE organization_id = ${tenantB.organizationId}::uuid
+      LIMIT 1
+    ` as unknown as Array<{ id: string }>;
+    const accountId = accountRows[0]?.id;
+    if (!accountId) throw new Error("Could not find security tenant billing account");
+
     const planId = randomUUID();
     const planVersionId = randomUUID();
     const subscriptionId = randomUUID();
@@ -56,10 +67,6 @@ test.describe.serial("account state, billing, and data isolation", () => {
     const periodStart = new Date(Date.now() - 24 * 60 * 60 * 1_000);
     const periodEnd = new Date(Date.now() + 29 * 24 * 60 * 60 * 1_000);
 
-    await securitySql`
-      INSERT INTO billing_accounts (id, organization_id, billing_email)
-      VALUES (${accountId}::uuid, ${tenantB.organizationId}::uuid, ${tenantB.email})
-    `;
     await securitySql`
       INSERT INTO plans (id, organization_id, code, name, is_custom)
       VALUES (${planId}::uuid, ${tenantB.organizationId}::uuid, ${`security-${randomUUID()}`}, ${billingSentinel}, true)
@@ -162,7 +169,7 @@ test.describe.serial("account state, billing, and data isolation", () => {
     const body = await own.json() as { url: string; expiresInSeconds: number };
     expect(body.expiresInSeconds).toBe(300);
     const signed = new URL(body.url);
-    expect(decodeURIComponent(signed.pathname)).toContain(`/${tenantB.organizationId}/exports/`);
+    expect(decodeURIComponent(signed.pathname)).toContain(`/${tenantB.organizationId}/data-exports/${tenantBExportId}/`);
     expect(decodeURIComponent(signed.pathname)).not.toContain(tenantA.organizationId);
     expect(signed.searchParams.get("X-Amz-Expires")).toBe("300");
   });
