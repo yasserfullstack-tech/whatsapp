@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { NotificationBell } from "@/components/notification-bell";
 import { SignOutButton } from "@/components/sign-out-button";
 import { useI18n } from "@/components/i18n-provider";
 
-type ActiveNav = "overview" | "onboarding" | "contacts" | "audiences" | "templates" | "campaigns" | "reports" | "settings";
+type ActiveNav = "overview" | "onboarding" | "contacts" | "audiences" | "templates" | "campaigns" | "reports" | "notifications" | "settings";
 
 export function AppSidebar({ active, workspaceName, email, initials }: { active: ActiveNav; workspaceName: string; email: string; initials: string }) {
   const { messages, locale } = useI18n();
@@ -29,6 +30,7 @@ export function AppSidebar({ active, workspaceName, email, initials }: { active:
           </Link>
         ))}
       </nav>
+      <NotificationBell active={active === "notifications"} />
       <div className="workspace">
         <div className="workspaceAvatar">{initials || "W"}</div>
         <div className="workspaceMeta"><strong>{workspaceName}</strong><span>{email}</span></div>

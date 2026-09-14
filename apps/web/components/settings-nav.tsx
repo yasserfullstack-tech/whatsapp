@@ -12,6 +12,7 @@ export function SettingsNav({ active }: { active: string }) {
     [messages.team, "/settings/team"],
     [messages.whatsapp, "/settings/whatsapp"],
     [messages.security, "/settings/security"],
+    [messages.notifications, "/settings/notifications"],
     [messages.billing, "/settings/billing"],
     [messages.data, "/settings/data"],
   ] as const;
