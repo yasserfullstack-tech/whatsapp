@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - test/security-testing
+      - "test/security-*"
       - "fix/security-*"
 
 permissions:
