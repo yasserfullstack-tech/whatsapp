@@ -85,13 +85,13 @@ export async function POST(request: Request) {
       organizationId: context.workspace.organizationId,
       phone: {
         id: phone.id,
-        displayPhoneNumber: phone.displayPhoneNumber,
-        verifiedName: phone.verifiedName,
-        qualityRating: phone.qualityRating,
+        ...(phone.displayPhoneNumber !== undefined ? { displayPhoneNumber: phone.displayPhoneNumber } : {}),
+        ...(phone.verifiedName !== undefined ? { verifiedName: phone.verifiedName } : {}),
+        ...(phone.qualityRating !== undefined ? { qualityRating: phone.qualityRating } : {}),
         throughputMps,
       },
       wabaId: parsed.data.wabaId,
-      businessId: parsed.data.businessId,
+      ...(parsed.data.businessId !== undefined ? { businessId: parsed.data.businessId } : {}),
       credential: {
         key: credentialKey,
         ...encrypted,
