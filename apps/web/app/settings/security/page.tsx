@@ -2,11 +2,14 @@ import { desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
+import { formatMessage } from "@/lib/i18n";
+import { getI18n } from "@/lib/i18n/server";
+import { workspaceSettingsMessages } from "@/lib/i18n/workspace-settings";
 import { db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
 export default async function SecuritySettingsPage() {
-  const { workspace } = await requireAuthContext();
+  const [{ workspace }, i18n] = await Promise.all([requireAuthContext(), getI18n()]);
   const canReadAudit = can(workspace.role, "audit.read");
   const auditRows = canReadAudit
     ? await db
@@ -24,25 +27,27 @@ export default async function SecuritySettingsPage() {
         .orderBy(desc(schema.workspaceAuditLogs.createdAt))
         .limit(50)
     : [];
+  const m = workspaceSettingsMessages[i18n.locale];
+  const dateTime = new Intl.DateTimeFormat(i18n.localeTag, { dateStyle: "medium", timeStyle: "short" });
 
   return (
     <>
       <header className="topbar settingsHeader">
-        <div><p className="eyebrow">Workspace settings</p><h1>Security</h1><p className="subtitle">Workspace-level security controls and administrative activity.</p></div>
+        <div><p className="eyebrow">{m.common.eyebrow}</p><h1>{m.security.title}</h1><p className="subtitle">{m.security.subtitle}</p></div>
       </header>
       <SettingsNav active="/settings/security" />
       <section className="panel settingsPanel">
-        <div className="panelHeader"><div><h2>Access policy</h2><p className="subtitle">Permissions are resolved from Owner, Admin, Member, and Viewer roles through one matrix.</p></div></div>
-        <div className="settingsCallout"><strong>Your role: {workspace.role}</strong><p>Ownership transfer remains owner-only. Administrative mutations are denied unless the role matrix explicitly allows them.</p></div>
+        <div className="panelHeader"><div><h2>{m.security.accessPolicy}</h2><p className="subtitle">{m.security.accessPolicyHelp}</p></div></div>
+        <div className="settingsCallout"><strong>{formatMessage(m.security.yourRole, { role: m.common.roles[workspace.role] })}</strong><p>{m.security.ownershipHelp}</p></div>
       </section>
       <section className="panel settingsPanel">
-        <div className="panelHeader"><div><h2>Workspace audit log</h2><p className="subtitle">Recent administrative events for this organization.</p></div></div>
-        {!canReadAudit ? <p className="settingsHint">Audit history is available to workspace owners and admins.</p> : auditRows.length ? <div className="settingsList">{auditRows.map((row) => (
+        <div className="panelHeader"><div><h2>{m.security.auditLog}</h2><p className="subtitle">{m.security.auditHelp}</p></div></div>
+        {!canReadAudit ? <p className="settingsHint">{m.security.auditRestricted}</p> : auditRows.length ? <div className="settingsList">{auditRows.map((row) => (
           <div className="settingsListRow" key={row.id}>
-            <div><strong>{row.action}</strong><p>{row.actorName || row.actorEmail || "System"}{row.targetType ? ` · ${row.targetType}` : ""}</p></div>
-            <time dateTime={row.createdAt.toISOString()}>{row.createdAt.toLocaleString()}</time>
+            <div><strong>{row.action}</strong><p>{row.actorName || row.actorEmail || m.security.system}{row.targetType ? ` · ${row.targetType}` : ""}</p></div>
+            <time dateTime={row.createdAt.toISOString()}>{dateTime.format(row.createdAt)}</time>
           </div>
-        ))}</div> : <p className="settingsHint">No workspace administration events have been recorded yet.</p>}
+        ))}</div> : <p className="settingsHint">{m.security.noAudit}</p>}
       </section>
     </>
   );
