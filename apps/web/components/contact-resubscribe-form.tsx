@@ -21,7 +21,8 @@ export function ContactResubscribeForm({ contactId, phoneE164, displayName }: Pr
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const consentSource = String(form.get("consentSource") ?? "");
     const consentedAt = new Date(String(form.get("consentedAt") ?? ""));
     if (Number.isNaN(consentedAt.getTime())) {
@@ -45,7 +46,7 @@ export function ContactResubscribeForm({ contactId, phoneE164, displayName }: Pr
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? messages.ui.restoreFailed);
       setMessage(format(messages.ui.restoredSuccess, { phone: phoneE164 }));
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : messages.ui.restoreFailed);
     } finally {
