@@ -60,7 +60,15 @@ export default async function ContactsPage({ searchParams }: PageProps) {
           <button className="primary" type="submit">{messages.ui.applyFilters}</button>{(query || status !== "all") ? <Link className="secondary" href="/contacts">{messages.ui.clear}</Link> : null}
         </form><p className="subtitle">{messages.ui.showingContacts}</p>
       </section>
-      <ContactSuppressionManager initialAction={initialAction} canSuppress={workspace.role !== "viewer"} canResubscribe={workspace.role === "owner" || workspace.role === "admin"} contacts={contactRows.map((contact) => ({ ...contact, optInAt: contact.optInAt?.toISOString() ?? null, unsubscribedAt: contact.unsubscribedAt?.toISOString() ?? null, suppressedAt: contact.suppressedAt?.toISOString() ?? null }))} events={events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() }))} />
+      <ContactSuppressionManager
+        initialAction={initialAction}
+        filterQuery={query}
+        filterStatus={status}
+        canSuppress={workspace.role !== "viewer"}
+        canResubscribe={workspace.role === "owner" || workspace.role === "admin"}
+        contacts={contactRows.map((contact) => ({ ...contact, optInAt: contact.optInAt?.toISOString() ?? null, unsubscribedAt: contact.unsubscribedAt?.toISOString() ?? null, suppressedAt: contact.suppressedAt?.toISOString() ?? null }))}
+        events={events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() }))}
+      />
     </section>
   </main>;
 }
