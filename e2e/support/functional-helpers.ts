@@ -69,8 +69,6 @@ export async function createTenant(label: string, role: WorkspaceRole = "owner")
   const api = await request.newContext({ baseURL, extraHTTPHeaders: { cookie } });
   await authApi.dispose();
 
-  // Exercise the real authenticated page boundary to create the application user/workspace.
-  // This keeps a brand-new tenant genuinely empty instead of persisting a throwaway segment.
   const bootstrap = await api.get("/dashboard");
   expect(bootstrap.status(), `workspace bootstrap failed: ${await bootstrap.text()}`).toBe(200);
 
@@ -133,17 +131,17 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
   const campaignId = randomUUID();
   const wabaId = `waba-${tenant.organizationId.slice(0, 8)}`;
   const phoneNumberId = `phone-${tenant.organizationId.slice(0, 8)}`;
+  const credentialKey = `org/${tenant.organizationId}/whatsapp/${phoneNumberId}/access-token`;
   const encrypted = encryptSecret("e2e-meta-token", process.env.CREDENTIAL_ENCRYPTION_KEY!);
   const now = new Date();
 
   await functionalDb.insert(schema.credentialSecrets).values({
     id: credentialId,
     organizationId: tenant.organizationId,
-    name: "meta_access_token",
-    encryptedValue: encrypted.ciphertext,
+    key: credentialKey,
+    ciphertext: encrypted.ciphertext,
     iv: encrypted.iv,
     authTag: encrypted.authTag,
-    keyVersion: encrypted.keyVersion,
   });
   await functionalDb.insert(schema.whatsappPhoneNumbers).values({
     id: phoneId,
@@ -155,7 +153,7 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
     status: "connected",
     qualityRating: "GREEN",
     throughputMps: 80,
-    credentialSecretId: credentialId,
+    credentialKey,
   });
   await functionalDb.insert(schema.templates).values({
     id: templateId,
@@ -165,7 +163,7 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
     name: "e2e_approved_template",
     language: "en_US",
     status: "approved",
-    category: "MARKETING",
+    category: "marketing",
     bodyText: "Hello from E2E",
     components: [{ type: "BODY", text: "Hello from E2E" }],
     variableIndexes: [],
@@ -188,12 +186,28 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
 }
 
 export async function grantPlatformAdmin(tenant: FunctionalTenant) {
-  await functionalDb.insert(schema.platformAdminGrants).values({ userId: tenant.appUserId, grantedByUserId: tenant.appUserId, reason: "E2E platform admin" });
+  await functionalDb.insert(schema.platformAdminGrants).values({
+    authUserId: tenant.authUserId,
+    createdByAuthUserId: tenant.authUserId,
+    source: "manual",
+  });
 }
 
 export async function disableUser(tenant: FunctionalTenant, disabled = true) {
-  await functionalDb.insert(schema.platformUserControls).values({ userId: tenant.appUserId, disabledAt: disabled ? new Date() : null, disabledReason: disabled ? "E2E disabled" : null })
-    .onConflictDoUpdate({ target: schema.platformUserControls.userId, set: { disabledAt: disabled ? new Date() : null, disabledReason: disabled ? "E2E disabled" : null, updatedAt: new Date() } });
+  await functionalDb.insert(schema.platformUserControls).values({
+    userId: tenant.appUserId,
+    disabled,
+    disabledAt: disabled ? new Date() : null,
+    disabledReason: disabled ? "E2E disabled" : null,
+  }).onConflictDoUpdate({
+    target: schema.platformUserControls.userId,
+    set: {
+      disabled,
+      disabledAt: disabled ? new Date() : null,
+      disabledReason: disabled ? "E2E disabled" : null,
+      updatedAt: new Date(),
+    },
+  });
 }
 
 export async function suspendWorkspace(tenant: FunctionalTenant, suspended = true) {
@@ -202,7 +216,7 @@ export async function suspendWorkspace(tenant: FunctionalTenant, suspended = tru
 }
 
 export async function destroyTenant(tenant: FunctionalTenant) {
-  await functionalDb.delete(schema.platformAdminGrants).where(eq(schema.platformAdminGrants.userId, tenant.appUserId));
+  await functionalDb.delete(schema.platformAdminGrants).where(eq(schema.platformAdminGrants.authUserId, tenant.authUserId));
   await functionalDb.delete(schema.platformUserControls).where(eq(schema.platformUserControls.userId, tenant.appUserId));
   await functionalDb.delete(schema.organizations).where(eq(schema.organizations.id, tenant.organizationId));
   await functionalDb.delete(schema.users).where(eq(schema.users.id, tenant.appUserId));
