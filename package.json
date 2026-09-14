@@ -13,7 +13,7 @@
     "dev:worker": "bun run --filter @wa/worker dev",
     "build": "bun run --filter @wa/web build",
     "test": "bun test",
-    "test:e2e": "playwright test",
+    "test:e2e": "bun e2e/support/run-e2e.ts",
     "test:security": "playwright test -c playwright.security.config.ts",
     "typecheck": "bun run --filter '@wa/*' typecheck",
     "db:generate": "bun run --filter @wa/db db:generate",
