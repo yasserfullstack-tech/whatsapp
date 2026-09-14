@@ -201,7 +201,7 @@ export function DataLifecyclePanel(props: Props) {
     finally { setBusy(false); }
   }
 
-  async function deleteAccount() {
+  async function deleteAccount(): Promise<boolean> {
     setBusy(true); setMessage(null);
     try {
       const response = await fetch("/api/settings/data/account-deletion", {
@@ -212,8 +212,11 @@ export function DataLifecyclePanel(props: Props) {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not delete account");
       window.location.assign("/sign-in");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete account"); }
-    finally { setBusy(false); }
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not delete account");
+      return false;
+    } finally { setBusy(false); }
   }
 
   const exportButtons: Array<[ExportKind, string]> = [
