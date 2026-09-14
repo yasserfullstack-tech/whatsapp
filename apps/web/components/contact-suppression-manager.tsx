@@ -114,7 +114,7 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
         <div className="contactState"><span className={eligible ? "eligibilityBadge eligible" : contact.suppressedAt ? "eligibilityBadge suppressed" : "eligibilityBadge"}>{status}</span>{contact.suppressedAt ? <small>{contact.suppressionReason ?? messages.ui.suppressed} · {dateTime(contact.suppressedAt)}</small> : contact.unsubscribedAt ? <small>{format(messages.ui.optedOutAt, { date: dateTime(contact.unsubscribedAt) })}</small> : null}</div>
         <div className="contactActions">
           {canSuppress && !contact.suppressedAt ? <button className="secondary" disabled={!hydrated || busy} onClick={() => { setMessage(null); setAction({ mode: "suppress", contactId: contact.id }); }} type="button">{messages.ui.suppress}</button> : null}
-          {canResubscribe && !eligible ? <a className="textButton" href={`/contacts/${encodeURIComponent(contact.id)}/resubscribe`} role="button">{messages.ui.recordNewConsent}</a> : null}
+          {canResubscribe && !eligible ? <button className="textButton" disabled={!hydrated || busy} onClick={() => window.location.assign(`/contacts/${encodeURIComponent(contact.id)}/resubscribe`)} type="button">{messages.ui.recordNewConsent}</button> : null}
         </div>
       </article>;
     }) : <div className="emptyState"><div className="emptyIcon">C</div><h3>{messages.ui.noContactsMatch}</h3><p>{messages.ui.noContactsMatchDescription}</p></div>}</div>
