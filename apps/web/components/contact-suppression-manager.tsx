@@ -1,7 +1,6 @@
 "use client";
 
 import { type FormEvent, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/components/i18n-provider";
 
 type ContactRow = { id: string; phoneE164: string; displayName: string | null; optedIn: boolean; optInSource: string | null; optInAt: string | null; unsubscribedAt: string | null; suppressedAt: string | null; suppressionReason: string | null; suppressionSource: string | null };
@@ -12,52 +11,31 @@ type ContactAction = { mode: ActionMode; contactId: string };
 function localDateTimeDefault(): string { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 16); }
 
 export function ContactSuppressionManager({ contacts, events, canSuppress, canResubscribe }: Props) {
-  const searchParams = useSearchParams();
   const { messages, dateTime, format } = useI18n();
   const [rows, setRows] = useState(contacts);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [action, setAction] = useState<ContactAction | null | undefined>(undefined);
+  const [action, setAction] = useState<ContactAction | null>(null);
 
   useEffect(() => { setHydrated(true); }, []);
   useEffect(() => { setRows(contacts); }, [contacts]);
 
-  const requestedMode = action === undefined ? searchParams.get("contactAction") : action?.mode ?? null;
-  const requestedContactId = action === undefined ? searchParams.get("contactId") : action?.contactId ?? null;
-  const selected = requestedContactId ? rows.find((contact) => contact.id === requestedContactId) ?? null : null;
+  const selected = action ? rows.find((contact) => contact.id === action.contactId) ?? null : null;
   const selectedEligible = selected ? selected.optedIn && !selected.unsubscribedAt && !selected.suppressedAt : false;
-  const mode: ActionMode | null = requestedMode === "suppress" && selected && canSuppress && !selected.suppressedAt
+  const mode: ActionMode | null = action?.mode === "suppress" && selected && canSuppress && !selected.suppressedAt
     ? "suppress"
-    : requestedMode === "resubscribe" && selected && canResubscribe && !selectedEligible
+    : action?.mode === "resubscribe" && selected && canResubscribe && !selectedEligible
       ? "resubscribe"
       : null;
-
-  function actionUrl(nextMode?: ActionMode, contactId?: string): string {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("contactAction");
-    params.delete("contactId");
-    if (nextMode && contactId) {
-      params.set("contactAction", nextMode);
-      params.set("contactId", contactId);
-    }
-    const query = params.toString();
-    return query ? `/contacts?${query}` : "/contacts";
-  }
-
-  function replaceActionUrl(nextMode?: ActionMode, contactId?: string) {
-    window.history.replaceState(window.history.state, "", actionUrl(nextMode, contactId));
-  }
 
   function openAction(contact: ContactRow, nextMode: ActionMode) {
     setMessage(null);
     setAction({ mode: nextMode, contactId: contact.id });
-    replaceActionUrl(nextMode, contact.id);
   }
 
   function close() {
     setAction(null);
-    replaceActionUrl();
   }
 
   async function submitSuppress(event: FormEvent<HTMLFormElement>) {
@@ -80,7 +58,6 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
       } : contact));
       setMessage(format(messages.ui.suppressedSuccess, { phone: selected.phoneE164 }));
       setAction(null);
-      replaceActionUrl();
     }
     catch (error) { setMessage(error instanceof Error ? error.message : messages.ui.suppressFailed); }
     finally { setBusy(false); }
@@ -109,7 +86,6 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
       } : contact));
       setMessage(format(messages.ui.restoredSuccess, { phone: selected.phoneE164 }));
       setAction(null);
-      replaceActionUrl();
     }
     catch (error) { setMessage(error instanceof Error ? error.message : messages.ui.restoreFailed); }
     finally { setBusy(false); }
