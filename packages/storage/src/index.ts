@@ -9,12 +9,20 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-export type R2Config = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string };
+export type R2Config = {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  endpoint?: string;
+};
 
 export function createR2Client(config: R2Config): S3Client {
+  const configuredEndpoint = config.endpoint ?? process.env.R2_ENDPOINT;
   return new S3Client({
     region: "auto",
-    endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+    endpoint: configuredEndpoint ?? `https://${config.accountId}.r2.cloudflarestorage.com`,
+    forcePathStyle: Boolean(configuredEndpoint),
     credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
   });
 }

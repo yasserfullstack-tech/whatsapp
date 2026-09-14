@@ -262,14 +262,14 @@ async function runRetentionCleanup(onlyOrganizationId?: string) {
       lt(schema.workspaceAuditLogs.createdAt, auditCutoff),
     ));
 
-    const recipientCutoff = new Date(now.getTime() - Math.max(30, policy.campaignRecipientDays) * 86_400_000);
+    const recipientCutoff = new Date(now.getTime() - Math.max(30, policy.campaignRecipientDays) * 86_400_000).toISOString();
     await database.client`
       DELETE FROM campaign_recipients AS cr
       USING campaigns AS c
       WHERE cr.campaign_id = c.id
         AND cr.organization_id = ${organization.id}
         AND c.status IN ('completed', 'cancelled', 'failed')
-        AND COALESCE(c.completed_at, c.updated_at) < ${recipientCutoff}
+        AND COALESCE(c.completed_at, c.updated_at) < ${recipientCutoff}::timestamptz
     `;
   }
 }
