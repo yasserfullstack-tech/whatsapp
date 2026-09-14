@@ -32,22 +32,31 @@ async function waitForServerAction(page: Page, click: () => Promise<void>) {
 }
 
 async function submitTamperedServerAction(
-  page: Page,
+  tenant: SecurityTenant,
   form: Locator,
   fieldName: string,
   foreignValue: string,
 ): Promise<number> {
-  const responsePromise = page.waitForResponse(
-    (response) => response.request().method() === "POST" && response.url().startsWith(SECURITY_BASE_URL),
-  );
-  const hidden = form.locator(`input[name="${fieldName}"]`);
-  await hidden.evaluate((element, value) => {
-    (element as HTMLInputElement).value = value;
-  }, foreignValue);
-  await form.evaluate((element) => {
-    (element as HTMLFormElement).submit();
+  const submission = await form.evaluate((element) => {
+    const htmlForm = element as HTMLFormElement;
+    const target = new URL(htmlForm.action || window.location.href, window.location.href);
+    const fields = Array.from(new FormData(htmlForm).entries()).flatMap(([name, value]) =>
+      typeof value === "string" ? [[name, value] as const] : [],
+    );
+    return { path: `${target.pathname}${target.search}`, fields };
   });
-  return (await responsePromise).status();
+  const multipart = Object.fromEntries(submission.fields);
+  multipart[fieldName] = foreignValue;
+  const response = await tenant.api.post(submission.path, {
+    multipart,
+    headers: {
+      origin: SECURITY_BASE_URL,
+      referer: `${SECURITY_BASE_URL}${submission.path}`,
+      "sec-fetch-site": "same-origin",
+    },
+    maxRedirects: 0,
+  });
+  return response.status();
 }
 
 test.describe.serial("server actions and invitation token security", () => {
@@ -210,7 +219,7 @@ test.describe.serial("server actions and invitation token security", () => {
       const row = browserSession.page.locator(".settingsListRow").filter({ hasText: invitee.email });
       await expect(row).toBeVisible();
       const removeForm = row.locator("form").filter({ has: row.getByRole("button", { name: "Remove" }) });
-      const status = await submitTamperedServerAction(browserSession.page, removeForm, "membershipId", tenantBOwnerMembershipId);
+      const status = await submitTamperedServerAction(tenantA, removeForm, "membershipId", tenantBOwnerMembershipId);
       expect(status).toBeGreaterThanOrEqual(400);
     } finally {
       await browserSession.context.close();
@@ -232,7 +241,7 @@ test.describe.serial("server actions and invitation token security", () => {
       const row = browserSession.page.locator(".settingsPhoneRow").first();
       await expect(row).toBeVisible();
       const form = row.locator("form").filter({ has: row.getByRole("button", { name: "Disconnect" }) });
-      const status = await submitTamperedServerAction(browserSession.page, form, "phoneNumberId", tenantBPhoneId);
+      const status = await submitTamperedServerAction(tenantA, form, "phoneNumberId", tenantBPhoneId);
       expect(status).toBeGreaterThanOrEqual(400);
     } finally {
       await browserSession.context.close();
