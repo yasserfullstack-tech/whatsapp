@@ -5,19 +5,26 @@ on:
     branches: [test/full-regression-gate]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diff:
+  refresh:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - run: bun install --lockfile-only
-      - name: Print required lockfile delta
+      - name: Regenerate Bun lockfile
+        run: bun install --lockfile-only
+      - name: Commit generated lockfile only
         shell: bash
         run: |
+          set -euo pipefail
           git diff -- bun.lock
           test -n "$(git status --porcelain -- bun.lock)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "fix: synchronize Bun lockfile"
+          git push origin HEAD:test/full-regression-gate
