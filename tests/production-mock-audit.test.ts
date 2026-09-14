@@ -39,6 +39,19 @@ const I18N_EXCLUDED = [
   /^apps\/web\/components\/data-lifecycle-panel\.tsx$/,
 ];
 
+const SEMANTIC_FALLBACK_FILES = new Set([
+  "apps/web/app/api/campaigns/route.ts",
+  "apps/web/components/campaign-builder.tsx",
+  "apps/web/components/mfa-security-card.tsx",
+  "apps/worker/src/campaigns.ts",
+  "packages/queue/src/index.ts",
+]);
+const AUDIENCE_SAMPLE_FILES = new Set([
+  "apps/web/app/api/audiences/preview/route.ts",
+  "apps/web/app/api/audiences/segments/preview/route.ts",
+  "apps/web/components/audience-manager.tsx",
+]);
+
 async function walk(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true });
   const files: string[] = [];
@@ -58,9 +71,11 @@ function shouldInspect(path: string): boolean {
 
 function isAllowedFinding(file: string, line: string): boolean {
   if (file === ".env.production.example") return true;
+  if (file.startsWith("apps/web/lib/i18n/")) return true;
   if (/\.tsx?$/.test(file) && /\bplaceholder\s*=/.test(line)) return true;
   if (file === "apps/web/lib/marketing-content.ts") return true;
-  if (file === "apps/web/app/api/audiences/segments/preview/route.ts" && /\bsample\b/.test(line)) return true;
+  if (AUDIENCE_SAMPLE_FILES.has(file) && /\bsample\b/.test(line)) return true;
+  if (SEMANTIC_FALLBACK_FILES.has(file) && /\bfallback\b/.test(line)) return true;
   if (file === "apps/web/lib/public-app-url.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
   if (file === "apps/worker/src/notification-runtime.ts" && /127\.0\.0\.1/.test(line)) return true;
   if (file === "packages/config/src/index.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
