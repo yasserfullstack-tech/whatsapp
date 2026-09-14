@@ -43,6 +43,7 @@ export const auth = createAppAuth({
   trustedOrigins: [...new Set([appUrl, authUrl])],
   secureCookies: process.env.NODE_ENV === "production",
   secondaryStorage: redisStorage({ client: authRedis, keyPrefix: "wa:auth:" }),
+  signInRateLimitMax: optionalPositiveIntegerEnv("AUTH_SIGNIN_RATE_LIMIT_MAX"),
   signUpRateLimitMax: optionalPositiveIntegerEnv("AUTH_SIGNUP_RATE_LIMIT_MAX"),
   sendEmail: sendAuthEmail,
 });
