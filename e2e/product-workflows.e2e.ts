@@ -35,6 +35,15 @@ async function capturedInvitationUrl(email: string) {
   return url;
 }
 
+async function submitServerAction(page: import("@playwright/test").Page, route: string, click: () => Promise<void>) {
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname === route,
+  );
+  await click();
+  const response = await responsePromise;
+  expect(response.ok(), `server action ${route} failed with ${response.status()}`).toBeTruthy();
+}
+
 test.describe("product workflows", () => {
   test.beforeEach(({}, testInfo) => test.skip(desktopOnly(testInfo.project.name), "deep product workflows run once on desktop Chromium"));
 
@@ -43,7 +52,7 @@ test.describe("product workflows", () => {
     try {
       await useTenantSession(context, tenant);
       const health = await guardBrowser(page);
-      await page.goto("/contacts");
+      await page.goto("/dashboard#contacts");
 
       const csv = "phone,name\n+15551234567,Imported E2E Contact\n+15557654321,Second Imported Contact\n";
       await page.locator('input[type="file"]').setInputFiles({ name: "contacts-e2e.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
@@ -55,6 +64,7 @@ test.describe("product workflows", () => {
       await expect(importRow).toContainText("completed", { timeout: 30_000 });
       await expect(importRow).toContainText(/2 new contacts|2/i);
 
+      await page.goto("/contacts");
       await page.locator('input[name="q"]').fill("Imported E2E");
       await page.getByRole("button", { name: /apply filters/i }).click();
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
@@ -98,7 +108,7 @@ test.describe("product workflows", () => {
       await filterRow.locator("select").first().selectOption("display_name");
       await filterRow.locator("input").fill("Alpha E2E");
       await page.getByRole("button", { name: "Preview audience" }).click();
-      await expect(page.getByText(/eligible contacts/i)).toContainText("1");
+      await expect(page.getByText("1 eligible contacts", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Save segment" }).click();
       await expect(page.getByText(/segment saved/i)).toBeVisible();
       await page.reload();
@@ -142,6 +152,7 @@ test.describe("product workflows", () => {
     const tenant = await createTenant("campaign-workflow");
     try {
       const seeded = await seedPopulatedWorkspace(tenant);
+      await functionalDb.update(schema.templates).set({ bodyPreview: "Hello from E2E" }).where(eq(schema.templates.id, seeded.templateId));
       const [holdContact] = await functionalDb.select().from(schema.contacts).where(eq(schema.contacts.id, seeded.contactId)).limit(1);
       if (!holdContact) throw new Error("control contact was not seeded");
       await functionalDb.update(schema.campaigns).set({ status: "paused", recipientCount: 1, snapshotCreatedAt: new Date(), startedAt: new Date() }).where(eq(schema.campaigns.id, seeded.campaignId));
@@ -216,7 +227,7 @@ test.describe("product workflows", () => {
       await page.getByLabel("Timezone").fill("Asia/Baghdad");
       await page.getByLabel("Default country").fill("IQ");
       await page.getByLabel("Preferred language").selectOption("en");
-      await page.getByRole("button", { name: "Save changes" }).click();
+      await submitServerAction(page, "/settings/general", () => page.getByRole("button", { name: "Save changes" }).click());
       await page.reload();
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
       await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
@@ -226,7 +237,7 @@ test.describe("product workflows", () => {
       await expect(optionalEmailToggle).toBeChecked();
       await optionalEmailToggle.uncheck();
       await expect(page.locator('input:disabled').first()).toBeDisabled();
-      await page.getByRole("button", { name: "Save preferences" }).click();
+      await submitServerAction(page, "/settings/notifications", () => page.getByRole("button", { name: "Save preferences" }).click());
       await page.reload();
       await expect(page.locator('input[name^="email:"]:not(:disabled)').first()).not.toBeChecked();
 
