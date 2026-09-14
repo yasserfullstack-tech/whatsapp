@@ -2,17 +2,23 @@
 set -euo pipefail
 
 ENV_FILE=.env.production.ci
-COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.production.yml)
+OVERRIDE_FILE=.qa.production.override.yml
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.production.yml -f "$OVERRIDE_FILE")
 
 cleanup() {
-  if [[ -f "$ENV_FILE" ]]; then
+  if [[ -f "$ENV_FILE" && -f "$OVERRIDE_FILE" ]]; then
     "${COMPOSE[@]}" --profile ops down -v --remove-orphans >/dev/null 2>&1 || true
   fi
-  rm -f "$ENV_FILE"
+  rm -f "$ENV_FILE" "$OVERRIDE_FILE"
 }
 trap cleanup EXIT
 
 cp .env.production.example "$ENV_FILE"
+cat > "$OVERRIDE_FILE" <<'YAML'
+networks:
+  backend:
+    internal: true
+YAML
 
 sh -n infra/production/scripts/backup-postgres.sh
 sh -n infra/production/scripts/verify-postgres-backup.sh
@@ -72,4 +78,4 @@ retry worker "${COMPOSE[@]}" exec -T worker \
 "${COMPOSE[@]}" exec -T worker \
   bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')?0:1)).catch(()=>process.exit(1))"
 
-echo "Production infrastructure validation passed using disposable local containers and placeholder production configuration."
+echo "Production infrastructure validation passed on an internal-only Docker network using disposable local containers and placeholder production configuration."
