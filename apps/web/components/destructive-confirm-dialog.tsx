@@ -9,7 +9,7 @@ type DestructiveConfirmDialogProps = {
   confirmLabel: string;
   cancelLabel: string;
   disabled?: boolean;
-  onConfirm: () => Promise<void> | void;
+  onConfirm: () => Promise<boolean | void> | boolean | void;
 };
 
 export function DestructiveConfirmDialog({
@@ -42,8 +42,8 @@ export function DestructiveConfirmDialog({
   async function confirm() {
     setConfirming(true);
     try {
-      await onConfirm();
-      closeDialog();
+      const succeeded = await onConfirm();
+      if (succeeded !== false) closeDialog();
     } finally {
       setConfirming(false);
     }
