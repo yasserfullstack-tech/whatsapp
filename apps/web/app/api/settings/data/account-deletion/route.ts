@@ -14,9 +14,6 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as { confirmation?: unknown } | null;
   if (body?.confirmation !== "DELETE ACCOUNT") return NextResponse.json({ error: "Type DELETE ACCOUNT to confirm" }, { status: 400 });
 
-  const owned = await db.select({ organizationId: schema.organizationMembers.organizationId })
-    .from(schema.organizationMembers)
-    .where(eq(schema.organizationMembers.userId, context.workspace.userId));
   const ownerships = await db.select({ organizationId: schema.organizationMembers.organizationId, role: schema.organizationMembers.role })
     .from(schema.organizationMembers)
     .where(eq(schema.organizationMembers.userId, context.workspace.userId));
@@ -27,18 +24,28 @@ export async function POST(request: Request) {
     }, { status: 409 });
   }
 
-  await db.insert(schema.dataLifecycleAuditLogs).values({
-    organizationId: owned[0]?.organizationId ?? context.workspace.organizationId,
-    actorUserId: context.workspace.userId,
-    actorAuthUserId: context.session.user.id,
-    action: "account.delete.completed",
-    targetType: "user",
-    targetId: context.workspace.userId,
-    metadata: { membershipsRemoved: ownerships.length },
-  });
-  await db.transaction(async (tx) => {
-    await tx.delete(schema.users).where(eq(schema.users.id, context.workspace.userId));
+  const auditOrganizationId = ownerships[0]?.organizationId ?? context.workspace.organizationId;
+  const deleted = await db.transaction(async (tx) => {
+    const [removedUser] = await tx.delete(schema.users)
+      .where(eq(schema.users.id, context.workspace.userId))
+      .returning({ id: schema.users.id });
+    if (!removedUser) return false;
+
     await tx.delete(schema.authUser).where(eq(schema.authUser.id, context.session.user.id));
+    await tx.insert(schema.dataLifecycleAuditLogs).values({
+      organizationId: auditOrganizationId,
+      actorUserId: context.workspace.userId,
+      actorAuthUserId: context.session.user.id,
+      action: "account.delete.completed",
+      targetType: "user",
+      targetId: context.workspace.userId,
+      metadata: { membershipsRemoved: ownerships.length },
+    });
+    return true;
   });
+
+  if (!deleted) {
+    return NextResponse.json({ error: "Account deletion is already in progress or completed" }, { status: 409 });
+  }
   return NextResponse.json({ deleted: true });
 }
