@@ -2,6 +2,10 @@
 
 import { useId, useRef, useState } from "react";
 
+type DestructiveConfirmHandler = {
+  (): Promise<boolean | void> | boolean | void;
+};
+
 type DestructiveConfirmDialogProps = {
   triggerLabel: string;
   title: string;
@@ -9,7 +13,7 @@ type DestructiveConfirmDialogProps = {
   confirmLabel: string;
   cancelLabel: string;
   disabled?: boolean;
-  onConfirm: () => Promise<boolean | void> | boolean | void;
+  onConfirm: DestructiveConfirmHandler;
 };
 
 export function DestructiveConfirmDialog({
