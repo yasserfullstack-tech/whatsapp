@@ -16,13 +16,13 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: whatsapp
+          POSTGRES_DB: whatsapp_qa_ci
           POSTGRES_USER: whatsapp
           POSTGRES_PASSWORD: whatsapp
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U whatsapp -d whatsapp"
+          --health-cmd "pg_isready -U whatsapp -d whatsapp_qa_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -36,7 +36,8 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
+      QA_DISPOSABLE_INFRA: "1"
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_qa_ci
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_URL: http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth

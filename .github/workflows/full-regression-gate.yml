@@ -1,22 +1,32 @@
 name: Full Regression Gate
+run-name: Regression gate / ${{ inputs.scope || 'preflight-not-final' }}
 
 on:
-  workflow_dispatch:
   push:
     branches: [test/full-regression-gate]
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Validation scope. combined-final is only valid after all primary QA branches are integrated into main and this branch is updated from main.
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - combined-final
 
 permissions:
   contents: read
 
 concurrency:
-  group: full-regression-${{ github.ref }}
+  group: full-regression-${{ github.ref }}-${{ inputs.scope || 'preflight' }}
   cancel-in-progress: true
 
 env:
   BETTER_AUTH_URL: http://127.0.0.1:3000
   BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
-  AUTH_SIGNIN_RATE_LIMIT_MAX: "100"
-  AUTH_SIGNUP_RATE_LIMIT_MAX: "100"
+  AUTH_SIGNIN_RATE_LIMIT_MAX: "500"
+  AUTH_SIGNUP_RATE_LIMIT_MAX: "500"
   META_GRAPH_API_VERSION: v26.0
   META_APP_ID: "123456789"
   META_APP_SECRET: ci-only-meta-secret
@@ -26,22 +36,24 @@ env:
   R2_ACCESS_KEY_ID: ci-only-r2-access-key
   R2_SECRET_ACCESS_KEY: ci-only-r2-secret-key
   R2_BUCKET: ci-only-r2-bucket
+  E2E_BLOCK_EXTERNAL: "1"
 
 jobs:
-  core:
-    name: Unit integration build and schema
+  preflight:
+    name: Preparation check (NOT final release validation)
+    if: github.event_name == 'push' || inputs.scope == 'preflight'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: whatsapp
+          POSTGRES_DB: whatsapp_qa_preflight
           POSTGRES_USER: whatsapp
           POSTGRES_PASSWORD: whatsapp
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U whatsapp -d whatsapp"
+          --health-cmd "pg_isready -U whatsapp -d whatsapp_qa_preflight"
           --health-interval 5s --health-timeout 5s --health-retries 10
       valkey:
         image: valkey/valkey:8-alpine
@@ -50,7 +62,80 @@ jobs:
           --health-cmd "valkey-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
-      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
+      QA_DISPOSABLE_INFRA: "1"
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_qa_preflight
+      REDIS_URL: redis://localhost:6379
+      AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-preflight-auth-emails.jsonl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.4.2 }
+      - name: Create ephemeral encryption key
+        run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+      - name: Verify disposable safety boundary
+        run: bun scripts/qa/assert-test-env.ts
+      - name: Install dependencies from lockfile
+        run: bun install --frozen-lockfile
+      - name: Coverage manifest gate
+        run: bun run qa:coverage
+      - name: Migration drift gate
+        run: |
+          bun run db:generate -- --name=regression-preflight-drift
+          if [ -n "$(git status --porcelain -- packages/db/drizzle)" ]; then
+            git status --short -- packages/db/drizzle
+            exit 1
+          fi
+      - name: Clean database migrations
+        run: bun run db:migrate
+      - name: Schema verification
+        run: bun run db:verify
+      - name: Unit and integration tests
+        run: bun run test
+      - name: Critical webhook reliability regressions
+        run: bun run test:webhook-critical
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Production build
+        run: bun run build
+      - name: Mark pre-final status
+        run: echo "Preparation checks passed. This run is NOT final combined release validation."
+
+  combined-prerequisites:
+    name: Verify combined QA ancestry and final-gate contract
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'combined-final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Require latest main and all four primary QA branch tips
+        run: bash scripts/qa/assert-combined-base.sh
+
+  core:
+    name: Unit integration build schema and webhook
+    needs: combined-prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: whatsapp_qa_core
+          POSTGRES_USER: whatsapp
+          POSTGRES_PASSWORD: whatsapp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U whatsapp -d whatsapp_qa_core"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      QA_DISPOSABLE_INFRA: "1"
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_qa_core
       REDIS_URL: redis://localhost:6379
       AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-core-auth-emails.jsonl
     steps:
@@ -85,18 +170,19 @@ jobs:
 
   browser:
     name: Full browser E2E
+    needs: combined-prerequisites
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: whatsapp_browser
+          POSTGRES_DB: whatsapp_qa_browser
           POSTGRES_USER: whatsapp
           POSTGRES_PASSWORD: whatsapp
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U whatsapp -d whatsapp_browser"
+          --health-cmd "pg_isready -U whatsapp -d whatsapp_qa_browser"
           --health-interval 5s --health-timeout 5s --health-retries 10
       valkey:
         image: valkey/valkey:8-alpine
@@ -105,9 +191,12 @@ jobs:
           --health-cmd "valkey-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
-      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_browser
+      QA_DISPOSABLE_INFRA: "1"
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_qa_browser
       REDIS_URL: redis://localhost:6379
       AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-browser-auth-emails.jsonl
+      E2E_META_BASE_URL: http://127.0.0.1:4777
+      R2_ENDPOINT: http://127.0.0.1:4569
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -120,23 +209,24 @@ jobs:
       - run: bun run db:verify
       - run: bun run build
       - run: bunx playwright install --with-deps chromium
-      - name: Browser E2E across desktop tablet and mobile
-        run: bun run test:e2e
+      - name: Full functional browser suite across configured projects
+        run: bunx playwright test -c playwright.config.ts
 
   security:
-    name: Security E2E and dependency audit
+    name: Full security suite and dependency audit
+    needs: combined-prerequisites
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: whatsapp_security
+          POSTGRES_DB: whatsapp_qa_security
           POSTGRES_USER: whatsapp
           POSTGRES_PASSWORD: whatsapp
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U whatsapp -d whatsapp_security"
+          --health-cmd "pg_isready -U whatsapp -d whatsapp_qa_security"
           --health-interval 5s --health-timeout 5s --health-retries 10
       valkey:
         image: valkey/valkey:8-alpine
@@ -145,9 +235,12 @@ jobs:
           --health-cmd "valkey-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
-      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_security
+      QA_DISPOSABLE_INFRA: "1"
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp_qa_security
       REDIS_URL: redis://localhost:6379
       AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-security-auth-emails.jsonl
+      E2E_META_BASE_URL: http://127.0.0.1:4777
+      R2_ENDPOINT: http://127.0.0.1:4569
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -160,13 +253,27 @@ jobs:
       - run: bun run db:verify
       - run: bun run build
       - run: bunx playwright install --with-deps chromium
-      - name: Security E2E
+      - name: Full security regression suite
         run: bun run test:security
-      - name: Dependency audit
+      - name: Fail on high or critical dependency vulnerabilities
         run: bun audit --audit-level=high
+
+  mock-hardcoded-audit:
+    name: Mock and hardcoded-data regression audit
+    needs: combined-prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.4.2 }
+      - run: bun install --frozen-lockfile
+      - name: Reject unreviewed production mock/hardcoded findings
+        run: bun run qa:mock-audit
 
   secret-scan:
     name: Gitleaks secret scan
+    needs: combined-prerequisites
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -177,6 +284,7 @@ jobs:
 
   codeql:
     name: CodeQL static security analysis
+    needs: combined-prerequisites
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -191,42 +299,77 @@ jobs:
       - uses: github/codeql-action/analyze@v4
 
   load-resilience:
-    name: Load and resilience smoke
+    name: Load recovery and chaos smoke
+    needs: combined-prerequisites
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
+    env:
+      LOAD_ALLOW_REMOTE: "0"
+      LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
+      LOAD_REDIS_URL: redis://127.0.0.1:56379
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: 1.4.2 }
       - run: bun install --frozen-lockfile
-      - name: 1k campaign plus webhook smoke
-        run: bun run test:load-smoke
-      - name: Worker restart resilience smoke
-        run: bun run test:resilience-smoke
+      - name: Progressive load smoke using the integrated stress harness
+        run: bun run load:stress -- --profile=pr --webhook-events=1000 --webhook-concurrency=50
+      - name: Duplicate and out-of-order webhook status smoke
+        run: bun run load:webhook-status -- --recipients=1000 --concurrency=50 --timeout-ms=120000
+      - name: Retry recovery smoke
+        run: |
+          bun run load:recovery -- --mode=429 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
+          bun run load:recovery -- --mode=500 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
+      - name: Selected Valkey and worker recovery smoke
+        run: |
+          bun run load:chaos -- --chaos=redis-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
+          bun run load:chaos -- --chaos=worker-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
       - name: Upload load reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: regression-load-results
+          name: combined-regression-load-results
           path: load-results/
           if-no-files-found: ignore
+          retention-days: 14
       - name: Cleanup isolated load infrastructure
         if: always()
         run: |
           bun run load:infra:down || true
           docker compose -f docker-compose.load-chaos.yml down -v --remove-orphans || true
 
+  production-infra:
+    name: Production infrastructure validation
+    needs: combined-prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production deployment using disposable services
+        run: bash scripts/qa/validate-production-infra.sh
+
   release-gate:
-    name: Release gate
-    if: always()
-    needs: [core, browser, security, secret-scan, codeql, load-resilience]
+    name: Combined application release gate
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.scope == 'combined-final' }}
+    needs:
+      - core
+      - browser
+      - security
+      - mock-hardcoded-audit
+      - secret-scan
+      - codeql
+      - load-resilience
+      - production-infra
     runs-on: ubuntu-latest
     steps:
-      - name: Require every regression lane
+      - name: Require every integrated regression lane
         run: |
           test "${{ needs.core.result }}" = "success"
           test "${{ needs.browser.result }}" = "success"
           test "${{ needs.security.result }}" = "success"
+          test "${{ needs.mock-hardcoded-audit.result }}" = "success"
           test "${{ needs.secret-scan.result }}" = "success"
           test "${{ needs.codeql.result }}" = "success"
           test "${{ needs.load-resilience.result }}" = "success"
+          test "${{ needs.production-infra.result }}" = "success"
+          echo "Combined application regression gate passed."

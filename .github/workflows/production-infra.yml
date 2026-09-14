@@ -14,6 +14,7 @@ on:
       - "docker-compose.production.yml"
       - "infra/docker/**"
       - "infra/production/**"
+      - "scripts/qa/validate-production-infra.sh"
   push:
     branches: [main]
     paths:
@@ -28,6 +29,7 @@ on:
       - "docker-compose.production.yml"
       - "infra/docker/**"
       - "infra/production/**"
+      - "scripts/qa/validate-production-infra.sh"
 
 permissions:
   contents: read
@@ -35,93 +37,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-
-      - name: Prepare placeholder production environment
-        run: cp .env.production.example .env.production.ci
-
-      - name: Validate shell scripts
-        run: |
-          sh -n infra/production/scripts/backup-postgres.sh
-          sh -n infra/production/scripts/verify-postgres-backup.sh
-          sh -n infra/production/scripts/smoke-test.sh
-
-      - name: Validate production Compose configuration
-        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml config --quiet
-
-      - name: Validate Caddy configuration
-        run: |
-          docker run --rm \
-            -e APP_DOMAIN=example.test \
-            -e CADDY_EMAIL=ops@example.test \
-            -e CADDY_MAX_REQUEST_BODY=16MB \
-            -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-
-      - name: Validate Prometheus configuration
-        run: |
-          docker run --rm --entrypoint /bin/promtool \
-            -v "$PWD/infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
-            prom/prometheus:v3.13.3 \
-            check config /etc/prometheus/prometheus.yml
-
-      - name: Build production images
-        run: |
-          docker build -f infra/docker/web.Dockerfile -t whatsapp-web:local .
-          docker build -f infra/docker/api.Dockerfile -t whatsapp-api:local .
-          docker build -f infra/docker/worker.Dockerfile -t whatsapp-worker:local .
-          docker build -f infra/docker/api.Dockerfile --target migrator -t whatsapp-migrator:local .
-
-      - name: Start production dependencies
-        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml up -d --no-build postgres valkey
-
-      - name: Run migrations before application startup
-        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml --profile ops run --rm migrate
-
-      - name: Start web API and one worker
-        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml up -d --no-build web api worker
-
-      - name: Health endpoint smoke test
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          retry() {
-            local name=$1
-            shift
-            for attempt in $(seq 1 40); do
-              if "$@"; then
-                echo "$name is ready"
-                return 0
-              fi
-              sleep 2
-            done
-            echo "$name did not become ready" >&2
-            docker compose --env-file .env.production.ci -f docker-compose.production.yml ps
-            return 1
-          }
-
-          retry web docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T web \
-            node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-
-          retry api docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T api \
-            bun -e "fetch('http://127.0.0.1:4000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-
-          retry worker docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T worker \
-            bun -e "fetch('http://127.0.0.1:9464/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-
-          docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T api \
-            bun -e "fetch('http://127.0.0.1:4000/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_http_requests_total')?0:1)).catch(()=>process.exit(1))"
-
-          docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T worker \
-            bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')?0:1)).catch(()=>process.exit(1))"
-
-      - name: Show service logs on failure
-        if: failure()
-        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml logs --no-color --tail=200
-
-      - name: Cleanup
-        if: always()
-        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml --profile ops down -v --remove-orphans
+      - name: Validate production deployment using disposable services
+        run: bash scripts/qa/validate-production-infra.sh
