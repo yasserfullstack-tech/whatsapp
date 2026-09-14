@@ -1,5 +1,5 @@
 import { Worker, type Job } from "bullmq";
-import { and, count, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { decryptSecret } from "@wa/credentials";
 import type { WorkerEnv } from "@wa/config";
 import {
@@ -32,6 +32,8 @@ const QUEUE_RUNWAY_SECONDS = 15;
 const STALE_QUEUED_MS = 120_000;
 const RECONCILE_EVERY_MS = 30_000;
 const TOKEN_CACHE_MS = 5 * 60_000;
+const UNKNOWN_SEND_OUTCOME_ERROR = "Previous send attempt ended without a recorded Meta outcome; automatic resend suppressed to prevent duplicate delivery";
+const UNKNOWN_SEND_OUTCOME_CODE = "send_outcome_unknown";
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -147,9 +149,53 @@ export function startCampaignWorkers(input: {
     return value;
   };
 
+  const markUnknownSendOutcome = async (
+    recipientId: string,
+    campaignId: string,
+    organizationId: string,
+    detail?: string,
+  ) => {
+    const failedAt = new Date();
+    const suffix = detail?.trim() ? `: ${detail.trim()}` : "";
+    const [failed] = await db
+      .update(schema.campaignRecipients)
+      .set({
+        status: "failed",
+        lastError: `${UNKNOWN_SEND_OUTCOME_ERROR}${suffix}`.slice(0, 2_000),
+        errorCode: UNKNOWN_SEND_OUTCOME_CODE,
+        failedAt,
+        updatedAt: failedAt,
+      })
+      .where(
+        and(
+          eq(schema.campaignRecipients.id, recipientId),
+          eq(schema.campaignRecipients.campaignId, campaignId),
+          eq(schema.campaignRecipients.organizationId, organizationId),
+          eq(schema.campaignRecipients.status, "queued"),
+          gt(schema.campaignRecipients.attemptCount, 0),
+          isNull(schema.campaignRecipients.lastError),
+          isNull(schema.campaignRecipients.wamid),
+        ),
+      )
+      .returning({ id: schema.campaignRecipients.id });
+    return Boolean(failed);
+  };
+
   const sendWorker = new Worker<SendMessageJob>(
     SEND_QUEUE_NAME,
     async (job: Job<SendMessageJob>) => {
+      const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
+      await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
+
+      const accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
+      const client = new WhatsAppCloudClient({
+        accessToken,
+        graphApiVersion: env.META_GRAPH_API_VERSION,
+      });
+
+      // Claim only after rate limiting and credential lookup, immediately before
+      // the provider boundary. A prior claim without a recorded outcome is never
+      // automatically resent because that could duplicate a real WhatsApp send.
       const now = new Date();
       const claimed = await claimCampaignRecipientForSend(db, {
         organizationId: job.data.organizationId,
@@ -158,45 +204,61 @@ export function startCampaignWorkers(input: {
         now,
       });
 
-      if (!claimed) return { skipped: true, reason: "recipient-already-processed-or-foreign" };
+      if (!claimed) {
+        const [existing] = await db
+          .select({
+            status: schema.campaignRecipients.status,
+            attemptCount: schema.campaignRecipients.attemptCount,
+            lastError: schema.campaignRecipients.lastError,
+            wamid: schema.campaignRecipients.wamid,
+          })
+          .from(schema.campaignRecipients)
+          .where(
+            and(
+              eq(schema.campaignRecipients.id, job.data.recipientId),
+              eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+              eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+            ),
+          )
+          .limit(1);
 
-      const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
-      await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
+        if (
+          existing?.status === "queued" &&
+          existing.attemptCount > 0 &&
+          existing.lastError === null &&
+          existing.wamid === null
+        ) {
+          await markUnknownSendOutcome(
+            job.data.recipientId,
+            job.data.campaignId,
+            job.data.organizationId,
+          );
+          return { failed: true, reason: "send-outcome-unknown" };
+        }
 
+        return { skipped: true, reason: "recipient-already-processed-or-foreign" };
+      }
+
+      let result: Awaited<ReturnType<WhatsAppCloudClient["sendTemplate"]>>;
       try {
-        const accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
-        const client = new WhatsAppCloudClient({
-          accessToken,
-          graphApiVersion: env.META_GRAPH_API_VERSION,
-        });
-
-        const result = await client.sendTemplate({
+        result = await client.sendTemplate({
           phoneNumberId: job.data.phoneNumberId,
           to: claimed.phoneE164.replace(/^\+/, ""),
           templateName: job.data.templateName,
           languageCode: job.data.languageCode,
           ...(job.data.components ? { components: job.data.components } : {}),
         });
-
-        const submittedAt = new Date();
-        await db
-          .update(schema.campaignRecipients)
-          .set({
-            status: "submitted",
-            wamid: result.messageId,
-            submittedAt,
-            lastError: null,
-            errorCode: null,
-            updatedAt: submittedAt,
-          })
-          .where(and(
-            eq(schema.campaignRecipients.id, job.data.recipientId),
-            eq(schema.campaignRecipients.campaignId, job.data.campaignId),
-            eq(schema.campaignRecipients.organizationId, job.data.organizationId),
-          ));
-
-        return { wamid: result.messageId };
       } catch (error) {
+        if (!(error instanceof MetaApiError)) {
+          await markUnknownSendOutcome(
+            job.data.recipientId,
+            job.data.campaignId,
+            job.data.organizationId,
+            errorText(error),
+          );
+          return { failed: true, reason: "send-outcome-unknown" };
+        }
+
         const attempts = Number(job.opts.attempts ?? 1);
         const isFinalAttempt = job.attemptsMade + 1 >= attempts;
         const failedAt = new Date();
@@ -206,15 +268,56 @@ export function startCampaignWorkers(input: {
             status: isFinalAttempt ? "failed" : "queued",
             lastError: errorText(error),
             errorCode: errorCode(error),
-            ...(isFinalAttempt ? { failedAt } : {}),
+            failedAt: isFinalAttempt ? failedAt : null,
             updatedAt: failedAt,
           })
-          .where(and(
-            eq(schema.campaignRecipients.id, job.data.recipientId),
-            eq(schema.campaignRecipients.campaignId, job.data.campaignId),
-            eq(schema.campaignRecipients.organizationId, job.data.organizationId),
-          ));
+          .where(
+            and(
+              eq(schema.campaignRecipients.id, job.data.recipientId),
+              eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+              eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+              eq(schema.campaignRecipients.status, "queued"),
+              eq(schema.campaignRecipients.attemptCount, claimed.attemptCount),
+              isNull(schema.campaignRecipients.lastError),
+            ),
+          );
         throw error;
+      }
+
+      const submittedAt = new Date();
+      try {
+        const [persisted] = await db
+          .update(schema.campaignRecipients)
+          .set({
+            status: "submitted",
+            wamid: result.messageId,
+            submittedAt,
+            lastError: null,
+            errorCode: null,
+            updatedAt: submittedAt,
+          })
+          .where(
+            and(
+              eq(schema.campaignRecipients.id, job.data.recipientId),
+              eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+              eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+              eq(schema.campaignRecipients.status, "queued"),
+              eq(schema.campaignRecipients.attemptCount, claimed.attemptCount),
+              isNull(schema.campaignRecipients.lastError),
+            ),
+          )
+          .returning({ id: schema.campaignRecipients.id });
+
+        if (!persisted) return { skipped: true, reason: "recipient-state-changed-after-send" };
+        return { wamid: result.messageId };
+      } catch (error) {
+        await markUnknownSendOutcome(
+          job.data.recipientId,
+          job.data.campaignId,
+          job.data.organizationId,
+          `Could not persist Meta success: ${errorText(error)}`,
+        );
+        return { failed: true, reason: "send-outcome-unknown" };
       }
     },
     {
@@ -264,7 +367,10 @@ export function startCampaignWorkers(input: {
       await db
         .update(schema.campaigns)
         .set({ status: "failed", updatedAt: new Date() })
-        .where(eq(schema.campaigns.id, record.campaignId));
+        .where(and(
+          eq(schema.campaigns.id, record.campaignId),
+          eq(schema.campaigns.organizationId, record.organizationId),
+        ));
       return { terminal: "failed", reason: "phone-or-template-not-sendable" };
     }
 
@@ -274,7 +380,10 @@ export function startCampaignWorkers(input: {
       await db
         .update(schema.campaigns)
         .set({ status: "failed", updatedAt: new Date() })
-        .where(eq(schema.campaigns.id, record.campaignId));
+        .where(and(
+          eq(schema.campaigns.id, record.campaignId),
+          eq(schema.campaigns.organizationId, record.organizationId),
+        ));
       return { terminal: "failed", reason: "invalid-template-bindings", error: bindingError };
     }
 
@@ -312,14 +421,20 @@ export function startCampaignWorkers(input: {
       const [snapshotCount] = await db
         .select({ total: count() })
         .from(schema.campaignRecipients)
-        .where(eq(schema.campaignRecipients.campaignId, record.campaignId));
+        .where(and(
+          eq(schema.campaignRecipients.campaignId, record.campaignId),
+          eq(schema.campaignRecipients.organizationId, record.organizationId),
+        ));
 
       const total = snapshotCount?.total ?? 0;
       if (total === 0) {
         await db
           .update(schema.campaigns)
           .set({ status: "failed", recipientCount: 0, updatedAt: new Date() })
-          .where(eq(schema.campaigns.id, record.campaignId));
+          .where(and(
+            eq(schema.campaigns.id, record.campaignId),
+            eq(schema.campaigns.organizationId, record.organizationId),
+          ));
         return { terminal: "failed", reason: "no-eligible-recipients" };
       }
 
@@ -333,7 +448,10 @@ export function startCampaignWorkers(input: {
           status: "sending",
           updatedAt: snapshotAt,
         })
-        .where(eq(schema.campaigns.id, record.campaignId));
+        .where(and(
+          eq(schema.campaigns.id, record.campaignId),
+          eq(schema.campaigns.organizationId, record.organizationId),
+        ));
     }
 
     const targetBacklog = Math.max(
@@ -345,7 +463,10 @@ export function startCampaignWorkers(input: {
       const [campaignState] = await db
         .select({ status: schema.campaigns.status })
         .from(schema.campaigns)
-        .where(eq(schema.campaigns.id, record.campaignId))
+        .where(and(
+          eq(schema.campaigns.id, record.campaignId),
+          eq(schema.campaigns.organizationId, record.organizationId),
+        ))
         .limit(1);
 
       if (!campaignState || ["cancelled", "failed", "completed"].includes(campaignState.status)) {
@@ -362,6 +483,7 @@ export function startCampaignWorkers(input: {
         .where(
           and(
             eq(schema.campaignRecipients.campaignId, record.campaignId),
+            eq(schema.campaignRecipients.organizationId, record.organizationId),
             eq(schema.campaignRecipients.status, "queued"),
           ),
         );
@@ -383,6 +505,7 @@ export function startCampaignWorkers(input: {
         .where(
           and(
             eq(schema.campaignRecipients.campaignId, record.campaignId),
+            eq(schema.campaignRecipients.organizationId, record.organizationId),
             eq(schema.campaignRecipients.status, "pending"),
           ),
         )
@@ -400,7 +523,10 @@ export function startCampaignWorkers(input: {
               completedAt,
               updatedAt: completedAt,
             })
-            .where(eq(schema.campaigns.id, record.campaignId));
+            .where(and(
+              eq(schema.campaigns.id, record.campaignId),
+              eq(schema.campaigns.organizationId, record.organizationId),
+            ));
           return { terminal: "completed" };
         }
 
@@ -410,6 +536,7 @@ export function startCampaignWorkers(input: {
           .where(
             and(
               eq(schema.campaigns.id, record.campaignId),
+              eq(schema.campaigns.organizationId, record.organizationId),
               isNull(schema.campaigns.dispatchCompletedAt),
             ),
           );
@@ -417,7 +544,27 @@ export function startCampaignWorkers(input: {
         continue;
       }
 
-      const jobs = recipients.map((recipient) => ({
+      // Reserve in PostgreSQL before publishing to BullMQ. This prevents a fast
+      // send worker from completing Meta before durable recipient state is queued
+      // and makes concurrent dispatch jobs race safely.
+      const ids = recipients.map((recipient) => recipient.id);
+      const queuedAt = new Date();
+      const claimedRows = await db
+        .update(schema.campaignRecipients)
+        .set({ status: "queued", queuedAt, updatedAt: queuedAt })
+        .where(
+          and(
+            inArray(schema.campaignRecipients.id, ids),
+            eq(schema.campaignRecipients.organizationId, record.organizationId),
+            eq(schema.campaignRecipients.status, "pending"),
+          ),
+        )
+        .returning({ id: schema.campaignRecipients.id });
+
+      if (!claimedRows.length) continue;
+      const claimedIds = new Set(claimedRows.map((recipient) => recipient.id));
+      const claimedRecipients = recipients.filter((recipient) => claimedIds.has(recipient.id));
+      const jobs = claimedRecipients.map((recipient) => ({
         name: "send-template",
         data: {
           organizationId: record.organizationId,
@@ -435,22 +582,14 @@ export function startCampaignWorkers(input: {
       }));
 
       await sendQueue.addBulk(jobs);
-      const ids = recipients.map((recipient) => recipient.id);
-      const queuedAt = new Date();
-      await db
-        .update(schema.campaignRecipients)
-        .set({ status: "queued", queuedAt, updatedAt: queuedAt })
-        .where(
-          and(
-            inArray(schema.campaignRecipients.id, ids),
-            eq(schema.campaignRecipients.status, "pending"),
-          ),
-        );
 
       await db
         .update(schema.campaigns)
         .set({ status: "sending", updatedAt: queuedAt })
-        .where(eq(schema.campaigns.id, record.campaignId));
+        .where(and(
+          eq(schema.campaigns.id, record.campaignId),
+          eq(schema.campaigns.organizationId, record.organizationId),
+        ));
     }
   };
 
@@ -465,19 +604,44 @@ export function startCampaignWorkers(input: {
 
   const reconcile = async () => {
     const staleBefore = new Date(Date.now() - STALE_QUEUED_MS);
+    const reconciliationAt = new Date();
+
+    await db
+      .update(schema.campaignRecipients)
+      .set({
+        status: "failed",
+        lastError: UNKNOWN_SEND_OUTCOME_ERROR,
+        errorCode: UNKNOWN_SEND_OUTCOME_CODE,
+        failedAt: reconciliationAt,
+        updatedAt: reconciliationAt,
+      })
+      .where(
+        and(
+          eq(schema.campaignRecipients.status, "queued"),
+          gt(schema.campaignRecipients.attemptCount, 0),
+          lt(schema.campaignRecipients.lastAttemptAt, staleBefore),
+          isNull(schema.campaignRecipients.lastError),
+          isNull(schema.campaignRecipients.wamid),
+        ),
+      );
+
     await db
       .update(schema.campaignRecipients)
       .set({
         status: "pending",
         queuedAt: null,
         lastError: "Recovered a stale queue reservation",
-        updatedAt: new Date(),
+        updatedAt: reconciliationAt,
       })
       .where(
         and(
           eq(schema.campaignRecipients.status, "queued"),
           lt(schema.campaignRecipients.queuedAt, staleBefore),
           isNull(schema.campaignRecipients.wamid),
+          or(
+            eq(schema.campaignRecipients.attemptCount, 0),
+            isNotNull(schema.campaignRecipients.lastError),
+          ),
         ),
       );
 
