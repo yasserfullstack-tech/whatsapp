@@ -22,6 +22,9 @@ const bindingSchema = z.object({
   if (binding.source === "literal" && !binding.value?.trim()) {
     context.addIssue({ code: "custom", message: "Literal template variables need a value" });
   }
+  if (binding.source === "display_name" && !binding.fallback?.trim()) {
+    context.addIssue({ code: "custom", message: "Contact-name template variables need an explicit fallback" });
+  }
 });
 
 const createCampaignSchema = z.object({
