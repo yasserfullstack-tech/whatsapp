@@ -35,7 +35,7 @@ The web application uses a restrained SaaS interface centered on WhatsApp campai
 
 - Use the existing sans-serif interface stack for product copy and controls.
 - Preserve the established heading hierarchy from the global styles instead of introducing route-specific display typography.
-- Use localized text direction and the existing RTL font fallback supplied by `app/responsive.css` for Arabic.
+- Use localized text direction and the existing RTL font family supplied by `app/responsive.css` for Arabic.
 
 ## Layout
 
