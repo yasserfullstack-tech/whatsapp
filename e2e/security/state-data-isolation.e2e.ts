@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { expect, request, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
 import { schema } from "../../packages/db/src/index";
 import {
   SECURITY_BASE_URL,
@@ -197,9 +196,11 @@ test.describe.serial("account state, billing, and data isolation", () => {
       expect([302, 303, 307, 308]).toContain(response.status());
       expect(response.headers().location).toBe("/account-disabled");
     } finally {
-      await securityDb.update(schema.platformUserControls)
-        .set({ disabled: false, disabledAt: null, disabledReason: null })
-        .where(eq(schema.platformUserControls.userId, tenantA.appUserId));
+      await securitySql`
+        UPDATE platform_user_controls
+        SET disabled = false, disabled_at = NULL, disabled_reason = NULL, updated_at = now()
+        WHERE user_id = ${tenantA.appUserId}::uuid
+      `;
     }
   });
 
@@ -218,9 +219,11 @@ test.describe.serial("account state, billing, and data isolation", () => {
       expect([302, 303, 307, 308]).toContain(response.status());
       expect(response.headers().location).toBe("/workspace-suspended");
     } finally {
-      await securityDb.update(schema.organizationAdminSettings)
-        .set({ status: "active", suspendedAt: null, suspendedReason: null })
-        .where(eq(schema.organizationAdminSettings.organizationId, tenantA.organizationId));
+      await securitySql`
+        UPDATE organization_admin_settings
+        SET status = 'active', suspended_at = NULL, suspended_reason = NULL, updated_at = now()
+        WHERE organization_id = ${tenantA.organizationId}::uuid
+      `;
     }
   });
 
