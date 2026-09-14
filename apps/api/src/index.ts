@@ -7,6 +7,7 @@ import { parseWhatsAppWebhook } from "@wa/meta/webhooks";
 import { createLogger, MetricsRegistry } from "@wa/observability";
 import { createRedisClient, createWebhookQueue } from "@wa/queue";
 import { z } from "zod";
+import { readTextBodyWithLimit } from "./webhook-body";
 import {
   WebhookPersistenceError,
   WebhookQueueError,
@@ -176,7 +177,12 @@ app.get("/api/v1/meta/webhook", (c) => {
 
 app.post("/api/v1/meta/webhook", async (c) => {
   metrics.incCounter("whatsapp_webhooks_received_total");
-  const rawBody = await c.req.text();
+  const bodyResult = await readTextBodyWithLimit(c.req.raw);
+  if (!bodyResult.ok) {
+    metrics.incCounter("whatsapp_webhook_errors_total", { reason: "body_too_large" });
+    return c.json({ error: "Webhook body too large" }, 413);
+  }
+  const rawBody = bodyResult.text;
   const signature = c.req.header("x-hub-signature-256");
 
   if (!verifyMetaWebhookSignature(rawBody, signature, env.META_APP_SECRET)) {
