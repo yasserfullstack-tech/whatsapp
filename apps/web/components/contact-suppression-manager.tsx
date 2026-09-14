@@ -29,6 +29,7 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
   const [message, setMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [action, setAction] = useState<ContactAction | null>(initialAction);
+  const [resubscribeContactId, setResubscribeContactId] = useState<string | null>(null);
 
   useEffect(() => { setHydrated(true); }, []);
   useEffect(() => { setRows(contacts); }, [contacts]);
@@ -110,12 +111,16 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
     <div className="contactRows">{rows.length ? rows.map((contact) => {
       const eligible = contact.optedIn && !contact.unsubscribedAt && !contact.suppressedAt;
       const status = contact.suppressedAt ? messages.ui.suppressed : eligible ? messages.ui.eligible : messages.ui.needsConsent;
+      const resubscribeOpen = resubscribeContactId === contact.id;
       return <article className="contactRow" key={contact.id}>
         <div className="contactIdentity"><strong>{contact.displayName ?? messages.ui.unnamedContact}</strong><span dir="ltr">{contact.phoneE164}</span><small>{contact.optInSource ? format(messages.ui.consentLabel, { source: contact.optInSource }) : messages.ui.noConsentSource}</small></div>
         <div className="contactState"><span className={eligible ? "eligibilityBadge eligible" : contact.suppressedAt ? "eligibilityBadge suppressed" : "eligibilityBadge"}>{status}</span>{contact.suppressedAt ? <small>{contact.suppressionReason ?? messages.ui.suppressed} · {dateTime(contact.suppressedAt)}</small> : contact.unsubscribedAt ? <small>{format(messages.ui.optedOutAt, { date: dateTime(contact.unsubscribedAt) })}</small> : null}</div>
         <div className="contactActions">
           {canSuppress && !contact.suppressedAt ? <button className="secondary" disabled={!hydrated || busy} onClick={() => { setMessage(null); setAction({ mode: "suppress", contactId: contact.id }); }} type="button">{messages.ui.suppress}</button> : null}
-          {hydrated && canResubscribe && !eligible ? <details className="contactResubscribeDisclosure"><summary className="textButton" role="button">{messages.ui.recordNewConsent}</summary><ContactResubscribeForm contactId={contact.id} phoneE164={contact.phoneE164} displayName={contact.displayName} /></details> : null}
+          {hydrated && canResubscribe && !eligible ? <>
+            <button className="textButton" type="button" aria-expanded={resubscribeOpen} onClick={() => setResubscribeContactId((current) => current === contact.id ? null : contact.id)}>{messages.ui.recordNewConsent}</button>
+            {resubscribeOpen ? <ContactResubscribeForm contactId={contact.id} phoneE164={contact.phoneE164} displayName={contact.displayName} /> : null}
+          </> : null}
         </div>
       </article>;
     }) : <div className="emptyState"><div className="emptyIcon">C</div><h3>{messages.ui.noContactsMatch}</h3><p>{messages.ui.noContactsMatchDescription}</p></div>}</div>
