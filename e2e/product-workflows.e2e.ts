@@ -202,7 +202,7 @@ test.describe("product workflows", () => {
       await expect(page.getByText(/cancelled/i).first()).toBeVisible();
 
       await page.goto("/reports");
-      await expect(page.getByText(campaignName, { exact: false })).toBeVisible();
+      await expect(page.getByRole("link", { name: campaignName, exact: true })).toBeVisible();
       await page.getByLabel("Date range").first().selectOption("today");
       await page.getByRole("button", { name: "Apply" }).click();
       await expect(page).toHaveURL(/range=today/);
@@ -315,7 +315,8 @@ test.describe("product workflows", () => {
       await useTenantSession(context, invited);
       await page.goto(inviteUrl);
       await page.getByRole("button", { name: "Accept invitation" }).click();
-      await expect(page).toHaveURL(/\/settings\/general$/);
+      await expect(page).toHaveURL(/\/settings\/team$/);
+      await page.goto("/settings/general");
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
       await health.expectHealthy();
     } finally {
