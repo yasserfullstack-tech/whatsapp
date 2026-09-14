@@ -141,7 +141,7 @@ const metaServer = Bun.serve({
 
 const childEnv = {
   ...process.env,
-  NODE_ENV: "production",
+  NODE_ENV: "test",
   HOSTNAME: "127.0.0.1",
   PORT: "3000",
   E2E_META_BASE_URL: `http://127.0.0.1:${metaPort}`,
