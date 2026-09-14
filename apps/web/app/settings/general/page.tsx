@@ -2,12 +2,14 @@ import { eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
+import { getI18n } from "@/lib/i18n/server";
+import { workspaceSettingsMessages } from "@/lib/i18n/workspace-settings";
 import { switchWorkspaceAction, updateWorkspaceGeneralAction } from "@/lib/workspace-actions";
 import { db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
 export default async function GeneralSettingsPage() {
-  const { workspace } = await requireAuthContext();
+  const [{ workspace }, i18n] = await Promise.all([requireAuthContext(), getI18n()]);
   const [preferences, memberships] = await Promise.all([
     db
       .select()
@@ -26,14 +28,15 @@ export default async function GeneralSettingsPage() {
       .where(eq(schema.organizationMembers.userId, workspace.userId)),
   ]);
   const editable = can(workspace.role, "workspace.update");
+  const m = workspaceSettingsMessages[i18n.locale];
 
   return (
     <>
       <header className="topbar settingsHeader">
         <div>
-          <p className="eyebrow">Workspace settings</p>
-          <h1>General</h1>
-          <p className="subtitle">Manage the identity and regional defaults for this workspace.</p>
+          <p className="eyebrow">{m.common.eyebrow}</p>
+          <h1>{m.general.title}</h1>
+          <p className="subtitle">{m.general.subtitle}</p>
         </div>
       </header>
       <SettingsNav active="/settings/general" />
@@ -41,43 +44,43 @@ export default async function GeneralSettingsPage() {
       {memberships.length > 1 ? (
         <section className="panel settingsPanel">
           <div className="panelHeader">
-            <div><h2>Active workspace</h2><p className="subtitle">Switch only to workspaces where your account is already a member.</p></div>
+            <div><h2>{m.general.activeWorkspace}</h2><p className="subtitle">{m.general.activeWorkspaceHelp}</p></div>
           </div>
           <form className="settingsFields" action={switchWorkspaceAction}>
             <label>
-              <span>Workspace</span>
+              <span>{m.general.workspace}</span>
               <select name="organizationId" defaultValue={workspace.organizationId}>
                 {memberships.map((membership) => (
                   <option key={membership.organizationId} value={membership.organizationId}>
-                    {membership.organizationName} · {membership.role}
+                    {membership.organizationName} · {m.common.roles[membership.role]}
                   </option>
                 ))}
               </select>
             </label>
-            <div><button className="primary" type="submit">Switch workspace</button></div>
+            <div><button className="primary" type="submit">{m.general.switchWorkspace}</button></div>
           </form>
         </section>
       ) : null}
 
       <section className="panel settingsPanel">
         <div className="panelHeader">
-          <div><h2>Organization profile</h2><p className="subtitle">These values are shared by everyone in the workspace.</p></div>
-          <span className="status connected">{workspace.role}</span>
+          <div><h2>{m.general.organizationProfile}</h2><p className="subtitle">{m.general.organizationProfileHelp}</p></div>
+          <span className="status connected">{m.common.roles[workspace.role]}</span>
         </div>
         <form className="settingsFields" action={updateWorkspaceGeneralAction}>
-          <label><span>Organization name</span><input name="organizationName" defaultValue={workspace.organizationName} disabled={!editable} required minLength={2} maxLength={120} /></label>
-          <label><span>Timezone</span><input name="timezone" defaultValue={preferences?.timezone ?? "UTC"} disabled={!editable} required placeholder="Asia/Baghdad" /></label>
-          <label><span>Default country</span><input name="defaultCountry" defaultValue={preferences?.defaultCountry ?? ""} disabled={!editable} maxLength={2} placeholder="IQ" /></label>
+          <label><span>{m.general.organizationName}</span><input name="organizationName" defaultValue={workspace.organizationName} disabled={!editable} required minLength={2} maxLength={120} /></label>
+          <label><span>{m.general.timezone}</span><input name="timezone" defaultValue={preferences?.timezone ?? "UTC"} disabled={!editable} required placeholder="Asia/Baghdad" /></label>
+          <label><span>{m.general.defaultCountry}</span><input name="defaultCountry" defaultValue={preferences?.defaultCountry ?? ""} disabled={!editable} maxLength={2} placeholder="IQ" /></label>
           <label>
-            <span>Preferred language</span>
+            <span>{m.general.preferredLanguage}</span>
             <select name="preferredLanguage" defaultValue={preferences?.preferredLanguage ?? "en"} disabled={!editable}>
-              <option value="en">English</option>
-              <option value="ar">Arabic</option>
+              <option value="en">{m.general.english}</option>
+              <option value="ar">{m.general.arabic}</option>
             </select>
           </label>
-          {editable ? <div><button className="primary" type="submit">Save changes</button></div> : null}
+          {editable ? <div><button className="primary" type="submit">{m.general.saveChanges}</button></div> : null}
         </form>
-        {!editable ? <p className="settingsHint">Your role has read-only access to these settings.</p> : null}
+        {!editable ? <p className="settingsHint">{m.common.readOnly}</p> : null}
       </section>
     </>
   );
