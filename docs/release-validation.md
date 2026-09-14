@@ -11,12 +11,13 @@ The authoritative final run happens only after this sequence is complete:
 3. finalize and merge `test/security-full-audit`
 4. finalize and merge `test/stress-soak`
 5. update/rebase `test/full-regression-gate` from the new combined `main`
-6. review and write the mock/hardcoded audit baseline for that combined tree
-7. dispatch `Full Regression Gate` with `scope=combined-final`
+6. record the actual `main` integration commit for each QA branch in `qa/combined-qa-sources.json`
+7. review and write the mock/hardcoded audit baseline for that combined tree
+8. dispatch `Full Regression Gate` with `scope=combined-final`
 
-The `combined-final` workflow first fetches `main` and all four QA branches and requires every latest branch tip to be an ancestor of `HEAD`. This prevents an older regression branch from certifying itself. The ordinary push workflow runs only `Preparation check (NOT final release validation)`.
+The `combined-final` workflow fetches the latest `main`, requires it to be an ancestor of the regression branch, and verifies the four recorded QA integration commits are part of both `main` and `HEAD`. Recording the integration commit instead of requiring a live QA branch tip makes the gate work with merge commits, squash merges, rebases, or deleted source branches while still preventing an older regression branch from certifying itself. All four entries are deliberately `PENDING_INTEGRATION` until the corresponding work is actually integrated.
 
-Do not mark the regression PR ready for review, and do not call the branch complete, until the combined-final run is green.
+The ordinary push workflow runs only `Preparation check (NOT final release validation)`. Do not mark the regression PR ready for review, and do not call the branch complete, until the combined-final run is green.
 
 ## Safety invariants
 
@@ -31,7 +32,7 @@ Release validation must never depend on production/customer state or credentials
 
 ## Final combined lanes
 
-The explicit `combined-final` run executes these independent lanes after the ancestry/contract check:
+The explicit `combined-final` run executes these independent lanes after the combined-main/integration contract check:
 
 - clean migration drift check, database migrations, schema verification, unit/integration tests, critical webhook reliability tests, typecheck and production build
 - full functional browser E2E using the merged browser harness across its configured projects
@@ -58,7 +59,7 @@ Never auto-update this baseline in CI. The normal `bun run qa:mock-audit` comman
 
 ## Local combined helper
 
-`bun run qa:release` is useful only after the combined-base ancestry and audit-baseline prerequisites are satisfied and only when the caller has provisioned disposable local infrastructure. Set at minimum:
+`bun run qa:release` is useful only after the combined-base integration records and audit-baseline prerequisites are satisfied and only when the caller has provisioned disposable local infrastructure. Set at minimum:
 
 ```bash
 export QA_DISPOSABLE_INFRA=1
