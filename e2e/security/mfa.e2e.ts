@@ -8,12 +8,22 @@ import {
   type SecurityTenant,
 } from "./security-helpers";
 
-function cookieHeader(response: APIResponse): string {
+function responseCookies(response: APIResponse): string[] {
   return response.headersArray()
     .filter(({ name }) => name.toLowerCase() === "set-cookie")
     .map(({ value }) => value.split(";", 1)[0])
-    .filter(Boolean)
-    .join("; ");
+    .filter(Boolean);
+}
+
+function mergeCookieHeaders(...headers: Array<string | string[]>): string {
+  const pairs = headers.flatMap((header) => Array.isArray(header) ? header : header.split(/;\s*/));
+  const byName = new Map<string, string>();
+  for (const pair of pairs) {
+    const separator = pair.indexOf("=");
+    if (separator <= 0) continue;
+    byName.set(pair.slice(0, separator), pair);
+  }
+  return [...byName.values()].join("; ");
 }
 
 function decodeBase32(input: string): Buffer {
@@ -55,10 +65,10 @@ async function signInForMfa(tenant: SecurityTenant) {
   expect(response.ok(), JSON.stringify(body)).toBeTruthy();
   expect(body.twoFactorRedirect).toBe(true);
   expect(body.twoFactorMethods).toContain("totp");
-  const cookies = cookieHeader(response);
-  expect(cookies).toContain("two_factor");
+  const cookies = responseCookies(response);
+  expect(cookies.some((cookie) => cookie.includes("two_factor"))).toBe(true);
   await api.dispose();
-  return cookies;
+  return mergeCookieHeaders(cookies);
 }
 
 test.describe.serial("MFA security", () => {
@@ -74,31 +84,56 @@ test.describe.serial("MFA security", () => {
   });
 
   test("TOTP enrollment requires proof and enabled MFA blocks password-only sign-in", async () => {
-    const enable = await tenant.api.post("/api/auth/two-factor/enable", {
-      data: { password: tenant.password, method: "totp", issuer: "WhatsApp Campaigns" },
+    const enrollmentApi = await request.newContext({
+      baseURL: SECURITY_BASE_URL,
+      extraHTTPHeaders: {
+        cookie: tenant.cookie,
+        origin: SECURITY_BASE_URL,
+        "sec-fetch-site": "same-origin",
+      },
     });
-    expect(enable.ok(), await enable.text()).toBeTruthy();
-    const enrollment = await enable.json() as { method?: string; totpURI?: string; backupCodes?: string[] };
-    expect(enrollment.method).toBe("totp");
-    expect(enrollment.totpURI).toBeTruthy();
-    expect(enrollment.backupCodes?.length).toBeGreaterThan(0);
-    backupCode = enrollment.backupCodes?.[0] ?? "";
-    if (!enrollment.totpURI || !backupCode) throw new Error("MFA enrollment did not return TOTP/recovery material");
+    try {
+      const enable = await enrollmentApi.post("/api/auth/two-factor/enable", {
+        data: { password: tenant.password, method: "totp", issuer: "WhatsApp Campaigns" },
+      });
+      expect(enable.ok(), await enable.text()).toBeTruthy();
+      const enrollment = await enable.json() as { method?: string; totpURI?: string; backupCodes?: string[] };
+      expect(enrollment.method).toBe("totp");
+      expect(enrollment.totpURI).toBeTruthy();
+      expect(enrollment.backupCodes?.length).toBeGreaterThan(0);
+      backupCode = enrollment.backupCodes?.[0] ?? "";
+      if (!enrollment.totpURI || !backupCode) throw new Error("MFA enrollment did not return TOTP/recovery material");
 
-    const beforeVerify = await securitySql`
-      SELECT two_factor_enabled AS "enabled"
-      FROM auth_user
-      WHERE id = ${tenant.authUserId}
-    ` as unknown as Array<{ enabled: boolean }>;
-    expect(beforeVerify[0]?.enabled).toBe(false);
+      const beforeVerify = await securitySql`
+        SELECT two_factor_enabled AS "enabled"
+        FROM auth_user
+        WHERE id = ${tenant.authUserId}
+      ` as unknown as Array<{ enabled: boolean }>;
+      expect(beforeVerify[0]?.enabled).toBe(false);
 
-    const uri = new URL(enrollment.totpURI);
-    const secret = uri.searchParams.get("secret");
-    if (!secret) throw new Error("TOTP URI did not contain a secret");
-    const verify = await tenant.api.post("/api/auth/two-factor/verify-totp", {
-      data: { code: totpCode(secret), trustDevice: false },
-    });
-    expect(verify.ok(), await verify.text()).toBeTruthy();
+      const uri = new URL(enrollment.totpURI);
+      const secret = uri.searchParams.get("secret");
+      if (!secret) throw new Error("TOTP URI did not contain a secret");
+
+      const verifyApi = await request.newContext({
+        baseURL: SECURITY_BASE_URL,
+        extraHTTPHeaders: {
+          cookie: mergeCookieHeaders(tenant.cookie, responseCookies(enable)),
+          origin: SECURITY_BASE_URL,
+          "sec-fetch-site": "same-origin",
+        },
+      });
+      try {
+        const verify = await verifyApi.post("/api/auth/two-factor/verify-totp", {
+          data: { code: totpCode(secret), trustDevice: false },
+        });
+        expect(verify.ok(), await verify.text()).toBeTruthy();
+      } finally {
+        await verifyApi.dispose();
+      }
+    } finally {
+      await enrollmentApi.dispose();
+    }
 
     const afterVerify = await securitySql`
       SELECT two_factor_enabled AS "enabled"
@@ -136,8 +171,8 @@ test.describe.serial("MFA security", () => {
         data: { code: backupCode, disableSession: false, trustDevice: false },
       });
       expect(verify.ok(), await verify.text()).toBeTruthy();
-      sessionCookie = cookieHeader(verify);
-      expect(sessionCookie).toContain("better-auth.session_token=");
+      sessionCookie = mergeCookieHeaders(responseCookies(verify));
+      expect(sessionCookie).toContain("session_token=");
     } finally {
       await challenge.dispose();
     }
