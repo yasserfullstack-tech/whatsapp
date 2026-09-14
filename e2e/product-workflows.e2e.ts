@@ -88,11 +88,11 @@ test.describe("product workflows", () => {
       const recordConsent = row.getByRole("button", { name: "Record new consent" });
       await recordConsent.click();
       await expect(recordConsent).toHaveAttribute("aria-expanded", "true");
-      await expect(page.getByRole("button", { name: "Restore eligibility" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Restore marketing eligibility" })).toBeVisible();
       await page.locator('input[name="consentSource"]').fill("E2E signed web form");
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
       await page.locator('input[name="confirmation"]').check();
-      await page.getByRole("button", { name: "Restore eligibility" }).click();
+      await page.getByRole("button", { name: "Restore marketing eligibility" }).click();
       await expect(page.getByText(/restored/i)).toBeVisible();
       await page.goto("/contacts?q=Imported+E2E&status=eligible");
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
