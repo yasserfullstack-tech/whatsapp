@@ -81,6 +81,7 @@ test.describe("product workflows", () => {
 
       await page.locator('select[name="status"]').selectOption("suppressed");
       await page.getByRole("button", { name: /apply filters/i }).click();
+      await expect(page).toHaveURL(/status=suppressed/);
       row = page.locator(".contactRow").filter({ hasText: "Imported E2E Contact" });
       await expect(row).toBeVisible();
       await row.getByRole("button", { name: "Record new consent" }).click();
@@ -138,7 +139,10 @@ test.describe("product workflows", () => {
       const connect = page.getByRole("button", { name: /connect whatsapp/i });
       await expect(connect).toBeEnabled();
       await connect.click();
-      await expect(page.getByText(/connected/i).first()).toBeVisible({ timeout: 15_000 });
+      await expect.poll(async () => {
+        const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
+        return rows.find((row) => row.phoneNumberId === "e2e-phone")?.verifiedName ?? null;
+      }, { timeout: 15_000, intervals: [250, 500, 1000] }).toBe("E2E WhatsApp");
       await page.reload();
       await expect(page.getByText("E2E WhatsApp", { exact: true })).toBeVisible();
       const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
