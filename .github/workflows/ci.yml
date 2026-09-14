@@ -5,8 +5,12 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   checks:
+    name: CI
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -52,7 +56,12 @@ jobs:
       - name: Create ephemeral encryption key
         shell: bash
         run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
-      - run: bun install
+      - name: Verify isolated test environment
+        run: bun scripts/qa/assert-test-env.ts
+      - name: Install dependencies from lockfile
+        run: bun install --frozen-lockfile
+      - name: Verify QA coverage manifest
+        run: bun run qa:coverage
       - name: Check migration drift
         run: |
           bun run db:generate -- --name=ci-drift
@@ -65,10 +74,20 @@ jobs:
         run: bun run db:migrate
       - name: Verify migrated schema
         run: bun run db:verify
-      - run: bun run test
-      - run: bun run typecheck
-      - run: bun run build
+      - name: Unit and integration tests
+        run: bun run test
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Production build
+        run: bun run build
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
-      - name: Browser E2E (EN/AR · desktop/tablet/mobile)
-        run: bun run test:e2e
+      - name: Browser smoke
+        run: bun run test:e2e:smoke
+
+  browser-smoke:
+    name: Browser smoke
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Browser smoke passed inside the CI job without rebuilding the application a second time."

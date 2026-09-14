@@ -3,10 +3,7 @@ name: Security
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - test/security-testing
-      - "fix/security-*"
+    branches: [main]
 
 permissions:
   contents: read
@@ -20,7 +17,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - run: bun install
+      - run: bun install --frozen-lockfile
       - name: Fail on high or critical dependency vulnerabilities
         run: bun audit --audit-level=high
 
@@ -84,6 +81,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_URL: http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
+      AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-auth-security-emails.jsonl
       AUTH_SIGNIN_RATE_LIMIT_MAX: "100"
       AUTH_SIGNUP_RATE_LIMIT_MAX: "100"
       META_GRAPH_API_VERSION: v26.0
@@ -103,7 +101,9 @@ jobs:
       - name: Create ephemeral encryption key
         shell: bash
         run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
-      - run: bun install
+      - name: Verify isolated test environment
+        run: bun scripts/qa/assert-test-env.ts
+      - run: bun install --frozen-lockfile
       - name: Apply migrations
         run: bun run db:migrate
       - name: Build web application
@@ -112,3 +112,16 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Run security E2E suite
         run: bun run test:security
+
+  security-gate:
+    name: Security gate
+    if: always()
+    needs: [dependency-audit, secret-scan, codeql, security-e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every security lane
+        run: |
+          test "${{ needs.dependency-audit.result }}" = "success"
+          test "${{ needs.secret-scan.result }}" = "success"
+          test "${{ needs.codeql.result }}" = "success"
+          test "${{ needs.security-e2e.result }}" = "success"

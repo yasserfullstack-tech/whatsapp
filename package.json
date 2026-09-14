@@ -14,7 +14,9 @@
     "build": "bun run --filter @wa/web build",
     "test": "bun test",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test e2e/public-site.e2e.ts e2e/i18n-responsive.e2e.ts --project=desktop-1440",
     "test:security": "playwright test -c playwright.security.config.ts",
+    "test:webhook-critical": "bun test apps/api/src/webhook-inbox.test.ts apps/api/src/webhook-signature.test.ts apps/worker/src/webhooks.test.ts packages/meta/src/webhooks.test.ts",
     "typecheck": "bun run --filter '@wa/*' typecheck",
     "db:generate": "bun run --filter @wa/db db:generate",
     "db:migrate": "bun run --filter @wa/db db:migrate",
@@ -28,7 +30,11 @@
     "load:infra:down": "docker compose -f docker-compose.load.yml down --remove-orphans",
     "load:fake-meta": "bun run --filter @wa/load-test fake-meta",
     "load:run": "bun run --filter @wa/load-test run",
-    "load:webhooks": "bun run --filter @wa/load-test webhook-flood"
+    "load:webhooks": "bun run --filter @wa/load-test webhook-flood",
+    "test:load-smoke": "bun run load:run -- --scenario=baseline-80 --recipients=1000 --timeout-ms=120000 && bun run load:webhooks -- --events=1000 --concurrency=50 --timeout-ms=120000",
+    "test:resilience-smoke": "bun apps/load-test/src/chaos.ts --chaos=worker-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=1500 --timeout-ms=120000",
+    "qa:coverage": "bun scripts/qa/coverage-check.ts",
+    "qa:release": "bash scripts/qa/release-validate.sh"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
