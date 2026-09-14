@@ -60,9 +60,11 @@ test.describe("product workflows", () => {
       if (await country.count()) await country.fill("US");
       await page.locator(".confirmationRow input[type=checkbox]").check();
       await page.getByRole("button", { name: /upload.*import/i }).click();
-      const importRow = page.locator(".numberRow").filter({ hasText: "contacts-e2e.csv" });
-      await expect(importRow).toContainText("completed", { timeout: 30_000 });
-      await expect(importRow).toContainText(/2 new contacts|2/i);
+      await expect.poll(async () => {
+        const imports = await functionalDb.select().from(schema.contactImports).where(eq(schema.contactImports.organizationId, tenant.organizationId));
+        const current = imports.find((row) => row.originalFileName === "contacts-e2e.csv");
+        return current ? `${current.status}:${current.importedRows}` : "missing";
+      }, { timeout: 30_000, intervals: [500, 1000, 1500] }).toBe("completed:2");
 
       await page.goto("/contacts");
       await page.locator('input[name="q"]').fill("Imported E2E");
@@ -176,7 +178,7 @@ test.describe("product workflows", () => {
       const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/campaigns") && response.request().method() === "POST");
       await page.getByRole("button", { name: /launch.*contacts/i }).click();
       const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(202);
+      expect(createResponse.status()).toBe(201);
       const created = await createResponse.json() as { campaignId: string };
       expect(created.campaignId).toBeTruthy();
 
@@ -280,9 +282,15 @@ test.describe("product workflows", () => {
       await page.getByRole("button", { name: "Export contacts" }).click();
       const exportRow = page.locator(".settingsListRow").filter({ hasText: "contacts" }).first();
       await expect(exportRow).toContainText("completed", { timeout: 35_000 });
+      const signedDownloadPromise = page.waitForResponse((response) => response.url().includes("/api/settings/data/export/") && response.url().endsWith("/download"));
       await exportRow.getByRole("button", { name: "Download" }).click();
-      await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:4569\//);
-      await expect(page.locator("body")).toContainText(/phone|contact/i);
+      const signedDownloadResponse = await signedDownloadPromise;
+      expect(signedDownloadResponse.ok()).toBeTruthy();
+      const signedDownload = await signedDownloadResponse.json() as { url: string };
+      expect(signedDownload.url).toMatch(/^http:\/\/127\.0\.0\.1:4569\//);
+      const exportedObject = await owner.api.get(signedDownload.url);
+      expect(exportedObject.ok()).toBeTruthy();
+      expect(await exportedObject.text()).toMatch(/phone|contact/i);
       await page.goto("/settings/data");
 
       await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
