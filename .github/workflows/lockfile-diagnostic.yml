@@ -1,0 +1,23 @@
+name: Lockfile Diagnostic
+
+on:
+  push:
+    branches: [test/full-regression-gate]
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --lockfile-only
+      - name: Print required lockfile delta
+        shell: bash
+        run: |
+          git diff -- bun.lock
+          test -n "$(git status --porcelain -- bun.lock)"
