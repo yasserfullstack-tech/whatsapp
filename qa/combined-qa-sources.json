@@ -1,0 +1,6 @@
+{
+  "audit/mock-hardcoded-data": "PENDING_INTEGRATION",
+  "test/e2e-full-browser": "PENDING_INTEGRATION",
+  "test/security-full-audit": "PENDING_INTEGRATION",
+  "test/stress-soak": "PENDING_INTEGRATION"
+}
