@@ -1,11 +1,14 @@
 import { VerifyEmailForm } from "@/components/verify-email-form";
+import { getI18n } from "@/lib/i18n/server";
+import { productionUiMessages } from "@/lib/i18n/production-ui";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export const dynamic = "force-dynamic";
 
 export default async function VerifyEmailPage({ searchParams }: { searchParams: SearchParams }) {
-  const query = await searchParams;
+  const [{ locale }, query] = await Promise.all([getI18n(), searchParams]);
+  const copy = productionUiMessages[locale];
   const email = typeof query.email === "string" ? query.email : "";
 
   return (
@@ -13,12 +16,12 @@ export default async function VerifyEmailPage({ searchParams }: { searchParams: 
       <section className="authCard">
         <div className="authBrand">
           <div className="brandMark">W</div>
-          <div><strong>WhatsApp Campaigns</strong><span>Account security</span></div>
+          <div><strong>WhatsApp Campaigns</strong><span>{copy.brandSubtitle}</span></div>
         </div>
         <div className="authHeading">
-          <p className="eyebrow">Verify your identity</p>
-          <h1>Verify your email</h1>
-          <p>Email verification is required before you can sign in to your account.</p>
+          <p className="eyebrow">{copy.verifyEmail.eyebrow}</p>
+          <h1>{copy.verifyEmail.title}</h1>
+          <p>{copy.verifyEmail.description}</p>
         </div>
         <VerifyEmailForm initialEmail={email} />
       </section>

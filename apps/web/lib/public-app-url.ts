@@ -1,4 +1,11 @@
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized === "127.0.0.1"
+    || normalized === "::1"
+    || normalized === "[::1]";
+}
 
 export function getPublicAppUrl(): URL {
   const configured = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? process.env.BETTER_AUTH_URL;
@@ -10,7 +17,7 @@ export function getPublicAppUrl(): URL {
   }
 
   const url = new URL(configured);
-  if (process.env.NODE_ENV === "production" && LOCAL_HOSTNAMES.has(url.hostname.toLowerCase())) {
+  if (process.env.NODE_ENV === "production" && isLoopbackHostname(url.hostname)) {
     throw new Error("The public application URL cannot use a loopback host in production");
   }
   return url;

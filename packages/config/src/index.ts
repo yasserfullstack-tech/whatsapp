@@ -6,13 +6,22 @@ const baseShape = {
   META_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default("v26.0"),
 } as const;
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized === "127.0.0.1"
+    || normalized === "::1"
+    || normalized === "[::1]";
+}
+
 function validateProductionRedis(
   value: { NODE_ENV: "development" | "test" | "production"; REDIS_URL: string },
   ctx: z.RefinementCtx,
 ) {
   if (value.NODE_ENV !== "production") return;
-  const hostname = new URL(value.REDIS_URL).hostname.toLowerCase();
-  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname)) {
+  const hostname = new URL(value.REDIS_URL).hostname;
+  if (isLoopbackHostname(hostname)) {
     ctx.addIssue({
       code: "custom",
       path: ["REDIS_URL"],
@@ -58,6 +67,14 @@ const workerSchema = z.object({
         message: `${name} is required in production`,
       });
     }
+  }
+
+  if (value.APP_URL && isLoopbackHostname(new URL(value.APP_URL).hostname)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["APP_URL"],
+      message: "APP_URL must use the public production application origin",
+    });
   }
 });
 

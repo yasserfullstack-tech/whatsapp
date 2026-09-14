@@ -21,12 +21,23 @@ const EXCLUDED = [
   /(^|\/)drizzle(\/|$)/,
   /(^|\/)migrations?(\/|$)/,
 ];
-const SUSPICIOUS = /\b(mock|fake|dummy|demo|sample|fixture|placeholder|hardcoded|temporary|todo|fixme|localhost|example\.com)\b/i;
+
+const HIGH_RISK_MARKER = /\b(mock|fake|dummy|fixture|hardcoded|todo|fixme)\b|simulated\s+success/i;
+const AMBIGUOUS_MARKER = /\b(demo|sample|placeholder|temporary|fallback)\b/i;
+const LOOPBACK_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|[^/"'\s]*\.localhost)(?::\d+)?/i;
+const EXAMPLE_URL = /https?:\/\/[^/"'\s]*example\.com\b/i;
 const SECRET_LITERAL = /\b(api[_-]?key|access[_-]?token|secret|password|verify[_-]?token)\b\s*[:=]\s*["'][^"'\n]{8,}["']/i;
 const FIXED_ID = /\b(?:organization|user|waba|phone(?:Number)?|template|campaign)(?:_?id|Id)\b\s*[:=]\s*["'][A-Za-z0-9_-]{6,}["']/i;
 const UUID_LITERAL = /["'][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}["']/i;
-const HTTP_LITERAL = /["']https?:\/\/[^"']+["']/i;
 const JSX_ENGLISH = />\s*[A-Za-z][A-Za-z0-9 ,.'’:/()&+\-]{2,}\s*</;
+
+const I18N_EXCLUDED = [
+  /^apps\/web\/app\/admin\//,
+  /^apps\/web\/components\/admin-/,
+  /^apps\/web\/components\/marketing\//,
+  /^apps\/web\/lib\/marketing-content\.tsx?$/,
+  /^apps\/web\/components\/data-lifecycle-panel\.tsx$/,
+];
 
 async function walk(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true });
@@ -45,8 +56,27 @@ function shouldInspect(path: string): boolean {
   return TEXT_EXTENSIONS.has(extname(path)) || ROOT_FILES.includes(normalized as (typeof ROOT_FILES)[number]);
 }
 
+function isAllowedFinding(file: string, line: string): boolean {
+  if (file === ".env.production.example") return true;
+  if (/\.tsx?$/.test(file) && /\bplaceholder\s*=/.test(line)) return true;
+  if (file === "apps/web/lib/marketing-content.ts") return true;
+  if (file === "apps/web/app/api/audiences/segments/preview/route.ts" && /\bsample\b/.test(line)) return true;
+  if (file === "apps/web/lib/public-app-url.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
+  if (file === "apps/worker/src/notification-runtime.ts" && /127\.0\.0\.1/.test(line)) return true;
+  if (file === "packages/config/src/index.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
+  if (file === "packages/notifications/src/index.ts" && /127\.0\.0\.1/.test(line)) return true;
+  if (file === "docker-compose.production.yml" && /127\.0\.0\.1|GF_SERVER_DOMAIN:\s*localhost/.test(line)) return true;
+  if (file === "apps/web/lib/workspace-actions.ts" && /BETTER_AUTH_URL.*127\.0\.0\.1/.test(line)) return true;
+  return false;
+}
+
+function isAllowedEnglishJsx(file: string, line: string): boolean {
+  if (I18N_EXCLUDED.some((pattern) => pattern.test(file))) return true;
+  return />\s*WhatsApp Campaigns\s*</.test(line);
+}
+
 describe("production mock/hardcoded data audit", () => {
-  test("inventory suspicious production literals", async () => {
+  test("production runtime has no unclassified mock, fixed-ID, secret, or loopback data", async () => {
     const discovered: string[] = [];
     for (const root of ROOTS) {
       for (const file of await walk(root)) {
@@ -61,25 +91,32 @@ describe("production mock/hardcoded data audit", () => {
     for (const file of [...new Set(discovered)].sort()) {
       const content = await readFile(file, "utf8");
       for (const [index, line] of content.split(/\r?\n/).entries()) {
-        if (SUSPICIOUS.test(line) || SECRET_LITERAL.test(line) || FIXED_ID.test(line) || UUID_LITERAL.test(line) || HTTP_LITERAL.test(line)) {
+        const risky = HIGH_RISK_MARKER.test(line)
+          || AMBIGUOUS_MARKER.test(line)
+          || LOOPBACK_URL.test(line)
+          || EXAMPLE_URL.test(line)
+          || SECRET_LITERAL.test(line)
+          || FIXED_ID.test(line)
+          || UUID_LITERAL.test(line);
+        if (risky && !isAllowedFinding(file, line)) {
           findings.push(`${file}:${index + 1}: ${line.trim().slice(0, 400)}`);
         }
-        if (file.startsWith("apps/web/") && file.endsWith(".tsx") && JSX_ENGLISH.test(line)) {
+        if (
+          file.startsWith("apps/web/")
+          && file.endsWith(".tsx")
+          && JSX_ENGLISH.test(line)
+          && !isAllowedEnglishJsx(file, line)
+        ) {
           i18nFindings.push(`${file}:${index + 1}: ${line.trim().slice(0, 400)}`);
         }
       }
     }
 
-    console.log("PRODUCTION_AUDIT_FINDINGS_START");
-    for (const finding of findings) console.log(finding);
-    console.log("PRODUCTION_AUDIT_FINDINGS_END");
-    console.log("PRODUCTION_I18N_FINDINGS_START");
-    for (const finding of i18nFindings) console.log(finding);
-    console.log("PRODUCTION_I18N_FINDINGS_END");
-    console.log(`PRODUCTION_AUDIT_SCANNED_FILES=${new Set(discovered).size}`);
-    console.log(`PRODUCTION_AUDIT_MATCHES=${findings.length}`);
-    console.log(`PRODUCTION_I18N_MATCHES=${i18nFindings.length}`);
+    if (findings.length) console.error(`Unclassified production audit findings:\n${findings.join("\n")}`);
+    if (i18nFindings.length) console.error(`Unclassified customer-facing English JSX:\n${i18nFindings.join("\n")}`);
 
-    expect(discovered.length).toBeGreaterThan(0);
+    expect(new Set(discovered).size).toBeGreaterThan(150);
+    expect(findings).toEqual([]);
+    expect(i18nFindings).toEqual([]);
   });
 });

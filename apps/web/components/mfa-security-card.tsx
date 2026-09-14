@@ -2,7 +2,9 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import QRCode from "react-qr-code";
+import { useI18n } from "@/components/i18n-provider";
 import { authClient } from "@/lib/auth-client";
+import { productionUiMessages } from "@/lib/i18n/production-ui";
 
 type Enrollment = {
   totpURI: string;
@@ -10,23 +12,13 @@ type Enrollment = {
   verified: boolean;
 };
 
-type AuthError = {
-  message?: string | null | undefined;
-  code?: string | null | undefined;
-};
-
-function errorMessage(error: AuthError | null | undefined, fallback: string) {
-  if (error?.code === "ACCOUNT_TEMPORARILY_LOCKED") {
-    return "Too many failed MFA attempts. Try again after the temporary lock expires.";
-  }
-  return error?.message ?? fallback;
-}
+type AuthError = { message?: string | null; code?: string | null };
 
 export function MfaSecurityCard() {
+  const { locale } = useI18n();
+  const copy = productionUiMessages[locale];
   const sessionQuery = authClient.useSession();
-  const sessionMfaEnabled = Boolean(
-    (sessionQuery.data?.user as { twoFactorEnabled?: boolean } | undefined)?.twoFactorEnabled,
-  );
+  const sessionMfaEnabled = Boolean((sessionQuery.data?.user as { twoFactorEnabled?: boolean } | undefined)?.twoFactorEnabled);
   const [enabled, setEnabled] = useState(sessionMfaEnabled);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [pending, setPending] = useState(false);
@@ -38,6 +30,11 @@ export function MfaSecurityCard() {
     if (sessionMfaEnabled) setEnabled(true);
   }, [sessionMfaEnabled]);
 
+  function errorMessage(value: AuthError | null | undefined, fallback: string) {
+    if (value?.code === "ACCOUNT_TEMPORARILY_LOCKED") return copy.mfa.locked;
+    return value?.message ?? fallback;
+  }
+
   async function startEnrollment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
@@ -47,24 +44,16 @@ export function MfaSecurityCard() {
     const password = String(form.get("password") ?? "");
 
     try {
-      const result = await authClient.twoFactor.enable({
-        password,
-        method: "totp",
-        issuer: "WhatsApp Campaigns",
-      });
+      const result = await authClient.twoFactor.enable({ password, method: "totp", issuer: "WhatsApp Campaigns" });
       if (result.error) {
-        setError(errorMessage(result.error, "Unable to start MFA enrollment."));
+        setError(errorMessage(result.error, copy.mfa.startFailed));
         return;
       }
       if (!result.data || result.data.method !== "totp") {
-        setError("The authenticator enrollment response was not valid.");
+        setError(copy.mfa.invalidEnrollment);
         return;
       }
-      setEnrollment({
-        totpURI: result.data.totpURI,
-        backupCodes: result.data.backupCodes,
-        verified: false,
-      });
+      setEnrollment({ totpURI: result.data.totpURI, backupCodes: result.data.backupCodes, verified: false });
       event.currentTarget.reset();
     } finally {
       setPending(false);
@@ -81,12 +70,12 @@ export function MfaSecurityCard() {
     try {
       const result = await authClient.twoFactor.verifyTotp({ code, trustDevice: true });
       if (result.error) {
-        setError(errorMessage(result.error, "That authenticator code could not be verified."));
+        setError(errorMessage(result.error, copy.mfa.verifyFailed));
         return;
       }
       setEnabled(true);
       setEnrollment((current) => current ? { ...current, verified: true } : current);
-      setStatus("MFA is enabled. Save the recovery codes below before closing this setup.");
+      setStatus(copy.mfa.enabledStatus);
       event.currentTarget.reset();
     } finally {
       setPending(false);
@@ -104,11 +93,11 @@ export function MfaSecurityCard() {
     try {
       const result = await authClient.twoFactor.generateBackupCodes({ password });
       if (result.error) {
-        setError(errorMessage(result.error, "Unable to generate new recovery codes."));
+        setError(errorMessage(result.error, copy.mfa.regenerateFailed));
         return;
       }
       setNewBackupCodes(result.data?.backupCodes ?? []);
-      setStatus("New recovery codes generated. Previous recovery codes no longer work.");
+      setStatus(copy.mfa.regeneratedStatus);
       event.currentTarget.reset();
     } finally {
       setPending(false);
@@ -126,13 +115,13 @@ export function MfaSecurityCard() {
     try {
       const result = await authClient.twoFactor.disable({ password });
       if (result.error) {
-        setError(errorMessage(result.error, "Unable to disable MFA."));
+        setError(errorMessage(result.error, copy.mfa.disableFailed));
         return;
       }
       setEnabled(false);
       setEnrollment(null);
       setNewBackupCodes(null);
-      setStatus("MFA has been disabled for this account.");
+      setStatus(copy.mfa.disabledStatus);
       event.currentTarget.reset();
     } finally {
       setPending(false);
@@ -143,13 +132,11 @@ export function MfaSecurityCard() {
     <section className="panel" style={{ gridColumn: "1 / -1" }}>
       <div className="panelHeader">
         <div>
-          <p className="eyebrow">Multi-factor authentication</p>
-          <h2>TOTP + recovery codes</h2>
-          <p className="subtitle">
-            Use an authenticator app for a second sign-in factor. Platform-administrator policy can require this independently of workspace roles.
-          </p>
+          <p className="eyebrow">{copy.mfa.eyebrow}</p>
+          <h2>{copy.mfa.title}</h2>
+          <p className="subtitle">{copy.mfa.subtitle}</p>
         </div>
-        <span className="badge">{enabled ? "Enabled" : "Not enabled"}</span>
+        <span className="badge">{enabled ? copy.mfa.enabled : copy.mfa.notEnabled}</span>
       </div>
 
       {error ? <p className="formError" role="alert">{error}</p> : null}
@@ -158,16 +145,16 @@ export function MfaSecurityCard() {
       {enrollment ? (
         <div className="authForm">
           <div>
-            <h3>1. Scan this QR code</h3>
-            <p className="subtitle">Scan with your authenticator app. This setup QR is shown only while you are enrolling.</p>
+            <h3>{copy.mfa.scanTitle}</h3>
+            <p className="subtitle">{copy.mfa.scanHelp}</p>
             <div style={{ background: "white", display: "inline-block", padding: 16 }}>
-              <QRCode aria-label="Authenticator setup QR code" size={192} value={enrollment.totpURI} />
+              <QRCode aria-label={copy.mfa.qrLabel} size={192} value={enrollment.totpURI} />
             </div>
           </div>
 
           <div>
-            <h3>2. Save recovery codes</h3>
-            <p className="subtitle">Each code can be used once. Store them somewhere separate from your authenticator device.</p>
+            <h3>{copy.mfa.saveCodesTitle}</h3>
+            <p className="subtitle">{copy.mfa.saveCodesHelp}</p>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
               {enrollment.backupCodes.map((code) => <code key={code}>{code}</code>)}
             </div>
@@ -175,25 +162,25 @@ export function MfaSecurityCard() {
 
           {!enrollment.verified ? (
             <form className="authForm" onSubmit={verifyEnrollment}>
-              <h3>3. Verify setup</h3>
+              <h3>{copy.mfa.verifyTitle}</h3>
               <label>
-                <span>6-digit authenticator code</span>
+                <span>{copy.mfa.sixDigitCode}</span>
                 <input autoComplete="one-time-code" inputMode="numeric" maxLength={6} minLength={6} name="code" pattern="[0-9]{6}" required />
               </label>
-              <button className="primary authSubmit" disabled={pending} type="submit">{pending ? "Verifying…" : "Verify and enable MFA"}</button>
+              <button className="primary authSubmit" disabled={pending} type="submit">{pending ? copy.mfa.verifying : copy.mfa.verifyEnable}</button>
             </form>
           ) : (
-            <button className="primary authSubmit" onClick={() => setEnrollment(null)} type="button">I saved my recovery codes</button>
+            <button className="primary authSubmit" onClick={() => setEnrollment(null)} type="button">{copy.mfa.savedCodes}</button>
           )}
         </div>
       ) : enabled ? (
         <div className="mainGrid">
           <div>
-            <h3>Recovery codes</h3>
-            <p className="subtitle">Generate a new set if your current recovery codes are lost. This invalidates the previous set.</p>
+            <h3>{copy.mfa.recoveryCodes}</h3>
+            <p className="subtitle">{copy.mfa.recoveryHelp}</p>
             <form className="authForm" onSubmit={regenerateBackupCodes}>
-              <label><span>Current password</span><input autoComplete="current-password" name="password" required type="password" /></label>
-              <button className="secondary" disabled={pending} type="submit">{pending ? "Generating…" : "Generate new recovery codes"}</button>
+              <label><span>{copy.common.currentPassword}</span><input autoComplete="current-password" name="password" required type="password" /></label>
+              <button className="secondary" disabled={pending} type="submit">{pending ? copy.mfa.generating : copy.mfa.generateCodes}</button>
             </form>
             {newBackupCodes ? (
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginTop: 16 }}>
@@ -203,19 +190,19 @@ export function MfaSecurityCard() {
           </div>
 
           <div>
-            <h3>Disable MFA</h3>
-            <p className="subtitle">Disabling MFA removes the authenticator secret and recovery codes from your account.</p>
+            <h3>{copy.mfa.disableTitle}</h3>
+            <p className="subtitle">{copy.mfa.disableHelp}</p>
             <form className="authForm" onSubmit={disableMfa}>
-              <label><span>Current password</span><input autoComplete="current-password" name="password" required type="password" /></label>
-              <button className="secondary" disabled={pending} type="submit">{pending ? "Disabling…" : "Disable MFA"}</button>
+              <label><span>{copy.common.currentPassword}</span><input autoComplete="current-password" name="password" required type="password" /></label>
+              <button className="secondary" disabled={pending} type="submit">{pending ? copy.mfa.disabling : copy.mfa.disable}</button>
             </form>
           </div>
         </div>
       ) : (
         <form className="authForm" onSubmit={startEnrollment}>
-          <p>Confirm your password to begin authenticator setup.</p>
-          <label><span>Current password</span><input autoComplete="current-password" name="password" required type="password" /></label>
-          <button className="primary authSubmit" disabled={pending} type="submit">{pending ? "Starting…" : "Enable MFA"}</button>
+          <p>{copy.mfa.confirmPassword}</p>
+          <label><span>{copy.common.currentPassword}</span><input autoComplete="current-password" name="password" required type="password" /></label>
+          <button className="primary authSubmit" disabled={pending} type="submit">{pending ? copy.mfa.starting : copy.mfa.enable}</button>
         </form>
       )}
     </section>
