@@ -1,7 +1,6 @@
 import { expect, request, test } from "@playwright/test";
 import { schema } from "../../packages/db/src/index";
 import {
-  closeSecurityDatabase,
   createSecurityTenant,
   destroySecurityTenant,
   securityDb,
@@ -65,7 +64,6 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
   test.afterAll(async () => {
     if (tenantB) await destroySecurityTenant(tenantB);
     if (tenantA) await destroySecurityTenant(tenantA);
-    await closeSecurityDatabase();
   });
 
   test("Organization A cannot read Organization B campaign", async () => {
