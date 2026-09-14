@@ -48,6 +48,18 @@ function normalizeBindings(value: unknown): CampaignVariableBinding[] {
     .sort((a, b) => a.index - b.index);
 }
 
+function bindingConfigurationError(bindings: CampaignVariableBinding[]): string | null {
+  for (const binding of bindings) {
+    if (binding.source === "display_name" && !binding.fallback?.trim()) {
+      return `Template variable {{${binding.index}}} needs an explicit contact-name fallback`;
+    }
+    if (binding.source === "literal" && !binding.value?.trim()) {
+      return `Template variable {{${binding.index}}} needs a literal value`;
+    }
+  }
+  return null;
+}
+
 function resolveComponents(
   bindings: CampaignVariableBinding[],
   recipient: { displayName: string | null; phoneE164: string },
@@ -57,11 +69,16 @@ function resolveComponents(
   const parameters = bindings.map((binding) => {
     let text: string;
     if (binding.source === "display_name") {
-      text = recipient.displayName?.trim() || binding.fallback?.trim() || "there";
+      const displayName = recipient.displayName?.trim();
+      const fallback = binding.fallback?.trim();
+      if (!displayName && !fallback) throw new Error(`Template variable {{${binding.index}}} has no contact-name value`);
+      text = displayName || fallback!;
     } else if (binding.source === "phone_e164") {
       text = recipient.phoneE164;
     } else {
-      text = binding.value?.trim() || "-";
+      const value = binding.value?.trim();
+      if (!value) throw new Error(`Template variable {{${binding.index}}} has no literal value`);
+      text = value;
     }
     return { type: "text" as const, text };
   });
@@ -251,6 +268,16 @@ export function startCampaignWorkers(input: {
       return { terminal: "failed", reason: "phone-or-template-not-sendable" };
     }
 
+    const bindings = normalizeBindings(record.templateBindings);
+    const bindingError = bindingConfigurationError(bindings);
+    if (bindingError) {
+      await db
+        .update(schema.campaigns)
+        .set({ status: "failed", updatedAt: new Date() })
+        .where(eq(schema.campaigns.id, record.campaignId));
+      return { terminal: "failed", reason: "invalid-template-bindings", error: bindingError };
+    }
+
     if (!record.snapshotCreatedAt) {
       const audienceDefinition = normalizeAudienceDefinition(record.audienceDefinition ?? { type: "all" });
       const audiencePredicate = buildEligibleAudiencePredicate(audienceDefinition, record.organizationId);
@@ -309,7 +336,6 @@ export function startCampaignWorkers(input: {
         .where(eq(schema.campaigns.id, record.campaignId));
     }
 
-    const bindings = normalizeBindings(record.templateBindings);
     const targetBacklog = Math.max(
       DISPATCH_BATCH_SIZE,
       Math.min(MAX_CAMPAIGN_BACKLOG, Math.max(1, record.throughputMps) * QUEUE_RUNWAY_SECONDS),
