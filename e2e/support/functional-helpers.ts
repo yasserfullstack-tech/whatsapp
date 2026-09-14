@@ -69,13 +69,10 @@ export async function createTenant(label: string, role: WorkspaceRole = "owner")
   const api = await request.newContext({ baseURL, extraHTTPHeaders: { cookie } });
   await authApi.dispose();
 
-  const bootstrap = await api.post("/api/audiences/segments", {
-    data: {
-      name: `bootstrap-${id}`,
-      definition: { match: "all", filters: [{ field: "phone_e164", operator: "starts_with", value: "+" }] },
-    },
-  });
-  expect(bootstrap.status(), `workspace bootstrap failed: ${await bootstrap.text()}`).toBe(201);
+  // Exercise the real authenticated page boundary to create the application user/workspace.
+  // This keeps a brand-new tenant genuinely empty instead of persisting a throwaway segment.
+  const bootstrap = await api.get("/dashboard");
+  expect(bootstrap.status(), `workspace bootstrap failed: ${await bootstrap.text()}`).toBe(200);
 
   const rows = await database.client`
     SELECT u.id AS "appUserId", om.organization_id AS "organizationId", o.slug AS "organizationSlug"
@@ -128,131 +125,110 @@ export async function useTenantSession(context: BrowserContext, tenant: Function
 }
 
 export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<PopulatedResources> {
-  const id = randomUUID().replaceAll("-", "");
-  const credentialKey = `e2e/${tenant.organizationId}/${id}`;
-  const encryptionKey = process.env.CREDENTIAL_ENCRYPTION_KEY;
-  if (!encryptionKey) throw new Error("CREDENTIAL_ENCRYPTION_KEY is required for E2E");
-  const encrypted = encryptSecret("e2e-meta-token", encryptionKey);
+  const credentialId = randomUUID();
+  const phoneId = randomUUID();
+  const templateId = randomUUID();
+  const contactId = randomUUID();
+  const secondContactId = randomUUID();
+  const campaignId = randomUUID();
+  const wabaId = `waba-${tenant.organizationId.slice(0, 8)}`;
+  const phoneNumberId = `phone-${tenant.organizationId.slice(0, 8)}`;
+  const encrypted = encryptSecret("e2e-meta-token", process.env.CREDENTIAL_ENCRYPTION_KEY!);
+  const now = new Date();
 
   await functionalDb.insert(schema.credentialSecrets).values({
+    id: credentialId,
     organizationId: tenant.organizationId,
-    key: credentialKey,
-    ...encrypted,
+    name: "meta_access_token",
+    encryptedValue: encrypted.ciphertext,
+    iv: encrypted.iv,
+    authTag: encrypted.authTag,
+    keyVersion: encrypted.keyVersion,
   });
-
-  const [phone] = await functionalDb.insert(schema.whatsappPhoneNumbers).values({
+  await functionalDb.insert(schema.whatsappPhoneNumbers).values({
+    id: phoneId,
     organizationId: tenant.organizationId,
-    wabaId: `waba-${id}`,
-    phoneNumberId: `phone-${id}`,
+    wabaId,
+    phoneNumberId,
     displayPhoneNumber: "+15550102030",
-    verifiedName: "E2E Business",
+    verifiedName: "E2E Number",
     status: "connected",
     qualityRating: "GREEN",
     throughputMps: 80,
-    credentialKey,
-  }).returning({ id: schema.whatsappPhoneNumbers.id, wabaId: schema.whatsappPhoneNumbers.wabaId, phoneNumberId: schema.whatsappPhoneNumbers.phoneNumberId });
-  if (!phone) throw new Error("Could not seed phone number");
-
-  const [template] = await functionalDb.insert(schema.templates).values({
+    credentialSecretId: credentialId,
+  });
+  await functionalDb.insert(schema.templates).values({
+    id: templateId,
     organizationId: tenant.organizationId,
-    wabaId: phone.wabaId,
-    metaTemplateId: `template-${id}`,
-    name: `e2e_template_${id.slice(0, 12)}`,
+    wabaId,
+    metaTemplateId: `meta-template-${templateId.slice(0, 8)}`,
+    name: "e2e_approved_template",
     language: "en_US",
-    category: "marketing",
     status: "approved",
-    metaStatus: "APPROVED",
-    bodyPreview: "Hello from E2E",
+    category: "MARKETING",
+    bodyText: "Hello from E2E",
     components: [{ type: "BODY", text: "Hello from E2E" }],
-  }).returning({ id: schema.templates.id });
-  if (!template) throw new Error("Could not seed template");
-
-  const contacts = await functionalDb.insert(schema.contacts).values([
-    { organizationId: tenant.organizationId, phoneE164: `+1555${id.slice(0, 7).replace(/[a-f]/g, "1")}`, displayName: "Alpha E2E Contact", optedIn: true, optInSource: "e2e", optInAt: new Date() },
-    { organizationId: tenant.organizationId, phoneE164: `+1666${id.slice(7, 14).replace(/[a-f]/g, "2")}`, displayName: "Beta E2E Contact", optedIn: true, optInSource: "e2e", optInAt: new Date() },
-  ]).returning({ id: schema.contacts.id });
-  if (contacts.length !== 2) throw new Error("Could not seed contacts");
-
-  const [campaign] = await functionalDb.insert(schema.campaigns).values({
+    variableIndexes: [],
+    syncedAt: now,
+  });
+  await functionalDb.insert(schema.contacts).values([
+    { id: contactId, organizationId: tenant.organizationId, phoneE164: "+15550100001", displayName: "Alpha E2E", optedIn: true, optInSource: "e2e" },
+    { id: secondContactId, organizationId: tenant.organizationId, phoneE164: "+15550100002", displayName: "Beta E2E", optedIn: true, optInSource: "e2e" },
+  ]);
+  await functionalDb.insert(schema.campaigns).values({
+    id: campaignId,
     organizationId: tenant.organizationId,
-    whatsappPhoneNumberId: phone.id,
-    templateId: template.id,
-    name: `E2E seeded campaign ${id.slice(0, 8)}`,
-    status: "sending",
+    name: "Seeded E2E campaign",
+    whatsappPhoneNumberId: phoneId,
+    templateId,
+    status: "draft",
     recipientCount: 0,
-  }).returning({ id: schema.campaigns.id });
-  if (!campaign) throw new Error("Could not seed campaign");
-
-  return {
-    phoneId: phone.id,
-    phoneNumberId: phone.phoneNumberId,
-    wabaId: phone.wabaId,
-    templateId: template.id,
-    contactId: contacts[0]!.id,
-    secondContactId: contacts[1]!.id,
-    campaignId: campaign.id,
-  };
+  });
+  return { phoneId, phoneNumberId, wabaId, templateId, contactId, secondContactId, campaignId };
 }
 
 export async function grantPlatformAdmin(tenant: FunctionalTenant) {
-  await functionalDb.insert(schema.platformAdminGrants).values({ authUserId: tenant.authUserId, source: "e2e" })
-    .onConflictDoUpdate({ target: schema.platformAdminGrants.authUserId, set: { revokedAt: null, updatedAt: new Date() } });
+  await functionalDb.insert(schema.platformAdminGrants).values({ userId: tenant.appUserId, grantedByUserId: tenant.appUserId, reason: "E2E platform admin" });
 }
 
-export async function suspendWorkspace(tenant: FunctionalTenant, suspended: boolean) {
-  await functionalDb.insert(schema.organizationAdminSettings).values({
-    organizationId: tenant.organizationId,
-    status: suspended ? "suspended" : "active",
-    suspendedAt: suspended ? new Date() : null,
-    suspendedReason: suspended ? "E2E suspension" : null,
-  }).onConflictDoUpdate({
-    target: schema.organizationAdminSettings.organizationId,
-    set: { status: suspended ? "suspended" : "active", suspendedAt: suspended ? new Date() : null, suspendedReason: suspended ? "E2E suspension" : null, updatedAt: new Date() },
-  });
+export async function disableUser(tenant: FunctionalTenant, disabled = true) {
+  await functionalDb.insert(schema.platformUserControls).values({ userId: tenant.appUserId, disabledAt: disabled ? new Date() : null, disabledReason: disabled ? "E2E disabled" : null })
+    .onConflictDoUpdate({ target: schema.platformUserControls.userId, set: { disabledAt: disabled ? new Date() : null, disabledReason: disabled ? "E2E disabled" : null, updatedAt: new Date() } });
 }
 
-export async function disableUser(tenant: FunctionalTenant, disabled: boolean) {
-  await functionalDb.insert(schema.platformUserControls).values({
-    userId: tenant.appUserId,
-    disabled,
-    disabledAt: disabled ? new Date() : null,
-    disabledReason: disabled ? "E2E disabled account" : null,
-  }).onConflictDoUpdate({
-    target: schema.platformUserControls.userId,
-    set: { disabled, disabledAt: disabled ? new Date() : null, disabledReason: disabled ? "E2E disabled account" : null, updatedAt: new Date() },
-  });
+export async function suspendWorkspace(tenant: FunctionalTenant, suspended = true) {
+  await functionalDb.insert(schema.organizationAdminSettings).values({ organizationId: tenant.organizationId, status: suspended ? "suspended" : "active", suspendedAt: suspended ? new Date() : null, suspendedReason: suspended ? "E2E suspended" : null })
+    .onConflictDoUpdate({ target: schema.organizationAdminSettings.organizationId, set: { status: suspended ? "suspended" : "active", suspendedAt: suspended ? new Date() : null, suspendedReason: suspended ? "E2E suspended" : null, updatedAt: new Date() } });
 }
 
-export async function capturedEmailUrl(email: string, subject: string): Promise<string> {
-  const captureFile = process.env.AUTH_EMAIL_CAPTURE_FILE;
-  if (!captureFile) throw new Error("AUTH_EMAIL_CAPTURE_FILE is required for E2E");
-  let captured: string | undefined;
+export async function destroyTenant(tenant: FunctionalTenant) {
+  await functionalDb.delete(schema.platformAdminGrants).where(eq(schema.platformAdminGrants.userId, tenant.appUserId));
+  await functionalDb.delete(schema.platformUserControls).where(eq(schema.platformUserControls.userId, tenant.appUserId));
+  await functionalDb.delete(schema.organizations).where(eq(schema.organizations.id, tenant.organizationId));
+  await functionalDb.delete(schema.users).where(eq(schema.users.id, tenant.appUserId));
+  await functionalSql`DELETE FROM auth_user WHERE id = ${tenant.authUserId}`;
+  await tenant.api.dispose();
+}
+
+export async function destroyUnverified(authUserId?: string) {
+  if (authUserId) await functionalSql`DELETE FROM auth_user WHERE id = ${authUserId}`;
+}
+
+export async function capturedEmailUrl(email: string, subject: string) {
+  const file = process.env.AUTH_EMAIL_CAPTURE_FILE;
+  if (!file) throw new Error("AUTH_EMAIL_CAPTURE_FILE is required");
+  let url: string | undefined;
   await expect.poll(async () => {
     try {
-      const content = await readFile(captureFile, "utf8");
+      const content = await readFile(file, "utf8");
       const messages = content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { to?: string; subject?: string; text?: string });
       const message = messages.findLast((entry) => entry.to === email && entry.subject === subject);
-      captured = message?.text?.match(/https?:\/\/\S+/)?.[0];
-      return Boolean(captured);
+      url = message?.text?.match(/https?:\/\/\S+/)?.[0];
+      return Boolean(url);
     } catch {
       return false;
     }
   }, { timeout: 10_000 }).toBe(true);
-  if (!captured) throw new Error(`Email ${subject} was not captured for ${email}`);
-  return captured;
-}
-
-export async function destroyTenant(tenant: FunctionalTenant) {
-  await tenant.api.dispose();
-  await database.client`DELETE FROM organizations WHERE id = ${tenant.organizationId}`;
-  await database.client`DELETE FROM users WHERE id = ${tenant.appUserId}`;
-  await database.client`DELETE FROM auth_user WHERE id = ${tenant.authUserId}`;
-}
-
-export async function destroyUnverified(authUserId: string | undefined) {
-  if (authUserId) await database.client`DELETE FROM auth_user WHERE id = ${authUserId}`;
-}
-
-export async function closeFunctionalDatabase() {
-  await database.client.end({ timeout: 5 });
+  if (!url) throw new Error(`Email URL not captured for ${email} / ${subject}`);
+  return url;
 }
