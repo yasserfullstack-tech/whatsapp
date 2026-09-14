@@ -24,10 +24,15 @@ function attributeValue(attributes: string, name: string): string | null {
   return match?.[1] ? decodeHtmlAttribute(match[1]) : null;
 }
 
-function extractUserAdminAction(html: string, userId: string): Record<string, string> {
+function extractActionForm(
+  html: string,
+  fieldName: string,
+  fieldValue: string,
+  buttonText: string,
+): Record<string, string> {
   for (const match of html.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/gi)) {
     const body = match[1] ?? "";
-    if (!body.includes(`name="userId"`) || !body.includes(`value="${userId}"`) || !body.includes("Disable user")) continue;
+    if (!body.includes(`name="${fieldName}"`) || !body.includes(`value="${fieldValue}"`) || !body.includes(buttonText)) continue;
     const multipart: Record<string, string> = {};
     for (const input of body.matchAll(/<input\b([^>]*)>/gi)) {
       const attributes = input[1] ?? "";
@@ -35,10 +40,9 @@ function extractUserAdminAction(html: string, userId: string): Record<string, st
       if (!name) continue;
       multipart[name] = attributeValue(attributes, "value") ?? "";
     }
-    multipart.reason = "forged non-admin mutation";
     return multipart;
   }
-  throw new Error("Could not find rendered platform-admin user action form");
+  throw new Error(`Could not find rendered platform-admin ${buttonText} form`);
 }
 
 test.describe.serial("platform administrator authorization", () => {
@@ -67,11 +71,12 @@ test.describe.serial("platform administrator authorization", () => {
     expect([302, 303, 307, 308]).toContain(attackerResponse.status());
   });
 
-  test("a normal workspace user cannot replay a valid admin mutation action", async () => {
+  test("a normal workspace user cannot replay a valid admin user mutation action", async () => {
     const rendered = await admin.api.get("/admin/users");
     const html = await rendered.text();
     expect(rendered.status(), html).toBe(200);
-    const multipart = extractUserAdminAction(html, attacker.appUserId);
+    const multipart = extractActionForm(html, "userId", attacker.appUserId, "Disable user");
+    multipart.reason = "forged non-admin mutation";
 
     const forged = await attacker.api.post("/admin/users", {
       multipart,
@@ -91,6 +96,35 @@ test.describe.serial("platform administrator authorization", () => {
       LIMIT 1
     ` as unknown as Array<{ disabled: boolean }>;
     expect(controls[0]?.disabled ?? false).toBe(false);
+  });
+
+  test("a normal workspace owner cannot replay a valid organization suspension action", async () => {
+    const pagePath = `/admin/organizations/${admin.organizationId}`;
+    const rendered = await admin.api.get(pagePath);
+    const html = await rendered.text();
+    expect(rendered.status(), html).toBe(200);
+    const multipart = extractActionForm(html, "organizationId", admin.organizationId, "Suspend organization");
+    multipart.reason = "forged workspace-owner suspension";
+
+    const forged = await attacker.api.post(pagePath, {
+      multipart,
+      headers: {
+        origin: SECURITY_BASE_URL,
+        referer: `${SECURITY_BASE_URL}${pagePath}`,
+        "sec-fetch-site": "same-origin",
+      },
+      maxRedirects: 0,
+    });
+    expect([200, 201, 202, 204]).not.toContain(forged.status());
+
+    const settings = await securitySql`
+      SELECT status, suspended_reason AS "suspendedReason"
+      FROM organization_admin_settings
+      WHERE organization_id = ${admin.organizationId}::uuid
+      LIMIT 1
+    ` as unknown as Array<{ status: string; suspendedReason: string | null }>;
+    expect(settings[0]?.status ?? "active").not.toBe("suspended");
+    expect(settings[0]?.suspendedReason ?? "").not.toContain("forged workspace-owner suspension");
   });
 
   test("disabled accounts cannot retain platform administrator access", async () => {
