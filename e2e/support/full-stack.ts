@@ -41,7 +41,7 @@ const storageServer = Bun.serve({
       const prefix = url.searchParams.get("prefix") ?? "";
       const matches = [...objects.entries()].filter(([key]) => key.startsWith(prefix));
       const contents = matches.map(([key, value]) => `<Contents><Key>${xml(key)}</Key><LastModified>${new Date().toISOString()}</LastModified><ETag>\"${value.etag}\"</ETag><Size>${value.body.byteLength}</Size><StorageClass>STANDARD</StorageClass></Contents>`).join("");
-      const body = `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-instance/"><Name>${xml(bucket)}</Name><Prefix>${xml(prefix)}</Prefix><KeyCount>${matches.length}</KeyCount><MaxKeys>500</MaxKeys><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`;
+      const body = `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>${xml(bucket)}</Name><Prefix>${xml(prefix)}</Prefix><KeyCount>${matches.length}</KeyCount><MaxKeys>500</MaxKeys><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`;
       return new Response(body, { headers: { ...corsHeaders, "content-type": "application/xml" } });
     }
 
