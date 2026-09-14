@@ -11,6 +11,7 @@ import { sendAuthEmail } from "./auth-email";
 import { requireAuthContext } from "./auth-context";
 import { db } from "./server";
 import { can, type WorkspaceAction } from "./workspace-access";
+import { transferWorkspaceOwnershipAtomic } from "./workspace-ownership";
 import { WORKSPACE_COOKIE } from "./workspace";
 
 const editableRole = z.enum(["admin", "member", "viewer"]);
@@ -334,36 +335,10 @@ export async function transferWorkspaceOwnershipAction(formData: FormData) {
   requirePermission(workspace.role, "team.transferOwnership");
   const membershipId = uuid.parse(formData.get("membershipId"));
 
-  const target = (
-    await db
-      .select({ id: schema.organizationMembers.id, userId: schema.organizationMembers.userId, role: schema.organizationMembers.role })
-      .from(schema.organizationMembers)
-      .where(and(
-        eq(schema.organizationMembers.id, membershipId),
-        eq(schema.organizationMembers.organizationId, workspace.organizationId),
-      ))
-      .limit(1)
-  )[0];
-  if (!target) throw new Error("Member not found");
-  if (target.userId === workspace.userId) throw new Error("You already own this workspace");
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(schema.organizationMembers)
-      .set({ role: "admin" })
-      .where(and(
-        eq(schema.organizationMembers.organizationId, workspace.organizationId),
-        eq(schema.organizationMembers.userId, workspace.userId),
-      ));
-    await tx.update(schema.organizationMembers).set({ role: "owner" }).where(eq(schema.organizationMembers.id, target.id));
-    await tx.insert(schema.workspaceAuditLogs).values({
-      organizationId: workspace.organizationId,
-      actorUserId: workspace.userId,
-      action: "workspace.ownership.transferred",
-      targetType: "user",
-      targetId: target.userId,
-      metadata: { previousRole: target.role },
-    });
+  await transferWorkspaceOwnershipAtomic(db, {
+    organizationId: workspace.organizationId,
+    actorUserId: workspace.userId,
+    targetMembershipId: membershipId,
   });
   revalidatePath("/settings/team");
 }
