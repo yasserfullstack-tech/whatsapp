@@ -42,6 +42,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
   const total = totalRows[0]?.total ?? 0;
   const suppressions = suppressionRows[0]?.total ?? 0;
   const eventCount = eventCountRows[0]?.total ?? 0;
+  const managerKey = `${initialAction?.mode ?? "none"}:${initialAction?.contactId ?? ""}:${query}:${status}`;
 
   return <main className="shell">
     <AppSidebar active="contacts" workspaceName={workspace.organizationName} email={session.user.email} initials={initials} />
@@ -61,6 +62,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
         </form><p className="subtitle">{messages.ui.showingContacts}</p>
       </section>
       <ContactSuppressionManager
+        key={managerKey}
         initialAction={initialAction}
         filterQuery={query}
         filterStatus={status}
