@@ -185,18 +185,13 @@ export function ContactSuppressionManager({
     <div className="contactRows">{rows.length ? rows.map((contact) => {
       const eligible = contact.optedIn && !contact.unsubscribedAt && !contact.suppressedAt;
       const status = contact.suppressedAt ? messages.ui.suppressed : eligible ? messages.ui.eligible : messages.ui.needsConsent;
+      const resubscribeHref = `/contacts?q=${encodeURIComponent(filterQuery)}&status=${encodeURIComponent(filterStatus)}&contactAction=resubscribe&contactId=${encodeURIComponent(contact.id)}`;
       return <article className="contactRow" key={contact.id}>
         <div className="contactIdentity"><strong>{contact.displayName ?? messages.ui.unnamedContact}</strong><span dir="ltr">{contact.phoneE164}</span><small>{contact.optInSource ? format(messages.ui.consentLabel, { source: contact.optInSource }) : messages.ui.noConsentSource}</small></div>
         <div className="contactState"><span className={eligible ? "eligibilityBadge eligible" : contact.suppressedAt ? "eligibilityBadge suppressed" : "eligibilityBadge"}>{status}</span>{contact.suppressedAt ? <small>{contact.suppressionReason ?? messages.ui.suppressed} · {dateTime(contact.suppressedAt)}</small> : contact.unsubscribedAt ? <small>{format(messages.ui.optedOutAt, { date: dateTime(contact.unsubscribedAt) })}</small> : null}</div>
         <div className="contactActions">
           {canSuppress && !contact.suppressedAt ? <button className="secondary" disabled={!hydrated || busy} onClick={() => openSuppress(contact)} type="button">{messages.ui.suppress}</button> : null}
-          {canResubscribe && !eligible ? <form action="/contacts" method="get">
-            {filterQuery ? <input name="q" type="hidden" value={filterQuery} /> : null}
-            <input name="status" type="hidden" value={filterStatus} />
-            <input name="contactAction" type="hidden" value="resubscribe" />
-            <input name="contactId" type="hidden" value={contact.id} />
-            <button className="textButton" disabled={busy} type="submit">{messages.ui.recordNewConsent}</button>
-          </form> : null}
+          {canResubscribe && !eligible ? <a className="textButton" href={resubscribeHref}>{messages.ui.recordNewConsent}</a> : null}
         </div>
       </article>;
     }) : <div className="emptyState"><div className="emptyIcon">C</div><h3>{messages.ui.noContactsMatch}</h3><p>{messages.ui.noContactsMatchDescription}</p></div>}</div>
