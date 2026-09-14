@@ -230,6 +230,7 @@ test.describe("product workflows", () => {
       await page.reload();
       await expect(page.locator('input[name^="email:"]:not(:disabled)').first()).not.toBeChecked();
 
+      const notificationBaseTime = Date.now();
       const notifications = await functionalDb.insert(schema.notifications).values(Array.from({ length: 21 }, (_, index) => ({
         organizationId: owner.organizationId,
         userId: owner.appUserId,
@@ -238,6 +239,7 @@ test.describe("product workflows", () => {
         message: `Notification pagination row ${index + 1}`,
         dedupeKey: `e2e-${randomUUID()}-${index}`,
         link: "/campaigns",
+        createdAt: new Date(notificationBaseTime + index * 1_000),
       }))).returning({ id: schema.notifications.id });
       await functionalDb.insert(schema.notificationDeliveries).values(notifications.map((notification) => ({
         notificationId: notification.id,

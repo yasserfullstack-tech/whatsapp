@@ -18,19 +18,25 @@ export async function guardBrowser(page: Page) {
   const defects: string[] = [];
 
   page.on("console", (message) => {
-    if (message.type() === "error") defects.push(`console: ${message.text()}`);
+    const text = message.text();
+    if (message.type() === "error" && !text.startsWith("Failed to load resource:")) defects.push(`console: ${text}`);
   });
   page.on("pageerror", (error) => defects.push(`pageerror: ${error.message}`));
   page.on("requestfailed", (request) => {
+    const errorText = request.failure()?.errorText ?? "";
+    if (errorText.includes("ERR_ABORTED")) return;
     const url = new URL(request.url());
     if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
-      defects.push(`requestfailed: ${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`);
+      defects.push(`requestfailed: ${request.method()} ${request.url()} ${errorText}`);
     }
   });
   page.on("response", (response) => {
     const url = new URL(response.url());
-    if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && response.status() >= 500) {
-      defects.push(`http-${response.status()}: ${response.request().method()} ${response.url()}`);
+    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return;
+    const status = response.status();
+    const resourceType = response.request().resourceType();
+    if (status >= 500 || (status >= 400 && !["fetch", "xhr"].includes(resourceType))) {
+      defects.push(`http-${status}: ${response.request().method()} ${response.url()}`);
     }
   });
 

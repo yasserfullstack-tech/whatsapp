@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
@@ -154,7 +155,10 @@ function spawn(command: string[], cwd = root) {
   return Bun.spawn(command, { cwd, env: childEnv, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
 }
 
-const web = spawn(["node", "--require", preload, resolve(root, "node_modules/next/dist/bin/next"), "start"], resolve(root, "apps/web"));
+const webDir = resolve(root, "apps/web");
+const webRequire = createRequire(resolve(webDir, "package.json"));
+const nextBin = webRequire.resolve("next/dist/bin/next");
+const web = spawn(["node", "--require", preload, nextBin, "start"], webDir);
 const api = spawn(["bun", "--preload", preload, resolve(root, "apps/api/src/index.ts")]);
 const worker = spawn(["bun", "--preload", preload, resolve(root, "apps/worker/src/entry.ts")]);
 const children = [web, api, worker];
