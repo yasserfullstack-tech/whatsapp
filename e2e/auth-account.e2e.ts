@@ -74,7 +74,7 @@ test.describe("authentication and account security workflows", () => {
       await page.getByLabel("Password").fill(password);
       await page.getByRole("button", { name: "Sign in" }).click();
       await expect(page).toHaveURL(/\/dashboard$/);
-      await expect(page.getByRole("heading", { name: /overview|dashboard/i })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Browser Signup E2E's Workspace" })).toBeVisible();
 
       await page.getByRole("button", { name: /sign out/i }).click();
       await expect(page).toHaveURL(/\/sign-in(?:\?|$)/);
