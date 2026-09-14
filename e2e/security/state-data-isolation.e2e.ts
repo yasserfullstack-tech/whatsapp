@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, request, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
 import { schema } from "../../packages/db/src/index";
 import {
   SECURITY_BASE_URL,
@@ -10,12 +11,6 @@ import {
   setSecurityTenantRole,
   type SecurityTenant,
 } from "./security-helpers";
-
-function setCookieHeaders(response: Awaited<ReturnType<ReturnType<typeof request.newContext> extends Promise<infer T> ? T extends { post: infer P } ? P : never : never>>): string[] {
-  return response.headersArray()
-    .filter(({ name }) => name.toLowerCase() === "set-cookie")
-    .map(({ value }) => value);
-}
 
 test.describe.serial("account state, billing, and data isolation", () => {
   let tenantA: SecurityTenant;
@@ -68,7 +63,7 @@ test.describe.serial("account state, billing, and data isolation", () => {
     `;
     await securitySql`
       INSERT INTO plans (id, organization_id, code, name, is_custom)
-      VALUES (${planId}::uuid, ${tenantB.organizationId}::uuid, ${`security-${randomUUID()}`} , ${billingSentinel}, true)
+      VALUES (${planId}::uuid, ${tenantB.organizationId}::uuid, ${`security-${randomUUID()}`}, ${billingSentinel}, true)
     `;
     await securitySql`
       INSERT INTO plan_versions (id, plan_id, version, interval, currency, price_minor)
@@ -204,7 +199,7 @@ test.describe.serial("account state, billing, and data isolation", () => {
     } finally {
       await securityDb.update(schema.platformUserControls)
         .set({ disabled: false, disabledAt: null, disabledReason: null })
-        .where((await import("drizzle-orm")).eq(schema.platformUserControls.userId, tenantA.appUserId));
+        .where(eq(schema.platformUserControls.userId, tenantA.appUserId));
     }
   });
 
@@ -225,7 +220,7 @@ test.describe.serial("account state, billing, and data isolation", () => {
     } finally {
       await securityDb.update(schema.organizationAdminSettings)
         .set({ status: "active", suspendedAt: null, suspendedReason: null })
-        .where((await import("drizzle-orm")).eq(schema.organizationAdminSettings.organizationId, tenantA.organizationId));
+        .where(eq(schema.organizationAdminSettings.organizationId, tenantA.organizationId));
     }
   });
 
