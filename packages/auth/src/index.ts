@@ -17,6 +17,7 @@ type CreateAppAuthInput = {
   secret: string;
   trustedOrigins?: string[];
   secureCookies?: boolean;
+  secureCookiePrefix?: boolean;
   secondaryStorage?: SecondaryStorage;
   signInRateLimitMax?: number | undefined;
   signUpRateLimitMax?: number | undefined;
@@ -31,6 +32,7 @@ function dispatchEmail(input: CreateAppAuthInput, message: AuthEmailMessage) {
 
 export function createAppAuth(input: CreateAppAuthInput) {
   const secureCookies = input.secureCookies ?? false;
+  const secureCookiePrefix = input.secureCookiePrefix ?? secureCookies;
 
   return betterAuth({
     appName: "WhatsApp Campaigns",
@@ -68,7 +70,7 @@ export function createAppAuth(input: CreateAppAuthInput) {
       }),
     ],
     advanced: {
-      useSecureCookies: secureCookies,
+      useSecureCookies: secureCookiePrefix,
       disableCSRFCheck: false,
       disableOriginCheck: false,
       defaultCookieAttributes: {

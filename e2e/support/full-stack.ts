@@ -144,6 +144,7 @@ const childEnv = {
   NODE_ENV: "production",
   HOSTNAME: "127.0.0.1",
   PORT: "3000",
+  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? "https://app.e2e.test",
   E2E_META_BASE_URL: `http://127.0.0.1:${metaPort}`,
   E2E_BLOCK_EXTERNAL: "1",
   R2_ENDPOINT: `http://127.0.0.1:${storagePort}`,
@@ -153,8 +154,8 @@ const childEnv = {
   R2_BUCKET: bucket,
 };
 
-function spawn(command: string[], cwd = root) {
-  return Bun.spawn(command, { cwd, env: childEnv, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
+function spawn(command: string[], cwd = root, env: Record<string, string | undefined> = {}) {
+  return Bun.spawn(command, { cwd, env: { ...childEnv, ...env }, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
 }
 
 const webDir = resolve(root, "apps/web");
@@ -180,8 +181,8 @@ if (existsSync(sourcePublic)) {
 }
 
 const web = spawn(["node", "--require", preload, standaloneServer], standaloneWebDir);
-const api = spawn(["bun", "--preload", preload, resolve(root, "apps/api/src/index.ts")]);
-const worker = spawn(["bun", "--preload", preload, resolve(root, "apps/worker/src/entry.ts")]);
+const api = spawn(["bun", "--preload", preload, resolve(root, "apps/api/src/index.ts")], root, { NODE_ENV: "test" });
+const worker = spawn(["bun", "--preload", preload, resolve(root, "apps/worker/src/entry.ts")], root, { NODE_ENV: "test" });
 const children = [web, api, worker];
 
 let closing = false;

@@ -35,6 +35,15 @@ async function capturedInvitationUrl(email: string) {
   return url;
 }
 
+async function submitServerAction(page: import("@playwright/test").Page, route: string, click: () => Promise<void>) {
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname === route,
+  );
+  await click();
+  const response = await responsePromise;
+  expect(response.ok(), `server action ${route} failed with ${response.status()}`).toBeTruthy();
+}
+
 test.describe("product workflows", () => {
   test.beforeEach(({}, testInfo) => test.skip(desktopOnly(testInfo.project.name), "deep product workflows run once on desktop Chromium"));
 
@@ -43,18 +52,21 @@ test.describe("product workflows", () => {
     try {
       await useTenantSession(context, tenant);
       const health = await guardBrowser(page);
-      await page.goto("/contacts");
+      await page.goto("/dashboard#contacts");
 
-      const csv = "phone,name\n+15551234567,Imported E2E Contact\n+15557654321,Second Imported Contact\n";
+      const csv = "phone,name\n+14155552671,Imported E2E Contact\n+12025550123,Second Imported Contact\n";
       await page.locator('input[type="file"]').setInputFiles({ name: "contacts-e2e.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
       const country = page.getByLabel("Country");
       if (await country.count()) await country.fill("US");
       await page.locator(".confirmationRow input[type=checkbox]").check();
       await page.getByRole("button", { name: /upload.*import/i }).click();
-      const importRow = page.locator(".numberRow").filter({ hasText: "contacts-e2e.csv" });
-      await expect(importRow).toContainText("completed", { timeout: 30_000 });
-      await expect(importRow).toContainText(/2 new contacts|2/i);
+      await expect.poll(async () => {
+        const imports = await functionalDb.select().from(schema.contactImports).where(eq(schema.contactImports.organizationId, tenant.organizationId));
+        const current = imports.find((row) => row.originalFileName === "contacts-e2e.csv");
+        return current ? `${current.status}:${current.importedRows}` : "missing";
+      }, { timeout: 30_000, intervals: [500, 1000, 1500] }).toBe("completed:2");
 
+      await page.goto("/contacts");
       await page.locator('input[name="q"]').fill("Imported E2E");
       await page.getByRole("button", { name: /apply filters/i }).click();
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
@@ -69,14 +81,19 @@ test.describe("product workflows", () => {
 
       await page.locator('select[name="status"]').selectOption("suppressed");
       await page.getByRole("button", { name: /apply filters/i }).click();
+      await expect(page).toHaveURL(/status=suppressed/);
+      await page.reload();
       row = page.locator(".contactRow").filter({ hasText: "Imported E2E Contact" });
       await expect(row).toBeVisible();
-      await row.getByRole("button", { name: "Record new consent" }).click();
+      const recordConsent = row.getByRole("button", { name: "Record new consent" });
+      await recordConsent.click();
+      await expect(recordConsent).toHaveAttribute("aria-expanded", "true");
+      await expect(page.getByRole("button", { name: "Restore marketing eligibility" })).toBeVisible();
       await page.locator('input[name="consentSource"]').fill("E2E signed web form");
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
       await page.locator('input[name="confirmation"]').check();
-      await page.getByRole("button", { name: "Restore eligibility" }).click();
-      await expect(page.getByText(/restored/i)).toBeVisible();
+      await page.getByRole("button", { name: "Restore marketing eligibility" }).click();
+      await expect(page.getByText(/eligible for future campaigns using the recorded new consent/i)).toBeVisible();
       await page.goto("/contacts?q=Imported+E2E&status=eligible");
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
       await health.expectHealthy();
@@ -98,7 +115,7 @@ test.describe("product workflows", () => {
       await filterRow.locator("select").first().selectOption("display_name");
       await filterRow.locator("input").fill("Alpha E2E");
       await page.getByRole("button", { name: "Preview audience" }).click();
-      await expect(page.getByText(/eligible contacts/i)).toContainText("1");
+      await expect(page.getByText("1 eligible contacts", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Save segment" }).click();
       await expect(page.getByText(/segment saved/i)).toBeVisible();
       await page.reload();
@@ -126,9 +143,12 @@ test.describe("product workflows", () => {
       const connect = page.getByRole("button", { name: /connect whatsapp/i });
       await expect(connect).toBeEnabled();
       await connect.click();
-      await expect(page.getByText(/connected/i).first()).toBeVisible({ timeout: 15_000 });
+      await expect.poll(async () => {
+        const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
+        return rows.find((row) => row.phoneNumberId === "e2e-phone")?.verifiedName ?? null;
+      }, { timeout: 15_000, intervals: [250, 500, 1000] }).toBe("E2E WhatsApp");
       await page.reload();
-      await expect(page.getByText("E2E WhatsApp", { exact: false })).toBeVisible();
+      await expect(page.getByText("E2E WhatsApp", { exact: true })).toBeVisible();
       const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
       expect(rows).toHaveLength(1);
       expect(rows[0]?.phoneNumberId).toBe("e2e-phone");
@@ -142,6 +162,7 @@ test.describe("product workflows", () => {
     const tenant = await createTenant("campaign-workflow");
     try {
       const seeded = await seedPopulatedWorkspace(tenant);
+      await functionalDb.update(schema.templates).set({ bodyPreview: "Hello from E2E" }).where(eq(schema.templates.id, seeded.templateId));
       const [holdContact] = await functionalDb.select().from(schema.contacts).where(eq(schema.contacts.id, seeded.contactId)).limit(1);
       if (!holdContact) throw new Error("control contact was not seeded");
       await functionalDb.update(schema.campaigns).set({ status: "paused", recipientCount: 1, snapshotCreatedAt: new Date(), startedAt: new Date() }).where(eq(schema.campaigns.id, seeded.campaignId));
@@ -165,7 +186,7 @@ test.describe("product workflows", () => {
       const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/campaigns") && response.request().method() === "POST");
       await page.getByRole("button", { name: /launch.*contacts/i }).click();
       const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(202);
+      expect(createResponse.status()).toBe(201);
       const created = await createResponse.json() as { campaignId: string };
       expect(created.campaignId).toBeTruthy();
 
@@ -189,7 +210,7 @@ test.describe("product workflows", () => {
       await expect(page.getByText(/cancelled/i).first()).toBeVisible();
 
       await page.goto("/reports");
-      await expect(page.getByText(campaignName, { exact: false })).toBeVisible();
+      await expect(page.getByRole("link", { name: campaignName, exact: true })).toBeVisible();
       await page.getByLabel("Date range").first().selectOption("today");
       await page.getByRole("button", { name: "Apply" }).click();
       await expect(page).toHaveURL(/range=today/);
@@ -216,7 +237,7 @@ test.describe("product workflows", () => {
       await page.getByLabel("Timezone").fill("Asia/Baghdad");
       await page.getByLabel("Default country").fill("IQ");
       await page.getByLabel("Preferred language").selectOption("en");
-      await page.getByRole("button", { name: "Save changes" }).click();
+      await submitServerAction(page, "/settings/general", () => page.getByRole("button", { name: "Save changes" }).click());
       await page.reload();
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
       await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
@@ -226,7 +247,7 @@ test.describe("product workflows", () => {
       await expect(optionalEmailToggle).toBeChecked();
       await optionalEmailToggle.uncheck();
       await expect(page.locator('input:disabled').first()).toBeDisabled();
-      await page.getByRole("button", { name: "Save preferences" }).click();
+      await submitServerAction(page, "/settings/notifications", () => page.getByRole("button", { name: "Save preferences" }).click());
       await page.reload();
       await expect(page.locator('input[name^="email:"]:not(:disabled)').first()).not.toBeChecked();
 
@@ -269,9 +290,15 @@ test.describe("product workflows", () => {
       await page.getByRole("button", { name: "Export contacts" }).click();
       const exportRow = page.locator(".settingsListRow").filter({ hasText: "contacts" }).first();
       await expect(exportRow).toContainText("completed", { timeout: 35_000 });
+      const signedDownloadPromise = page.waitForResponse((response) => response.url().includes("/api/settings/data/export/") && response.url().endsWith("/download"));
       await exportRow.getByRole("button", { name: "Download" }).click();
-      await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:4569\//);
-      await expect(page.locator("body")).toContainText(/phone|contact/i);
+      const signedDownloadResponse = await signedDownloadPromise;
+      expect(signedDownloadResponse.ok()).toBeTruthy();
+      const signedDownload = await signedDownloadResponse.json() as { url: string };
+      expect(signedDownload.url).toMatch(/^http:\/\/127\.0\.0\.1:4569\//);
+      const exportedObject = await owner.api.get(signedDownload.url);
+      expect(exportedObject.ok()).toBeTruthy();
+      expect(await exportedObject.text()).toMatch(/phone|contact/i);
       await page.goto("/settings/data");
 
       await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
@@ -296,8 +323,10 @@ test.describe("product workflows", () => {
       await useTenantSession(context, invited);
       await page.goto(inviteUrl);
       await page.getByRole("button", { name: "Accept invitation" }).click();
-      await expect(page).toHaveURL(/\/settings\/general$/);
+      await expect(page).toHaveURL(/\/settings\/team$/);
+      await page.goto("/settings/general");
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
+      await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
       await health.expectHealthy();
     } finally {
       await destroyTenant(invited);

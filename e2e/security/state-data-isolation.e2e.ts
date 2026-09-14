@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { createConnection } from "node:net";
 import { expect, request, test } from "@playwright/test";
 import { schema } from "../../packages/db/src/index";
+import { createRedisClient } from "../../packages/queue/src/index";
 import {
   SECURITY_BASE_URL,
   createSecurityTenant,
@@ -12,29 +12,20 @@ import {
   type SecurityTenant,
 } from "./security-helpers";
 
-function deleteRedisKey(key: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const socket = createConnection({ host: "127.0.0.1", port: 6379 });
-    let response = "";
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      if (error) reject(error);
-      else resolve();
-    };
-    socket.setTimeout(5_000, () => finish(new Error("Timed out deleting Better Auth session from Valkey")));
-    socket.once("error", (error) => finish(error));
-    socket.once("connect", () => {
-      socket.write(`*2\r\n$3\r\nDEL\r\n$${Buffer.byteLength(key)}\r\n${key}\r\n`);
-    });
-    socket.on("data", (chunk) => {
-      response += chunk.toString("utf8");
-      if (/^:\d+\r\n/.test(response)) finish();
-      else if (response.startsWith("-")) finish(new Error(`Valkey DEL failed: ${response.trim()}`));
-    });
-  });
+async function deleteRedisKey(key: string): Promise<number> {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) throw new Error("REDIS_URL is required for security E2E tests");
+
+  // Honor the logical Redis database selected by the suite runner. Combined CI
+  // deliberately moves security tests to DB 15 to isolate Better Auth throttles,
+  // while the standalone security workflow uses DB 0.
+  const redis = createRedisClient(redisUrl);
+  try {
+    await redis.connect();
+    return await redis.del(key);
+  } finally {
+    redis.disconnect();
+  }
 }
 
 test.describe.serial("account state, billing, and data isolation", () => {
@@ -263,22 +254,15 @@ test.describe.serial("account state, billing, and data isolation", () => {
   test("expired sessions are rejected at the public application boundary", async () => {
     const expiredTenant = await createSecurityTenant("expired-session");
     try {
-      const sessions = await securitySql`
-        SELECT token
-        FROM auth_session
-        WHERE user_id = ${expiredTenant.authUserId}
-        ORDER BY created_at DESC
-        LIMIT 1
-      ` as unknown as Array<{ token: string }>;
-      const sessionToken = sessions[0]?.token;
-      if (!sessionToken) throw new Error("Could not find Better Auth session token");
-
+      // Expire the exact token returned by the sign-in used by this request context.
+      // Better Auth stores it in both PostgreSQL and the configured secondary store.
+      const sessionToken = expiredTenant.sessionToken;
       await securitySql`
         UPDATE auth_session
         SET expires_at = now() - interval '1 minute'
         WHERE token = ${sessionToken}
       `;
-      await deleteRedisKey(`wa:auth:${sessionToken}`);
+      expect(await deleteRedisKey(`wa:auth:${sessionToken}`)).toBe(1);
 
       const response = await expiredTenant.api.get("/api/settings/data/export");
       expect(response.status()).toBe(401);
