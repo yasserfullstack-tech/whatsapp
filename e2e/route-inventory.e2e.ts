@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  capturedEmailUrl,
   createTenant,
   createUnverifiedAccount,
   destroyTenant,
@@ -151,14 +152,18 @@ test.describe("full route and authorization inventory", () => {
     }
   });
 
-  test("unverified account cannot establish an authenticated product session", async ({ page }) => {
+  test("unverified account is denied sign-in and receives a verification email", async ({ page }) => {
     const account = await createUnverifiedAccount("sign-in-blocked");
     try {
       await page.goto("/sign-in");
       await page.getByLabel("Email").fill(account.email);
       await page.getByLabel("Password").fill(account.password);
       await page.getByRole("button", { name: "Sign in" }).click();
-      await expect(page).toHaveURL(/\/verify-email\?email=/);
+      await expect(page).toHaveURL(/\/sign-in$/);
+      await expect(page.getByRole("alert")).toContainText(/email|verif/i);
+      expect(await capturedEmailUrl(account.email, "Verify your email address")).toContain("/api/auth/verify-email");
+      await page.goto("/dashboard");
+      await expect(page).toHaveURL(/\/sign-in(?:\?|$)/);
     } finally {
       await destroyUnverified(account.authUserId);
     }
