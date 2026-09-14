@@ -45,7 +45,7 @@ The suite verifies:
 - platform administrator access requires the separate platform-admin grant/bootstrap boundary
 - disabling a user also blocks previously granted platform-admin access
 - a normal workspace user cannot replay a valid platform-admin user-disable server action
-- a normal workspace owner cannot replay a valid platform-admin organization-suspension server action
+- a normal workspace owner cannot replay valid organization suspend, reactivate, or plan/limit server actions
 - server actions re-resolve the authenticated workspace and permissions instead of trusting hidden IDs or a captured action token
 
 ### Authentication and session abuse
@@ -79,7 +79,9 @@ Executable regressions cover:
 - workspace-deletion scheduling remains owner-only and requires recent authentication
 - concurrent account-deletion requests can complete only once
 - account deletion records its completed lifecycle audit in the same transaction as the destructive user deletion, preventing duplicate or false completion records
-- account deletion remains blocked while the user still owns a workspace
+- account deletion remains blocked while the user owns a workspace
+- account deletion and ownership transfer share the same per-workspace PostgreSQL advisory lock and re-check roles under that lock
+- a real concurrent transfer-vs-delete regression requires exactly one safe outcome: either transfer wins and deletion is refused, or deletion wins before transfer and the original owner remains owner
 
 ### Request boundary, injection, XSS, and uploads
 
@@ -135,12 +137,12 @@ Existing lower-level tests cover:
 | consent records | contact IDOR actions stay tenant-scoped | admin/owner boundaries | protected | evidence input validated | covered for current surfaces |
 | suppressions | contact IDOR actions stay tenant-scoped | admin/owner boundaries | protected | input validated | covered for current surfaces |
 | analytics/reports | foreign campaign filters cannot expose tenant B | authenticated workspace boundary | protected | CSV output hardened | covered for current report surfaces |
-| settings/data lifecycle | forged workspace selector rejected; exports tenant-scoped | Owner/Admin/Member/Viewer matrix | protected | CSRF, secret-free export, workspace/account deletion concurrency | covered for current surfaces |
+| settings/data lifecycle | forged workspace selector rejected; exports tenant-scoped | Owner/Admin/Member/Viewer matrix | protected | CSRF, secret-free export, deletion concurrency, transfer/delete race | covered for current surfaces |
 | members/invitations | hidden foreign membership ID rejected; invitation workspace fixed | role matrix + email binding | protected where required | expiry + single-use/replay covered | covered for current surfaces |
 | credentials/object storage | tenant prefix and lookup boundaries | workspace/platform boundaries | protected indirectly | exports omit secrets; presigns short-lived | covered for current surfaces |
 | billing | account/subscription/usage/invoice scoped to workspace | authenticated workspace boundary | protected | foreign billing sentinel absent | covered for current read surfaces |
 | notifications | user + organization scoped | authenticated user boundary | unread endpoint protected | no foreign unread leakage | covered for current surfaces |
-| platform admin | workspace ownership cannot grant access | separate admin grant + disabled-user check | protected | captured user-disable and organization-suspend actions rejected for normal users | representative mutations covered; continue per-action probes |
+| platform admin | workspace ownership cannot grant access | separate admin grant + disabled-user check | protected | captured disable-user, suspend, reactivate, and plan/limit actions rejected for normal users | covered for current mutations |
 | webhooks | durable inbox and recipient updates tenant-aware | signed external boundary | N/A | HMAC, duplicate, replay, Redis/DB failure covered | covered at current API/worker boundary |
 
 ## Known remaining high-value coverage
@@ -148,7 +150,7 @@ Existing lower-level tests cover:
 The current branch intentionally does not claim that every future attack class is exhausted. The following additions remain worthwhile:
 
 - run adversarial **stored R2 CSV objects** through the complete contact-import worker integration, including hostile Unicode, pathological column counts, invalid-phone floods, duplicate-heavy files, and parser-failure cleanup. Parser-level malformed quoting, oversized-record, BOM/blank-line, and hostile-cell behavior is already executable; the remaining gap is the full object-storage-to-worker path.
-- add direct black-box negative submissions for the remaining platform-admin mutations such as organization reactivation and plan/limit changes, and require each newly added admin action to ship with its own negative mutation probe where practical.
+- require every newly added platform-admin mutation to ship with its own negative captured-action replay probe where practical.
 - add container/image vulnerability scanning to the release/deployment security pipeline when the image-release gate is finalized.
 - continue adding explicit IDOR tests whenever new recipient, credential, analytics, member, template, list, phone-number, or other identifier-bearing routes are introduced.
 
