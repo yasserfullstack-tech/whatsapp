@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const SESSION_COOKIE = /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=/;
 
 function configuredOrigins(): Set<string> {
   const origins = new Set<string>();
@@ -13,6 +14,10 @@ function configuredOrigins(): Set<string> {
     }
   }
   return origins;
+}
+
+function hasSessionCookie(request: NextRequest): boolean {
+  return SESSION_COOKIE.test(request.headers.get("cookie") ?? "");
 }
 
 export function proxy(request: NextRequest) {
@@ -28,6 +33,10 @@ export function proxy(request: NextRequest) {
   }
 
   const origin = request.headers.get("origin");
+  if (!origin && hasSessionCookie(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   if (origin) {
     const allowed = configuredOrigins();
     // Local development remains usable when APP_URL is omitted, while production

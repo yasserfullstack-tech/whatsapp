@@ -33,6 +33,16 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/sign-in");
 
+  const userControl = (
+    await db
+      .select({ disabled: schema.platformUserControls.disabled })
+      .from(schema.users)
+      .innerJoin(schema.platformUserControls, eq(schema.platformUserControls.userId, schema.users.id))
+      .where(eq(schema.users.externalAuthId, session.user.id))
+      .limit(1)
+  )[0];
+  if (userControl?.disabled) redirect("/account-disabled");
+
   const existing = (
     await db
       .select({ revokedAt: schema.platformAdminGrants.revokedAt })

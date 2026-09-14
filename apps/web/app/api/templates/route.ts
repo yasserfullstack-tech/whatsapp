@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth-context";
 import { getWabaAccessToken, listConnectedWabas } from "@/lib/meta-credentials";
 import { db, getMetaServerConfig } from "@/lib/server";
 import { normalizeTemplateCategory, normalizeTemplateStatus } from "@/lib/template-sync";
+import { can } from "@/lib/workspace-access";
 
 const createSchema = z.object({
   wabaId: z.string().min(1).max(128),
@@ -25,6 +26,7 @@ function positionalVariables(body: string): number[] {
 export async function POST(request: Request) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "templates.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

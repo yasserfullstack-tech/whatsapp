@@ -6,6 +6,7 @@ import { schema } from "@wa/db";
 import { createPresignedCsvUpload, createR2Client } from "@wa/storage";
 import { getAuthContext } from "@/lib/auth-context";
 import { db, getR2ServerConfig } from "@/lib/server";
+import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,7 @@ function safeFileName(fileName: string): string {
 export async function POST(request: Request) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "imports.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
