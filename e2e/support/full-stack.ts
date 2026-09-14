@@ -144,7 +144,7 @@ const childEnv = {
   NODE_ENV: "production",
   HOSTNAME: "127.0.0.1",
   PORT: "3000",
-  NEXT_PUBLIC_APP_URL: process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://app.e2e.test",
+  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? "https://app.e2e.test",
   E2E_META_BASE_URL: `http://127.0.0.1:${metaPort}`,
   E2E_BLOCK_EXTERNAL: "1",
   R2_ENDPOINT: `http://127.0.0.1:${storagePort}`,
