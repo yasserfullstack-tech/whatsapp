@@ -5,6 +5,26 @@ import type { NextConfig } from "next";
 const isProduction = process.env.NODE_ENV === "production";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
+function configuredOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+const r2Origin = configuredOrigin(process.env.R2_ENDPOINT);
+const connectSources = [
+  "'self'",
+  "https://graph.facebook.com",
+  "https://www.facebook.com",
+  "https://web.facebook.com",
+  "https://*.r2.cloudflarestorage.com",
+  ...(r2Origin ? [r2Origin] : []),
+];
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -15,7 +35,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://graph.facebook.com https://www.facebook.com https://web.facebook.com",
+  `connect-src ${connectSources.join(" ")}`,
   "frame-src https://www.facebook.com https://web.facebook.com",
   ...(isProduction ? ["upgrade-insecure-requests"] : []),
 ].join("; ");
