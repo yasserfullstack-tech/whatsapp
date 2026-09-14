@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createConnection } from "node:net";
 import { expect, request, test } from "@playwright/test";
 import { schema } from "../../packages/db/src/index";
 import {
@@ -10,6 +11,31 @@ import {
   setSecurityTenantRole,
   type SecurityTenant,
 } from "./security-helpers";
+
+function deleteRedisKey(key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection({ host: "127.0.0.1", port: 6379 });
+    let response = "";
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) reject(error);
+      else resolve();
+    };
+    socket.setTimeout(5_000, () => finish(new Error("Timed out deleting Better Auth session from Valkey")));
+    socket.once("error", (error) => finish(error));
+    socket.once("connect", () => {
+      socket.write(`*2\r\n$3\r\nDEL\r\n$${Buffer.byteLength(key)}\r\n${key}\r\n`);
+    });
+    socket.on("data", (chunk) => {
+      response += chunk.toString("utf8");
+      if (/^:\d+\r\n/.test(response)) finish();
+      else if (response.startsWith("-")) finish(new Error(`Valkey DEL failed: ${response.trim()}`));
+    });
+  });
+}
 
 test.describe.serial("account state, billing, and data isolation", () => {
   let tenantA: SecurityTenant;
@@ -237,11 +263,23 @@ test.describe.serial("account state, billing, and data isolation", () => {
   test("expired sessions are rejected at the public application boundary", async () => {
     const expiredTenant = await createSecurityTenant("expired-session");
     try {
+      const sessions = await securitySql`
+        SELECT token
+        FROM auth_session
+        WHERE user_id = ${expiredTenant.authUserId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      ` as unknown as Array<{ token: string }>;
+      const sessionToken = sessions[0]?.token;
+      if (!sessionToken) throw new Error("Could not find Better Auth session token");
+
       await securitySql`
         UPDATE auth_session
         SET expires_at = now() - interval '1 minute'
-        WHERE user_id = ${expiredTenant.authUserId}
+        WHERE token = ${sessionToken}
       `;
+      await deleteRedisKey(`wa:auth:${sessionToken}`);
+
       const response = await expiredTenant.api.get("/api/settings/data/export");
       expect(response.status()).toBe(401);
       expect(await response.json()).toEqual({ error: "Unauthorized" });
