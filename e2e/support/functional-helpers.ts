@@ -117,7 +117,14 @@ export async function createUnverifiedAccount(label: string) {
 export async function useTenantSession(context: BrowserContext, tenant: FunctionalTenant) {
   const cookies = tenant.cookie.split("; ").map((pair) => {
     const index = pair.indexOf("=");
-    return { name: pair.slice(0, index), value: pair.slice(index + 1), url: baseURL, sameSite: "Lax" as const };
+    const name = pair.slice(0, index);
+    return {
+      name,
+      value: pair.slice(index + 1),
+      url: baseURL,
+      sameSite: "Lax" as const,
+      secure: name.startsWith("__Secure-") || name.startsWith("__Host-"),
+    };
   });
   await context.addCookies(cookies);
 }
