@@ -17,6 +17,8 @@ export const workspaceActions = [
   "billing.manage",
   "data.read",
   "data.export",
+  "data.retention",
+  "data.deleteWorkspace",
   "audit.read",
 ] as const;
 export type WorkspaceAction = (typeof workspaceActions)[number];
@@ -37,24 +39,11 @@ const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
     "billing.read",
     "data.read",
     "data.export",
+    "data.retention",
     "audit.read",
   ]),
-  member: new Set([
-    "workspace.read",
-    "team.read",
-    "whatsapp.read",
-    "security.read",
-    "billing.read",
-    "data.read",
-  ]),
-  viewer: new Set([
-    "workspace.read",
-    "team.read",
-    "whatsapp.read",
-    "security.read",
-    "billing.read",
-    "data.read",
-  ]),
+  member: new Set(["workspace.read", "team.read", "whatsapp.read", "security.read", "billing.read", "data.read"]),
+  viewer: new Set(["workspace.read", "team.read", "whatsapp.read", "security.read", "billing.read", "data.read"]),
 };
 
 export function can(role: WorkspaceRole, action: WorkspaceAction): boolean {

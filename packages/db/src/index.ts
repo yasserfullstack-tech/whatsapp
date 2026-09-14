@@ -9,6 +9,7 @@ import * as workspaceSettingsSchema from "./workspace-settings-schema";
 import * as billingSchema from "./billing-schema";
 import * as onboardingSchema from "./onboarding-schema";
 import * as notificationSchema from "./notification-schema";
+import * as dataLifecycleSchema from "./data-lifecycle-schema";
 
 export const schema = {
   ...coreSchema,
@@ -20,6 +21,7 @@ export const schema = {
   ...billingSchema,
   ...onboardingSchema,
   ...notificationSchema,
+  ...dataLifecycleSchema,
 };
 export * from "./schema";
 export * from "./contact-import-schema";
@@ -30,6 +32,7 @@ export * from "./workspace-settings-schema";
 export * from "./billing-schema";
 export * from "./onboarding-schema";
 export * from "./notification-schema";
+export * from "./data-lifecycle-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {

@@ -22,6 +22,9 @@ const expectedPublicTables = [
   "contact_lists",
   "contacts",
   "credential_secrets",
+  "data_export_jobs",
+  "data_lifecycle_audit_logs",
+  "data_retention_policies",
   "invoices",
   "notification_deliveries",
   "notification_preferences",
@@ -47,6 +50,7 @@ const expectedPublicTables = [
   "webhook_events",
   "whatsapp_phone_numbers",
   "workspace_audit_logs",
+  "workspace_deletion_requests",
   "workspace_preferences",
 ] as const;
 
@@ -75,8 +79,8 @@ try {
   const migrationRows = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations
   `;
-  if ((migrationRows[0]?.count ?? 0) < 9) {
-    throw new Error("Expected all nine committed migrations in drizzle.__drizzle_migrations");
+  if ((migrationRows[0]?.count ?? 0) < 10) {
+    throw new Error("Expected all ten committed migrations in drizzle.__drizzle_migrations");
   }
 
   console.log("Migration smoke check passed", {

@@ -7,6 +7,8 @@ export const WEBHOOK_QUEUE_NAME = "whatsapp-webhooks";
 export const CONTACT_IMPORT_QUEUE_NAME = "contact-imports";
 export const CAMPAIGN_DISPATCH_QUEUE_NAME = "campaign-dispatch";
 export const NOTIFICATION_EMAIL_QUEUE_NAME = "notification-email";
+export const DATA_EXPORT_QUEUE_NAME = "data-exports";
+export const DATA_LIFECYCLE_QUEUE_NAME = "data-lifecycle";
 
 export type CampaignVariableBinding = {
   index: number;
@@ -32,6 +34,10 @@ export type ContactImportJob = { organizationId: string; importId: string };
 export type CampaignDispatchJob = { organizationId: string; campaignId: string };
 export type WebhookProcessJob = { eventId: string };
 export type NotificationEmailJob = { deliveryId: string };
+export type DataExportJob = { organizationId: string; exportJobId: string };
+export type DataLifecycleJob =
+  | { type: "workspace-purge"; organizationId: string; deletionRequestId: string }
+  | { type: "retention-cleanup"; organizationId?: string };
 
 export function createRedisClient(redisUrl: string): Redis {
   return new Redis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: true, lazyConnect: true });
@@ -81,6 +87,20 @@ export function createNotificationEmailQueue(redisUrl: string): Queue<Notificati
   return new Queue<NotificationEmailJob>(NOTIFICATION_EMAIL_QUEUE_NAME, {
     connection: createBullConnection(redisUrl),
     defaultJobOptions: { attempts: 5, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: 5_000, removeOnFail: 20_000 },
+  });
+}
+
+export function createDataExportQueue(redisUrl: string): Queue<DataExportJob> {
+  return new Queue<DataExportJob>(DATA_EXPORT_QUEUE_NAME, {
+    connection: createBullConnection(redisUrl),
+    defaultJobOptions: { attempts: 4, backoff: { type: "exponential", delay: 5_000 }, removeOnComplete: 5_000, removeOnFail: 10_000 },
+  });
+}
+
+export function createDataLifecycleQueue(redisUrl: string): Queue<DataLifecycleJob> {
+  return new Queue<DataLifecycleJob>(DATA_LIFECYCLE_QUEUE_NAME, {
+    connection: createBullConnection(redisUrl),
+    defaultJobOptions: { attempts: 6, backoff: { type: "exponential", delay: 10_000 }, removeOnComplete: 2_000, removeOnFail: 10_000 },
   });
 }
 
