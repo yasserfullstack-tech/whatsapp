@@ -13,6 +13,7 @@ export const SECURITY_BASE_URL = "http://127.0.0.1:3000";
 export type SecurityTenant = {
   api: APIRequestContext;
   cookie: string;
+  sessionToken: string;
   email: string;
   password: string;
   authUserId: string;
@@ -80,7 +81,11 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
   const signIn = await authApi.post("/api/auth/sign-in/email", {
     data: { email, password },
   });
-  expect(signIn.ok(), `sign-in failed: ${await signIn.text()}`).toBeTruthy();
+  const signInText = await signIn.text();
+  expect(signIn.ok(), `sign-in failed: ${signInText}`).toBeTruthy();
+  const signInBody = JSON.parse(signInText) as { token?: string };
+  const sessionToken = signInBody.token;
+  if (!sessionToken) throw new Error("Better Auth sign-in did not return a session token");
 
   // `next start` runs in production mode, so Better Auth correctly emits Secure
   // cookies. CI serves the local test app over HTTP; explicitly forwarding the
@@ -123,6 +128,7 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
   return {
     api,
     cookie,
+    sessionToken,
     email,
     password,
     authUserId: authUser.id,
