@@ -11,7 +11,7 @@ type Props = {
 
 function localDateTimeDefault() {
   const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 23);
 }
 
 export function ContactResubscribeForm({ contactId, phoneE164, displayName }: Props) {
@@ -63,7 +63,7 @@ export function ContactResubscribeForm({ contactId, phoneE164, displayName }: Pr
         <p className="subtitle">{messages.ui.resubscribeDescription}</p>
       </div>
       <label><span>{messages.ui.consentSource}</span><input name="consentSource" placeholder={messages.ui.consentSourcePlaceholder} minLength={3} maxLength={160} required /></label>
-      <label><span>{messages.ui.consentDateTime}</span><input name="consentedAt" type="datetime-local" defaultValue={localDateTimeDefault()} required /></label>
+      <label><span>{messages.ui.consentDateTime}</span><input name="consentedAt" type="datetime-local" step="0.001" defaultValue={localDateTimeDefault()} required /></label>
       <label><span>{messages.ui.evidenceNote}</span><textarea name="evidenceNote" placeholder={messages.ui.evidencePlaceholder} minLength={8} maxLength={1000} required /></label>
       <label className="confirmationRow"><input name="confirmation" type="checkbox" required /><span>{messages.ui.newConsentConfirmation}</span></label>
       <div className="formActions"><button className="primary" disabled={busy} type="submit">{busy ? messages.common.saving : messages.ui.restoreEligibility}</button></div>
