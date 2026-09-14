@@ -7,6 +7,13 @@ export class EmbeddedSignupConflictError extends Error {
   }
 }
 
+export class EmbeddedSignupPhoneMismatchError extends Error {
+  constructor() {
+    super("Meta returned a different WhatsApp phone number");
+    this.name = "EmbeddedSignupPhoneMismatchError";
+  }
+}
+
 export async function verifyEmbeddedSignupPhone(input: {
   organizationId: string;
   requestedPhoneNumberId: string;
@@ -19,7 +26,7 @@ export async function verifyEmbeddedSignupPhone(input: {
   const token = await input.exchangeCode();
   const phone = await input.getPhone(token.accessToken);
   if (phone.id !== input.requestedPhoneNumberId) {
-    throw new Error("Meta returned a different WhatsApp phone number");
+    throw new EmbeddedSignupPhoneMismatchError();
   }
 
   const existingOrganizationId = await input.findOrganizationByPhoneNumberId(phone.id);
