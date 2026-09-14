@@ -1,0 +1,63 @@
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 3px solid rgba(13, 143, 93, 0.28);
+  outline-offset: 2px;
+}
+
+.emptyState .secondary {
+  margin-top: 2px;
+  text-decoration: none;
+}
+
+.destructiveDialog {
+  width: min(calc(100% - 32px), 520px);
+  padding: 0;
+  border: 1px solid #efc9c9;
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 22px 70px rgba(29, 50, 40, 0.18);
+}
+
+.destructiveDialog::backdrop {
+  background: rgba(8, 24, 17, 0.52);
+}
+
+.destructiveDialogBody {
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+}
+
+.destructiveDialogBody h2 {
+  margin-bottom: 8px;
+}
+
+.destructiveDialogBody p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.destructiveDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .destructiveDialogBody {
+    padding: 20px 18px;
+  }
+
+  .destructiveDialogActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .destructiveDialogActions .secondary,
+  .destructiveDialogActions .dangerButton {
+    width: 100%;
+    text-align: center;
+  }
+}
