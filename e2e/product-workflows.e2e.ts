@@ -85,7 +85,9 @@ test.describe("product workflows", () => {
       await page.reload();
       row = page.locator(".contactRow").filter({ hasText: "Imported E2E Contact" });
       await expect(row).toBeVisible();
-      await row.getByRole("button", { name: "Record new consent" }).click();
+      const recordConsent = row.getByRole("button", { name: "Record new consent" });
+      await recordConsent.click();
+      await expect(recordConsent).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByRole("button", { name: "Restore eligibility" })).toBeVisible();
       await page.locator('input[name="consentSource"]').fill("E2E signed web form");
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
