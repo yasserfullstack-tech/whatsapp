@@ -1,12 +1,11 @@
 import type { MetadataRoute } from "next";
 import { marketingSlugs } from "@/lib/marketing-content";
+import { getPublicAppUrl } from "@/lib/public-app-url";
 
-function siteUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-}
+export const dynamic = "force-dynamic";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = siteUrl();
+  const base = getPublicAppUrl().toString().replace(/\/$/, "");
   const now = new Date();
 
   return [
