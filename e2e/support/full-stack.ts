@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
@@ -142,6 +142,8 @@ const metaServer = Bun.serve({
 const childEnv = {
   ...process.env,
   NODE_ENV: "production",
+  HOSTNAME: "127.0.0.1",
+  PORT: "3000",
   E2E_META_BASE_URL: `http://127.0.0.1:${metaPort}`,
   E2E_BLOCK_EXTERNAL: "1",
   R2_ENDPOINT: `http://127.0.0.1:${storagePort}`,
@@ -156,9 +158,28 @@ function spawn(command: string[], cwd = root) {
 }
 
 const webDir = resolve(root, "apps/web");
-const webRequire = createRequire(resolve(webDir, "package.json"));
-const nextBin = webRequire.resolve("next/dist/bin/next");
-const web = spawn(["node", "--require", preload, nextBin, "start"], webDir);
+const standaloneWebDir = resolve(webDir, ".next/standalone/apps/web");
+const standaloneServer = resolve(standaloneWebDir, "server.js");
+if (!existsSync(standaloneServer)) {
+  throw new Error(`Missing standalone Next server at ${standaloneServer}. Run bun run build before bun run test:e2e.`);
+}
+
+const sourceStatic = resolve(webDir, ".next/static");
+const standaloneStatic = resolve(standaloneWebDir, ".next/static");
+if (existsSync(sourceStatic)) {
+  mkdirSync(resolve(standaloneWebDir, ".next"), { recursive: true });
+  rmSync(standaloneStatic, { recursive: true, force: true });
+  cpSync(sourceStatic, standaloneStatic, { recursive: true });
+}
+
+const sourcePublic = resolve(webDir, "public");
+const standalonePublic = resolve(standaloneWebDir, "public");
+if (existsSync(sourcePublic)) {
+  rmSync(standalonePublic, { recursive: true, force: true });
+  cpSync(sourcePublic, standalonePublic, { recursive: true });
+}
+
+const web = spawn(["node", "--require", preload, standaloneServer], standaloneWebDir);
 const api = spawn(["bun", "--preload", preload, resolve(root, "apps/api/src/index.ts")]);
 const worker = spawn(["bun", "--preload", preload, resolve(root, "apps/worker/src/entry.ts")]);
 const children = [web, api, worker];
