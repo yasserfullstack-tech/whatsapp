@@ -5,7 +5,6 @@ import { createDatabase, schema } from "@wa/db";
 import {
   ConsoleEmailProvider,
   NotificationService,
-  UnavailableEmailProvider,
   deliverNotificationEmail,
   getPendingEmailDeliveryIds,
   type EmailProvider,
@@ -21,6 +20,42 @@ import {
   type NotificationEmailJob,
 } from "@wa/queue";
 
+class ResendEmailProvider implements EmailProvider {
+  constructor(
+    private readonly apiKey: string,
+    private readonly from: string,
+  ) {}
+
+  async send(input: Parameters<EmailProvider["send"]>[0]): Promise<{ messageId?: string }> {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": input.idempotencyKey,
+      },
+      body: JSON.stringify({
+        from: this.from,
+        to: [input.to],
+        subject: input.subject,
+        html: input.html,
+        text: input.text,
+      }),
+    });
+
+    const body = await response.json().catch(() => null) as { id?: unknown } | null;
+    if (!response.ok) {
+      throw new Error(`Notification email provider rejected the request (${response.status})`);
+    }
+    return typeof body?.id === "string" ? { messageId: body.id } : {};
+  }
+}
+
+function requiredProductionValue(name: string, value: string | undefined): string {
+  if (!value) throw new Error(`${name} is required in production`);
+  return value;
+}
+
 const env = loadWorkerEnv();
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
@@ -28,9 +63,15 @@ const log = createLogger({ service: "notification-worker" });
 const emailQueue = createNotificationEmailQueue(env.REDIS_URL);
 const contactImportQueue = createContactImportQueue(env.REDIS_URL);
 const provider: EmailProvider = env.NODE_ENV === "production"
-  ? new UnavailableEmailProvider()
+  ? new ResendEmailProvider(
+      requiredProductionValue("RESEND_API_KEY", env.RESEND_API_KEY),
+      requiredProductionValue("AUTH_EMAIL_FROM", env.AUTH_EMAIL_FROM),
+    )
   : new ConsoleEmailProvider();
-const appUrl = process.env.APP_URL ?? process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:3000";
+const providerName = env.NODE_ENV === "production" ? "resend" : "console";
+const appUrl = env.NODE_ENV === "production"
+  ? requiredProductionValue("APP_URL", env.APP_URL)
+  : env.APP_URL ?? "http://127.0.0.1:3000";
 
 const notificationService = new NotificationService({
   db,
@@ -190,7 +231,7 @@ const reconciliationTimer = setInterval(() => {
 reconciliationTimer.unref();
 
 log.info("notification_runtime_started", {
-  emailProvider: provider instanceof UnavailableEmailProvider ? "unavailable" : "console",
+  emailProvider: providerName,
   emailConcurrency: 8,
 });
 

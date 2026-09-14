@@ -3,17 +3,21 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { useI18n } from "@/components/i18n-provider";
 import { authClient } from "@/lib/auth-client";
+import { productionUiMessages } from "@/lib/i18n/production-ui";
 
 export function ResetPasswordForm({ token, invalidToken }: { token?: string; invalidToken?: boolean }) {
   const router = useRouter();
+  const { locale } = useI18n();
+  const copy = productionUiMessages[locale];
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(invalidToken ? "This reset link is invalid or has expired." : null);
+  const [error, setError] = useState<string | null>(invalidToken ? copy.resetPassword.invalid : null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) {
-      setError("This reset link is invalid or has expired.");
+      setError(copy.resetPassword.invalid);
       return;
     }
 
@@ -21,7 +25,7 @@ export function ResetPasswordForm({ token, invalidToken }: { token?: string; inv
     const password = String(form.get("password") ?? "");
     const confirmPassword = String(form.get("confirmPassword") ?? "");
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(copy.resetPassword.mismatch);
       return;
     }
 
@@ -30,7 +34,7 @@ export function ResetPasswordForm({ token, invalidToken }: { token?: string; inv
     try {
       const result = await authClient.resetPassword({ newPassword: password, token });
       if (result.error) {
-        setError(result.error.message ?? "Unable to reset password.");
+        setError(result.error.message ?? copy.resetPassword.failed);
         return;
       }
       router.replace("/sign-in?passwordReset=1");
@@ -43,16 +47,16 @@ export function ResetPasswordForm({ token, invalidToken }: { token?: string; inv
   return (
     <form className="authForm" onSubmit={submit}>
       <label>
-        <span>New password</span>
+        <span>{copy.common.newPassword}</span>
         <input autoComplete="new-password" minLength={10} name="password" required type="password" />
       </label>
       <label>
-        <span>Confirm new password</span>
+        <span>{copy.common.confirmNewPassword}</span>
         <input autoComplete="new-password" minLength={10} name="confirmPassword" required type="password" />
       </label>
       {error ? <p className="formError" role="alert">{error}</p> : null}
-      <button className="primary authSubmit" disabled={pending || !token} type="submit">{pending ? "Resetting…" : "Reset password"}</button>
-      <p className="authSwitch"><Link href="/forgot-password">Request a new reset link</Link></p>
+      <button className="primary authSubmit" disabled={pending || !token} type="submit">{pending ? copy.resetPassword.resetting : copy.resetPassword.submit}</button>
+      <p className="authSwitch"><Link href="/forgot-password">{copy.resetPassword.requestNew}</Link></p>
     </form>
   );
 }

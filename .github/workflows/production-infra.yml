@@ -40,7 +40,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare placeholder production environment
-        run: cp .env.production.example .env.production.ci
+        run: |
+          cp .env.production.example .env.production.ci
+          sed -i \
+            -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
+            -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
+            -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
+            -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
+            .env.production.ci
 
       - name: Validate shell scripts
         run: |

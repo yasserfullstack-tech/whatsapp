@@ -4,13 +4,13 @@ import { NOTIFICATION_DEFINITIONS } from "@wa/notifications";
 import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
+import { workspaceSettingsMessages } from "@/lib/i18n/workspace-settings";
 import { updateNotificationPreferencesAction } from "@/lib/notification-actions";
 import { db } from "@/lib/server";
 import styles from "./preferences.module.css";
 
 export default async function NotificationSettingsPage() {
-  const { workspace } = await requireAuthContext();
-  const { locale } = await getI18n();
+  const [{ workspace }, i18n] = await Promise.all([requireAuthContext(), getI18n()]);
   const rows = await db
     .select({
       type: schema.notificationPreferences.type,
@@ -23,22 +23,20 @@ export default async function NotificationSettingsPage() {
       eq(schema.notificationPreferences.userId, workspace.userId),
     ));
   const preferenceByType = new Map(rows.map((row) => [row.type, row]));
-  const copy = locale === "ar"
-    ? { eyebrow: "إعدادات مساحة العمل", title: "الإشعارات", subtitle: "تحكم في الإشعارات غير الحرجة. تبقى إشعارات الأمان والحساب المهمة مفعلة.", event: "الحدث", inApp: "داخل التطبيق", email: "البريد الإلكتروني", required: "مطلوب", save: "حفظ التفضيلات" }
-    : { eyebrow: "Workspace settings", title: "Notifications", subtitle: "Control non-critical notifications. Important security and account notifications remain enabled.", event: "Event", inApp: "In-app", email: "Email", required: "Required", save: "Save preferences" };
+  const m = workspaceSettingsMessages[i18n.locale];
 
   return (
     <>
       <header className="topbar settingsHeader">
-        <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="subtitle">{copy.subtitle}</p></div>
+        <div><p className="eyebrow">{m.common.eyebrow}</p><h1>{m.notifications.title}</h1><p className="subtitle">{m.notifications.subtitle}</p></div>
       </header>
       <SettingsNav active="/settings/notifications" />
 
       <section className="panel settingsPanel">
         <form action={updateNotificationPreferencesAction}>
-          <div className={styles.table} role="table" aria-label={copy.title}>
+          <div className={styles.table} role="table" aria-label={m.notifications.title}>
             <div className={`${styles.row} ${styles.header}`} role="row">
-              <span role="columnheader">{copy.event}</span><span role="columnheader">{copy.inApp}</span><span role="columnheader">{copy.email}</span>
+              <span role="columnheader">{m.notifications.event}</span><span role="columnheader">{m.notifications.inApp}</span><span role="columnheader">{m.notifications.email}</span>
             </div>
             {NOTIFICATION_DEFINITIONS.map((definition) => {
               const preference = preferenceByType.get(definition.type);
@@ -46,14 +44,14 @@ export default async function NotificationSettingsPage() {
               const emailEnabled = definition.mandatory || preference?.emailEnabled !== false;
               return (
                 <div className={styles.row} role="row" key={definition.type}>
-                  <div role="cell"><strong>{definition.label[locale]}</strong><span className={styles.category}>{definition.category}</span>{definition.mandatory ? <span className={styles.required}>{copy.required}</span> : null}</div>
-                  <label role="cell" className={styles.toggle}><input type="checkbox" name={`inApp:${definition.type}`} defaultChecked={inAppEnabled} disabled={definition.mandatory} /><span>{copy.inApp}</span></label>
-                  <label role="cell" className={styles.toggle}><input type="checkbox" name={`email:${definition.type}`} defaultChecked={emailEnabled} disabled={definition.mandatory} /><span>{copy.email}</span></label>
+                  <div role="cell"><strong>{definition.label[i18n.locale]}</strong><span className={styles.category}>{m.notifications.categories[definition.category]}</span>{definition.mandatory ? <span className={styles.required}>{m.notifications.required}</span> : null}</div>
+                  <label role="cell" className={styles.toggle}><input type="checkbox" name={`inApp:${definition.type}`} defaultChecked={inAppEnabled} disabled={definition.mandatory} /><span>{m.notifications.inApp}</span></label>
+                  <label role="cell" className={styles.toggle}><input type="checkbox" name={`email:${definition.type}`} defaultChecked={emailEnabled} disabled={definition.mandatory} /><span>{m.notifications.email}</span></label>
                 </div>
               );
             })}
           </div>
-          <div className={styles.footer}><button className="primary" type="submit">{copy.save}</button></div>
+          <div className={styles.footer}><button className="primary" type="submit">{m.notifications.save}</button></div>
         </form>
       </section>
     </>

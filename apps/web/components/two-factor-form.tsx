@@ -3,27 +3,25 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { useI18n } from "@/components/i18n-provider";
 import { authClient } from "@/lib/auth-client";
+import { productionUiMessages } from "@/lib/i18n/production-ui";
 
 type Mode = "totp" | "backup";
-
-type AuthError = {
-  message?: string | null | undefined;
-  code?: string | null | undefined;
-};
-
-function twoFactorError(error: AuthError | null | undefined) {
-  if (error?.code === "ACCOUNT_TEMPORARILY_LOCKED") {
-    return "Too many failed attempts. This account is temporarily locked from MFA verification.";
-  }
-  return error?.message ?? "Unable to verify that code.";
-}
+type AuthError = { message?: string | null | undefined; code?: string | null | undefined };
 
 export function TwoFactorForm() {
   const router = useRouter();
+  const { locale } = useI18n();
+  const copy = productionUiMessages[locale].twoFactor;
   const [mode, setMode] = useState<Mode>("totp");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function errorMessage(value: AuthError | null | undefined) {
+    if (value?.code === "ACCOUNT_TEMPORARILY_LOCKED") return copy.locked;
+    return value?.message ?? copy.failed;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,12 +34,10 @@ export function TwoFactorForm() {
       const result = mode === "totp"
         ? await authClient.twoFactor.verifyTotp({ code: code.replace(/\s+/g, ""), trustDevice: true })
         : await authClient.twoFactor.verifyBackupCode({ code, trustDevice: true });
-
       if (result.error) {
-        setError(twoFactorError(result.error));
+        setError(errorMessage(result.error));
         return;
       }
-
       router.replace("/dashboard");
       router.refresh();
     } finally {
@@ -52,7 +48,7 @@ export function TwoFactorForm() {
   return (
     <form className="authForm" onSubmit={submit}>
       <label>
-        <span>{mode === "totp" ? "Authenticator code" : "Recovery code"}</span>
+        <span>{mode === "totp" ? copy.authenticatorCode : copy.recoveryCode}</span>
         <input
           autoComplete="one-time-code"
           autoFocus
@@ -61,13 +57,13 @@ export function TwoFactorForm() {
           minLength={mode === "totp" ? 6 : 1}
           name="code"
           pattern={mode === "totp" ? "[0-9]{6}" : undefined}
-          placeholder={mode === "totp" ? "123456" : "Recovery code"}
+          placeholder={mode === "totp" ? "123456" : copy.recoveryCode}
           required
         />
       </label>
       {error ? <p className="formError" role="alert">{error}</p> : null}
       <button className="primary authSubmit" disabled={pending} type="submit">
-        {pending ? "Verifying…" : mode === "totp" ? "Verify authenticator code" : "Use recovery code"}
+        {pending ? copy.verifying : mode === "totp" ? copy.verifyAuthenticator : copy.useRecovery}
       </button>
       <button
         className="secondary"
@@ -78,9 +74,9 @@ export function TwoFactorForm() {
         }}
         type="button"
       >
-        {mode === "totp" ? "Use a recovery code instead" : "Use authenticator code instead"}
+        {mode === "totp" ? copy.recoveryInstead : copy.authenticatorInstead}
       </button>
-      <p className="authSwitch"><Link href="/sign-in">Cancel and return to sign in</Link></p>
+      <p className="authSwitch"><Link href="/sign-in">{copy.cancel}</Link></p>
     </form>
   );
 }

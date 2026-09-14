@@ -35,6 +35,7 @@ jobs:
       DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_URL: http://127.0.0.1:3000
+      APP_URL: https://app.e2e.test
       BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
       AUTH_EMAIL_CAPTURE_FILE: /tmp/wa-auth-emails.jsonl
       AUTH_SIGNIN_RATE_LIMIT_MAX: "100"

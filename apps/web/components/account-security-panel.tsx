@@ -3,7 +3,9 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MfaSecurityCard } from "@/components/mfa-security-card";
+import { useI18n } from "@/components/i18n-provider";
 import { authClient } from "@/lib/auth-client";
+import { productionUiMessages } from "@/lib/i18n/production-ui";
 
 type SecuritySession = {
   id: string;
@@ -15,23 +17,10 @@ type SecuritySession = {
   expiresAt: string | Date;
 };
 
-function formatDate(value: string | Date) {
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unknown" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
-
-function describeAgent(userAgent?: string | null) {
-  if (!userAgent) return "Unknown device";
-  if (/iphone|ipad|ios/i.test(userAgent)) return "Apple mobile device";
-  if (/android/i.test(userAgent)) return "Android device";
-  if (/windows/i.test(userAgent)) return "Windows device";
-  if (/macintosh|mac os/i.test(userAgent)) return "Mac device";
-  if (/linux/i.test(userAgent)) return "Linux device";
-  return "Browser session";
-}
-
 export function AccountSecurityPanel({ currentEmail }: { currentEmail: string }) {
   const router = useRouter();
+  const { locale, dateTime, format } = useI18n();
+  const copy = productionUiMessages[locale].accountSecurity;
   const sessionQuery = authClient.useSession();
   const currentSessionId = sessionQuery.data?.session.id;
   const [sessions, setSessions] = useState<SecuritySession[]>([]);
@@ -45,20 +34,35 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
   const [emailPending, setEmailPending] = useState(false);
   const [sessionsPending, setSessionsPending] = useState(false);
 
+  function safeDate(value: string | Date) {
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? copy.unknown : dateTime(date);
+  }
+
+  function describeAgent(userAgent?: string | null) {
+    if (!userAgent) return copy.unknownDevice;
+    if (/iphone|ipad|ios/i.test(userAgent)) return copy.appleDevice;
+    if (/android/i.test(userAgent)) return copy.androidDevice;
+    if (/windows/i.test(userAgent)) return copy.windowsDevice;
+    if (/macintosh|mac os/i.test(userAgent)) return copy.macDevice;
+    if (/linux/i.test(userAgent)) return copy.linuxDevice;
+    return copy.browserSession;
+  }
+
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
     setSessionError(null);
     try {
       const result = await authClient.listSessions();
       if (result.error) {
-        setSessionError(result.error.message ?? "Unable to load sessions.");
+        setSessionError(result.error.message ?? copy.loadSessionsFailed);
         return;
       }
       setSessions((result.data ?? []) as unknown as SecuritySession[]);
     } finally {
       setSessionsLoading(false);
     }
-  }, []);
+  }, [copy.loadSessionsFailed]);
 
   useEffect(() => {
     void loadSessions();
@@ -80,23 +84,19 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
     const confirmPassword = String(form.get("confirmPassword") ?? "");
 
     if (newPassword !== confirmPassword) {
-      setPasswordError("New passwords do not match.");
+      setPasswordError(copy.passwordMismatch);
       setPasswordPending(false);
       return;
     }
 
     try {
-      const result = await authClient.changePassword({
-        currentPassword,
-        newPassword,
-        revokeOtherSessions: true,
-      });
+      const result = await authClient.changePassword({ currentPassword, newPassword, revokeOtherSessions: true });
       if (result.error) {
-        setPasswordError(result.error.message ?? "Unable to change password.");
+        setPasswordError(result.error.message ?? copy.passwordChangeFailed);
         return;
       }
       event.currentTarget.reset();
-      setPasswordStatus("Password changed. Other active sessions were signed out.");
+      setPasswordStatus(copy.passwordChanged);
       await loadSessions();
     } finally {
       setPasswordPending(false);
@@ -112,16 +112,13 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
     const newEmail = String(form.get("newEmail") ?? "").trim();
 
     try {
-      const result = await authClient.changeEmail({
-        newEmail,
-        callbackURL: "/account/security?emailChanged=1",
-      });
+      const result = await authClient.changeEmail({ newEmail, callbackURL: "/account/security?emailChanged=1" });
       if (result.error) {
-        setEmailError(result.error.message ?? "Unable to start email change.");
+        setEmailError(result.error.message ?? copy.emailChangeFailed);
         return;
       }
       event.currentTarget.reset();
-      setEmailStatus("Approval sent to your current email. The new address must also be verified before the change is complete.");
+      setEmailStatus(copy.emailChangeSent);
     } finally {
       setEmailPending(false);
     }
@@ -133,7 +130,7 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
     try {
       const result = await authClient.revokeSession({ token: session.token });
       if (result.error) {
-        setSessionError(result.error.message ?? "Unable to revoke session.");
+        setSessionError(result.error.message ?? copy.revokeFailed);
         return;
       }
       if (session.id === currentSessionId) {
@@ -153,7 +150,7 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
     try {
       const result = await authClient.revokeOtherSessions();
       if (result.error) {
-        setSessionError(result.error.message ?? "Unable to sign out other sessions.");
+        setSessionError(result.error.message ?? copy.revokeOthersFailed);
         return;
       }
       await loadSessions();
@@ -165,48 +162,48 @@ export function AccountSecurityPanel({ currentEmail }: { currentEmail: string })
   return (
     <div className="mainGrid accountSecurityGrid">
       <section className="panel">
-        <div className="panelHeader"><div><p className="eyebrow">Password</p><h2>Change password</h2><p className="subtitle">Changing your password signs out every other active session.</p></div></div>
+        <div className="panelHeader"><div><p className="eyebrow">{copy.passwordEyebrow}</p><h2>{copy.changePassword}</h2><p className="subtitle">{copy.passwordSubtitle}</p></div></div>
         <form className="authForm" onSubmit={changePassword}>
-          <label><span>Current password</span><input autoComplete="current-password" name="currentPassword" required type="password" /></label>
-          <label><span>New password</span><input autoComplete="new-password" minLength={10} name="newPassword" required type="password" /></label>
-          <label><span>Confirm new password</span><input autoComplete="new-password" minLength={10} name="confirmPassword" required type="password" /></label>
+          <label><span>{productionUiMessages[locale].common.currentPassword}</span><input autoComplete="current-password" name="currentPassword" required type="password" /></label>
+          <label><span>{productionUiMessages[locale].common.newPassword}</span><input autoComplete="new-password" minLength={10} name="newPassword" required type="password" /></label>
+          <label><span>{productionUiMessages[locale].common.confirmNewPassword}</span><input autoComplete="new-password" minLength={10} name="confirmPassword" required type="password" /></label>
           {passwordError ? <p className="formError" role="alert">{passwordError}</p> : null}
           {passwordStatus ? <p role="status">{passwordStatus}</p> : null}
-          <button className="primary authSubmit" disabled={passwordPending} type="submit">{passwordPending ? "Updating…" : "Change password"}</button>
+          <button className="primary authSubmit" disabled={passwordPending} type="submit">{passwordPending ? copy.updating : copy.changePassword}</button>
         </form>
       </section>
 
       <section className="panel">
-        <div className="panelHeader"><div><p className="eyebrow">Email</p><h2>Change account email</h2><p className="subtitle">Current email: {currentEmail}</p></div></div>
+        <div className="panelHeader"><div><p className="eyebrow">{copy.emailEyebrow}</p><h2>{copy.changeEmail}</h2><p className="subtitle">{format(copy.currentEmail, { email: currentEmail })}</p></div></div>
         <form className="authForm" onSubmit={changeEmail}>
-          <label><span>New email</span><input autoComplete="email" name="newEmail" required type="email" /></label>
+          <label><span>{copy.newEmail}</span><input autoComplete="email" name="newEmail" required type="email" /></label>
           {emailError ? <p className="formError" role="alert">{emailError}</p> : null}
           {emailStatus ? <p role="status">{emailStatus}</p> : null}
-          <button className="primary authSubmit" disabled={emailPending} type="submit">{emailPending ? "Sending approval…" : "Change email securely"}</button>
+          <button className="primary authSubmit" disabled={emailPending} type="submit">{emailPending ? copy.sendingApproval : copy.changeEmailSecurely}</button>
         </form>
       </section>
 
       <section className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="panelHeader">
-          <div><p className="eyebrow">Sessions</p><h2>Active sessions</h2><p className="subtitle">Review devices signed in to your account and revoke anything you do not recognize.</p></div>
-          <button className="secondary" disabled={sessionsPending || sessionsLoading || sessions.length < 2} onClick={revokeOtherSessions} type="button">Log out other sessions</button>
+          <div><p className="eyebrow">{copy.sessionsEyebrow}</p><h2>{copy.activeSessions}</h2><p className="subtitle">{copy.sessionsSubtitle}</p></div>
+          <button className="secondary" disabled={sessionsPending || sessionsLoading || sessions.length < 2} onClick={revokeOtherSessions} type="button">{copy.logoutOthers}</button>
         </div>
         {sessionError ? <p className="formError" role="alert">{sessionError}</p> : null}
-        {sessionsLoading ? <p>Loading sessions…</p> : (
+        {sessionsLoading ? <p>{copy.loadingSessions}</p> : (
           <div className="numberList">
             {orderedSessions.map((session) => {
               const isCurrent = session.id === currentSessionId;
               return (
                 <div className="numberRow" key={session.id}>
                   <div>
-                    <strong>{describeAgent(session.userAgent)}{isCurrent ? " · This session" : ""}</strong>
-                    <p>{session.ipAddress ?? "IP unavailable"} · Signed in {formatDate(session.createdAt)} · Expires {formatDate(session.expiresAt)}</p>
+                    <strong>{describeAgent(session.userAgent)}{isCurrent ? ` · ${copy.thisSession}` : ""}</strong>
+                    <p>{session.ipAddress ?? copy.ipUnavailable} · {format(copy.signedIn, { date: safeDate(session.createdAt) })} · {format(copy.expires, { date: safeDate(session.expiresAt) })}</p>
                   </div>
-                  <button className="secondary" disabled={sessionsPending} onClick={() => void revokeSession(session)} type="button">{isCurrent ? "Log out" : "Revoke"}</button>
+                  <button className="secondary" disabled={sessionsPending} onClick={() => void revokeSession(session)} type="button">{isCurrent ? copy.logout : copy.revoke}</button>
                 </div>
               );
             })}
-            {!orderedSessions.length ? <p>No active sessions found.</p> : null}
+            {!orderedSessions.length ? <p>{copy.noSessions}</p> : null}
           </div>
         )}
       </section>

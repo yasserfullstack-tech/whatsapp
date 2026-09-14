@@ -3,18 +3,14 @@ import type { ReactNode } from "react";
 import { I18nProvider } from "@/components/i18n-provider";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { getI18n } from "@/lib/i18n/server";
+import { getPublicAppUrl } from "@/lib/public-app-url";
 import "./globals.css";
 import "./responsive.css";
-
-function metadataBase(): URL {
-  const value = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  return new URL(value);
-}
 
 export async function generateMetadata(): Promise<Metadata> {
   const { messages } = await getI18n();
   return {
-    metadataBase: metadataBase(),
+    metadataBase: getPublicAppUrl(),
     title: messages.meta.title,
     description: messages.meta.description,
   };

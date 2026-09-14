@@ -1,11 +1,10 @@
 import type { MetadataRoute } from "next";
+import { getPublicAppUrl } from "@/lib/public-app-url";
 
-function siteUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-}
+export const dynamic = "force-dynamic";
 
 export default function robots(): MetadataRoute.Robots {
-  const base = siteUrl();
+  const base = getPublicAppUrl().toString().replace(/\/$/, "");
 
   return {
     rules: {
