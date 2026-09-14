@@ -8,11 +8,13 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required for security E2E tes
 const database = createDatabase(databaseUrl);
 export const securityDb = database.db;
 export const securitySql = database.client;
+export const SECURITY_BASE_URL = "http://127.0.0.1:3000";
 
 export type SecurityTenant = {
   api: APIRequestContext;
   cookie: string;
   email: string;
+  password: string;
   authUserId: string;
   appUserId: string;
   organizationId: string;
@@ -46,7 +48,7 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
   const suffix = uniqueSuffix();
   const email = `security-${label}-${suffix}@example.test`;
   const password = `Security-${randomUUID()}-A1!`;
-  const authApi = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
+  const authApi = await request.newContext({ baseURL: SECURITY_BASE_URL });
 
   const signUp = await authApi.post("/api/auth/sign-up/email", {
     data: {
@@ -86,8 +88,12 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
   // exercising Better Auth's real session validation on every protected request.
   const cookie = cookieHeaderFrom(signIn);
   const api = await request.newContext({
-    baseURL: "http://127.0.0.1:3000",
-    extraHTTPHeaders: { cookie },
+    baseURL: SECURITY_BASE_URL,
+    extraHTTPHeaders: {
+      cookie,
+      origin: SECURITY_BASE_URL,
+      "sec-fetch-site": "same-origin",
+    },
   });
   await authApi.dispose();
 
@@ -118,10 +124,23 @@ export async function createSecurityTenant(label: string): Promise<SecurityTenan
     api,
     cookie,
     email,
+    password,
     authUserId: authUser.id,
     appUserId: workspace.appUserId,
     organizationId: workspace.organizationId,
   };
+}
+
+export async function setSecurityTenantRole(
+  tenant: SecurityTenant,
+  role: "owner" | "admin" | "member" | "viewer",
+): Promise<void> {
+  await database.client`
+    UPDATE organization_members
+    SET role = ${role}
+    WHERE organization_id = ${tenant.organizationId}
+      AND user_id = ${tenant.appUserId}
+  `;
 }
 
 export async function seedTenantResources(organizationId: string): Promise<TenantResources> {

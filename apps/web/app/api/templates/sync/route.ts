@@ -5,12 +5,14 @@ import { getAuthContext } from "@/lib/auth-context";
 import { getWabaAccessToken, listConnectedWabas } from "@/lib/meta-credentials";
 import { getMetaServerConfig } from "@/lib/server";
 import { syncWabaTemplates } from "@/lib/template-sync";
+import { can } from "@/lib/workspace-access";
 
 const requestSchema = z.object({ wabaId: z.string().min(1).max(128).optional() });
 
 export async function POST(request: Request) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "templates.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = requestSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: "Invalid sync request" }, { status: 400 });

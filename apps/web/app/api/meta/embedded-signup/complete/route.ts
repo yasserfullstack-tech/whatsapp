@@ -11,7 +11,16 @@ import {
   subscribeAppToWaba,
 } from "@wa/meta";
 import { getAuthContext } from "@/lib/auth-context";
+import {
+  EmbeddedSignupConflictError,
+  EmbeddedSignupPhoneMismatchError,
+  verifyEmbeddedSignupPhone,
+} from "@/lib/embedded-signup-security";
 import { db, getCredentialEncryptionKey, getMetaServerConfig } from "@/lib/server";
+import {
+  saveVerifiedWhatsAppConnectionAtomic,
+  WhatsAppConnectionConflictError,
+} from "@/lib/whatsapp-connection";
 import { requireWorkspaceAction } from "@/lib/workspace-access";
 
 const payloadSchema = z.object({
@@ -36,37 +45,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid Embedded Signup payload" }, { status: 400 });
   }
 
-  const existing = (
-    await db
-      .select({ organizationId: schema.whatsappPhoneNumbers.organizationId })
-      .from(schema.whatsappPhoneNumbers)
-      .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, parsed.data.phoneNumberId))
-      .limit(1)
-  )[0];
-
-  if (existing && existing.organizationId !== context.workspace.organizationId) {
-    return NextResponse.json({ error: "This WhatsApp number is already connected to another workspace" }, { status: 409 });
-  }
-
   const meta = getMetaServerConfig();
 
   try {
-    const token = await exchangeEmbeddedSignupCode({
-      code: parsed.data.code,
-      appId: meta.appId,
-      appSecret: meta.appSecret,
-      graphApiVersion: meta.graphApiVersion,
+    const { token, phone } = await verifyEmbeddedSignupPhone({
+      organizationId: context.workspace.organizationId,
+      requestedPhoneNumberId: parsed.data.phoneNumberId,
+      exchangeCode: () => exchangeEmbeddedSignupCode({
+        code: parsed.data.code,
+        appId: meta.appId,
+        appSecret: meta.appSecret,
+        graphApiVersion: meta.graphApiVersion,
+      }),
+      getPhone: (accessToken) => getWhatsAppPhoneNumber({
+        phoneNumberId: parsed.data.phoneNumberId,
+        accessToken,
+        graphApiVersion: meta.graphApiVersion,
+      }),
+      findOrganizationByPhoneNumberId: async (phoneNumberId) => (
+        await db
+          .select({ organizationId: schema.whatsappPhoneNumbers.organizationId })
+          .from(schema.whatsappPhoneNumbers)
+          .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, phoneNumberId))
+          .limit(1)
+      )[0]?.organizationId ?? null,
     });
-
-    const phone = await getWhatsAppPhoneNumber({
-      phoneNumberId: parsed.data.phoneNumberId,
-      accessToken: token.accessToken,
-      graphApiVersion: meta.graphApiVersion,
-    });
-
-    if (phone.id !== parsed.data.phoneNumberId) {
-      return NextResponse.json({ error: "Meta returned a different WhatsApp phone number" }, { status: 400 });
-    }
 
     await subscribeAppToWaba({
       wabaId: parsed.data.wabaId,
@@ -76,49 +79,23 @@ export async function POST(request: Request) {
 
     const credentialKey = `org/${context.workspace.organizationId}/whatsapp/${phone.id}/access-token`;
     const encrypted = encryptSecret(token.accessToken, getCredentialEncryptionKey());
-    const now = new Date();
+    const throughputMps = inferThroughputMps(phone.throughputLevel);
 
-    await db.transaction(async (tx) => {
-      await tx
-        .insert(schema.credentialSecrets)
-        .values({
-          organizationId: context.workspace.organizationId,
-          key: credentialKey,
-          ...encrypted,
-        })
-        .onConflictDoUpdate({
-          target: schema.credentialSecrets.key,
-          set: { ...encrypted, updatedAt: now },
-        });
-
-      await tx
-        .insert(schema.whatsappPhoneNumbers)
-        .values({
-          organizationId: context.workspace.organizationId,
-          metaBusinessId: parsed.data.businessId ?? null,
-          wabaId: parsed.data.wabaId,
-          phoneNumberId: phone.id,
-          displayPhoneNumber: phone.displayPhoneNumber ?? null,
-          verifiedName: phone.verifiedName ?? null,
-          status: "connected",
-          qualityRating: phone.qualityRating ?? null,
-          throughputMps: inferThroughputMps(phone.throughputLevel),
-          credentialKey,
-        })
-        .onConflictDoUpdate({
-          target: schema.whatsappPhoneNumbers.phoneNumberId,
-          set: {
-            metaBusinessId: parsed.data.businessId ?? null,
-            wabaId: parsed.data.wabaId,
-            displayPhoneNumber: phone.displayPhoneNumber ?? null,
-            verifiedName: phone.verifiedName ?? null,
-            status: "connected",
-            qualityRating: phone.qualityRating ?? null,
-            throughputMps: inferThroughputMps(phone.throughputLevel),
-            credentialKey,
-            updatedAt: now,
-          },
-        });
+    await saveVerifiedWhatsAppConnectionAtomic(db, {
+      organizationId: context.workspace.organizationId,
+      phone: {
+        id: phone.id,
+        ...(phone.displayPhoneNumber !== undefined ? { displayPhoneNumber: phone.displayPhoneNumber } : {}),
+        ...(phone.verifiedName !== undefined ? { verifiedName: phone.verifiedName } : {}),
+        ...(phone.qualityRating !== undefined ? { qualityRating: phone.qualityRating } : {}),
+        throughputMps,
+      },
+      wabaId: parsed.data.wabaId,
+      ...(parsed.data.businessId !== undefined ? { businessId: parsed.data.businessId } : {}),
+      credential: {
+        key: credentialKey,
+        ...encrypted,
+      },
     });
 
     return NextResponse.json({
@@ -128,10 +105,18 @@ export async function POST(request: Request) {
         displayPhoneNumber: phone.displayPhoneNumber ?? null,
         verifiedName: phone.verifiedName ?? null,
         qualityRating: phone.qualityRating ?? null,
-        throughputMps: inferThroughputMps(phone.throughputLevel),
+        throughputMps,
       },
     });
   } catch (error) {
+    if (error instanceof EmbeddedSignupConflictError || error instanceof WhatsAppConnectionConflictError) {
+      return NextResponse.json({ error: "Could not connect this WhatsApp number" }, { status: 409 });
+    }
+
+    if (error instanceof EmbeddedSignupPhoneMismatchError) {
+      return NextResponse.json({ error: "Meta returned a different WhatsApp phone number" }, { status: 400 });
+    }
+
     if (error instanceof MetaApiError) {
       console.error("Meta Embedded Signup failed", {
         status: error.status,

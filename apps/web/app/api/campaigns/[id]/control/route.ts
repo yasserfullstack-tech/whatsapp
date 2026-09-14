@@ -4,6 +4,7 @@ import { z } from "zod";
 import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
 import { campaignDispatchQueue, db } from "@/lib/server";
+import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,7 @@ const controlSchema = z.object({ action: z.enum(["pause", "resume", "cancel"]) }
 export async function POST(request: Request, routeContext: RouteContext) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "campaigns.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = controlSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid campaign control action" }, { status: 400 });
@@ -86,6 +88,7 @@ export async function POST(request: Request, routeContext: RouteContext) {
       })
       .where(and(
         eq(schema.campaignRecipients.campaignId, campaign.id),
+        eq(schema.campaignRecipients.organizationId, organizationId),
         inArray(schema.campaignRecipients.status, ["pending", "queued"]),
       ));
   });

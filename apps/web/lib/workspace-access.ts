@@ -11,6 +11,12 @@ export const workspaceActions = [
   "team.transferOwnership",
   "whatsapp.read",
   "whatsapp.manage",
+  "contacts.manage",
+  "contacts.restoreConsent",
+  "audiences.manage",
+  "templates.manage",
+  "campaigns.manage",
+  "imports.manage",
   "security.read",
   "security.manage",
   "billing.read",
@@ -23,6 +29,14 @@ export const workspaceActions = [
 ] as const;
 export type WorkspaceAction = (typeof workspaceActions)[number];
 
+const productMemberActions: WorkspaceAction[] = [
+  "contacts.manage",
+  "audiences.manage",
+  "templates.manage",
+  "campaigns.manage",
+  "imports.manage",
+];
+
 const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
   owner: new Set(workspaceActions),
   admin: new Set([
@@ -34,6 +48,8 @@ const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
     "team.remove",
     "whatsapp.read",
     "whatsapp.manage",
+    ...productMemberActions,
+    "contacts.restoreConsent",
     "security.read",
     "security.manage",
     "billing.read",
@@ -42,8 +58,23 @@ const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
     "data.retention",
     "audit.read",
   ]),
-  member: new Set(["workspace.read", "team.read", "whatsapp.read", "security.read", "billing.read", "data.read"]),
-  viewer: new Set(["workspace.read", "team.read", "whatsapp.read", "security.read", "billing.read", "data.read"]),
+  member: new Set([
+    "workspace.read",
+    "team.read",
+    "whatsapp.read",
+    ...productMemberActions,
+    "security.read",
+    "billing.read",
+    "data.read",
+  ]),
+  viewer: new Set([
+    "workspace.read",
+    "team.read",
+    "whatsapp.read",
+    "security.read",
+    "billing.read",
+    "data.read",
+  ]),
 };
 
 export function can(role: WorkspaceRole, action: WorkspaceAction): boolean {

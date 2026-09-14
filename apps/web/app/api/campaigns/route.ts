@@ -10,6 +10,7 @@ import {
   resolveAudienceSelection,
 } from "@/lib/audience-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
+import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,7 @@ function isTextOnlyTemplate(components: unknown): boolean {
 export async function POST(request: Request) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "campaigns.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = createCampaignSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

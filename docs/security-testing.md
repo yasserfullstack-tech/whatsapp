@@ -4,15 +4,17 @@ This suite is the security regression harness for the multi-tenant application. 
 
 ## Core rule: tenant isolation
 
-For every tenant-owned resource, a caller from Organization A using an identifier that belongs to Organization B must receive `404`, `403`, or a non-enumerating validation response. The response must never include Organization B data, metadata, secrets, object keys, phone numbers, template contents, analytics, or existence-sensitive detail.
+For every tenant-owned resource, a caller from Organization A using an identifier that belongs to Organization B must receive `404`, `403`, or another non-enumerating rejection. The response must never include Organization B data, metadata, secrets, object keys, phone numbers, template contents, analytics, billing data, or existence-sensitive detail.
 
-Tenant filters are enforced server-side at the data-access boundary. Client-supplied organization identifiers and workspace-selection cookies are never authoritative.
+Tenant filters are enforced server-side at the data-access boundary. Client-supplied organization identifiers, workspace identifiers, hidden form values, and workspace-selection cookies are never authoritative.
 
 ## Current executable coverage
 
-The Playwright security suite provisions real authenticated users/workspaces against PostgreSQL, seeds tenant-owned resources, and attacks them through the application HTTP boundary.
+The Playwright security suite provisions real authenticated users and workspaces against PostgreSQL and Valkey, seeds tenant-owned resources, and attacks them through the production-built application HTTP boundary. Lower-level Bun tests cover worker, webhook, persistence, parser, and utility boundaries that are safer and more deterministic below the browser layer.
 
-Cross-tenant and authorization regressions cover:
+### Tenant isolation and IDOR
+
+Executable regressions cover:
 
 - campaign detail and campaign-control IDOR
 - contact-import read and queue IDOR
@@ -21,55 +23,148 @@ Cross-tenant and authorization regressions cover:
 - foreign WhatsApp phone-number IDs in campaign creation
 - foreign template IDs in campaign creation
 - forged workspace-selection cookies
-- workspace data-export role enforcement
-- workspace export exclusion of credential keys and encrypted secret material
-- workspace-owner versus platform-administrator separation
+- body/query attempts to select another organization
+- report and report-export filters containing foreign campaign IDs
+- notification unread counts scoped to both user and organization
+- billing account, subscription, entitlement usage, and invoice isolation
+- workspace export and export-download isolation
+- R2 export keys constrained to the authenticated tenant prefix
+- hidden membership IDs tampered to reference another workspace
+- hidden WhatsApp phone-number IDs tampered to reference another workspace
+- worker campaign-recipient claims constrained by organization, campaign, and recipient together
 
-Request and abuse regressions cover:
+### Workspace roles and platform administration
 
-- anonymous access to protected application APIs, including settings export
-- malformed opaque, JWT-shaped, and UUID-shaped session tokens
-- revoked authenticated sessions through the real sign-out lifecycle
-- cross-site mutation requests rejected by the Next.js request boundary
-- stored markup/XSS payload escaping in workspace-controlled text
-- oversized and invalid CSV upload metadata
-- presigned upload tenant prefix, filename sanitization, expiry, and signed `content-type`
-- production browser-hardening headers
+The suite verifies:
 
-Existing lower-level tests also cover Meta webhook signature validation and structured-log secret redaction.
+- `Viewer` cannot create or mutate normal product resources
+- `Member` can use normal product workflows but cannot administer consent or workspace-level controls
+- `Admin` can perform permitted administration and exports but cannot perform owner-only workspace deletion
+- `Owner` reaches owner-only destructive controls
+- a workspace owner does not automatically become a platform administrator
+- platform administrator access requires the separate platform-admin grant/bootstrap boundary
+- disabling a user also blocks previously granted platform-admin access
+- a normal workspace user cannot replay a valid platform-admin user-disable server action
+- a normal workspace owner cannot replay valid organization suspend, reactivate, or plan/limit server actions
+- server actions re-resolve the authenticated workspace and permissions instead of trusting hidden IDs or a captured action token
+
+### Authentication and session abuse
+
+Executable regressions cover:
+
+- cross-site credential sign-in requests rejected by Better Auth trusted-origin handling
+- wrong-password and unknown-user sign-in failures without account enumeration
+- password-reset responses without account enumeration
+- password-reset throttling
+- untrusted callback/reset URLs rejected instead of becoming open redirects
+- oversized auth request bodies rejected without internal error leakage
+- malformed, JWT-shaped, UUID-shaped, and unknown session tokens
+- normal sign-out session revocation
+- session expiry after removal from Better Auth's active Valkey secondary store and expiry in PostgreSQL
+- attacker-chosen session cookie replacement on successful sign-in
+- `HttpOnly`, `Secure`, and `SameSite=Lax` session-cookie attributes
+- TOTP enrollment requiring proof
+- password-only login blocked when MFA is enabled
+- recovery codes accepted once and rejected on replay
+
+### Invitations and destructive workflows
+
+Executable regressions cover:
+
+- invitations bound to the invited email address
+- expired invitations rejected
+- accepted invitations single-use and replay-safe
+- invitation acceptance only creates membership in the intended workspace
+- concurrent workspace-deletion requests serialize so only one active destructive schedule can be created
+- workspace-deletion scheduling remains owner-only and requires recent authentication
+- concurrent account-deletion requests can complete only once
+- account deletion records its completed lifecycle audit in the same transaction as the destructive user deletion, preventing duplicate or false completion records
+- account deletion remains blocked while the user owns a workspace
+- account deletion and ownership transfer share the same per-workspace PostgreSQL advisory lock and re-check roles under that lock
+- a real concurrent transfer-vs-delete regression requires exactly one safe outcome: either transfer wins and deletion is refused, or deletion wins before transfer and the original owner remains owner
+
+### Request boundary, injection, XSS, and uploads
+
+Executable regressions cover:
+
+- cross-site cookie-authenticated mutations rejected before normal input processing
+- authenticated mutations requiring an explicit trusted `Origin`
+- missing, `null`, and spoofed origins rejected
+- same-origin anonymous requests still reaching normal authentication rather than being misclassified as CSRF
+- production CSP and browser-hardening headers
+- stored organization-name markup rendered as text rather than executable HTML
+- SQL metacharacters, comment syntax, `pg_sleep`-shaped input, and SQL/LIKE wildcard payloads treated as literal audience-filter values
+- audience queries remaining scoped to the authenticated organization under malicious filter input
+- oversized and non-CSV contact-import metadata rejected before signing
+- upload object keys constrained to the authenticated tenant prefix
+- uploaded filenames sanitized before becoming object-key components
+- presigned upload expiry and signed `content-type` restrictions
+- contact-import parser rejection of oversized individual records and malformed quoted CSV
+- BOM and blank-line handling without manufacturing import rows
+- hostile spreadsheet-formula and SQL-like CSV cell contents remaining inert parser data
+- live worker parser and row safety limits remaining enabled, including the per-record and total-row caps
+- completed export downloads signed only for tenant-owned keys, with short-lived download URLs and `Cache-Control: no-store`
+- CSV/report export cells hardened against spreadsheet-formula execution
+
+### Webhooks, workers, and failure safety
+
+Existing lower-level tests cover:
+
+- valid Meta SHA-256 webhook HMAC acceptance
+- missing, malformed, and incorrect webhook signatures rejected
+- repeated identical webhook deliveries deduplicated into one durable inbox event / queue job
+- replayed already-processed webhook events not requeued
+- Redis queue failure leaving a durable webhook inbox event that can be retried
+- database failures remaining retryable instead of being acknowledged as processed
+- monotonic webhook delivery-state handling and worker reliability regressions
+- campaign send-queue tenant scoping so a forged job cannot claim another organization's recipient
+- structured-log secret redaction
 
 ## Coverage matrix
 
-`N/A` means the application does not currently expose an identifier-bearing endpoint for that resource. When such an endpoint is added, the corresponding regression should land in the same feature PR.
+`N/A` means the application does not currently expose the specified identifier-bearing public surface. When such a surface is added, its regression should land in the same feature PR.
 
 | Area | Cross-tenant / isolation | Authorization | Anonymous / session | Abuse / leakage | Current status |
 | --- | --- | --- | --- | --- | --- |
-| contacts | suppress/resubscribe IDOR covered | authenticated workspace boundary | covered on existing actions | stored user text escaped by React | covered for current endpoints |
+| contacts | suppress/resubscribe IDOR covered | workspace role boundary | existing actions protected | stored text escaped; inputs validated | covered for current endpoints |
 | lists | foreign list reference rejected | tenant-scoped validation | indirect through protected segment API | schema validation | covered for current endpoints |
-| segments | tenant-owned list filters enforced | authenticated workspace boundary | create covered | input schema + CSRF boundary | covered for current endpoints |
-| templates | foreign template campaign reference rejected | tenant-scoped campaign validation | create/sync covered | response does not expose foreign template | covered for current endpoints |
-| campaigns | detail/control IDOR + foreign phone/template references covered | authenticated workspace boundary | create/detail/control covered | malformed sessions + CSRF covered | covered for current endpoints |
-| campaign recipients | N/A — no public recipient-by-id endpoint | N/A | N/A | N/A | add regression with endpoint |
-| imports | read/queue IDOR covered | authenticated workspace boundary | presign/read/queue covered | size/type validation + signed-upload restrictions | covered for current endpoints |
-| phone numbers | foreign campaign reference rejected | tenant-scoped campaign validation | embedded signup protected | no foreign phone metadata leakage | covered for current endpoints |
-| consent records | enforced through contact IDOR actions | authenticated workspace boundary | protected | evidence input validated | covered for current endpoints |
-| suppressions | enforced through contact IDOR actions | authenticated workspace boundary | protected | input validated | covered for current endpoints |
-| analytics | N/A — no standalone analytics API | N/A | N/A | N/A | add regression with endpoint |
-| settings | forged workspace cookie rejected; export stays tenant-scoped | workspace role matrix + export role E2E | export anonymous access covered | secret-free export + CSRF boundary | covered for current surfaces |
-| members | tenant context + workspace permission matrix | Owner/Admin/Member/Viewer matrix unit-tested | server-rendered/settings boundary | server-side actions re-check permissions | covered for current surfaces |
-| credentials | never selected into workspace export | tenant-scoped credential lookup | protected indirectly | export and logger secret-leakage regressions | covered for current surfaces |
-| admin | workspace owner is not platform admin | separate platform-admin grant boundary | protected | no workspace-role escalation | covered for current surfaces |
+| segments | foreign list and organization spoofing rejected | role matrix | create/preview protected | SQL/LIKE injection payloads covered | covered for current endpoints |
+| templates | foreign template campaign reference rejected | tenant-scoped campaign validation | create/sync protected | no foreign template leakage | covered for current endpoints |
+| campaigns | detail/control IDOR + foreign phone/template references | role matrix | create/detail/control protected | bad sessions + CSRF covered | covered for current endpoints |
+| campaign recipients | worker claim requires org + campaign + recipient | queue-side tenant boundary | no public recipient-by-id route | forged queue job regression | covered at current worker boundary |
+| imports | read/queue IDOR covered | role matrix | presign/read/queue protected | signing restrictions plus malformed/oversized/parser-hostile CSV cases | parser-level abuse covered; full hostile R2 object E2E remains |
+| phone numbers | foreign campaign/server-action reference rejected | role matrix | embedded signup protected | credential remains untouched on foreign-ID tamper | covered for current surfaces |
+| consent records | contact IDOR actions stay tenant-scoped | admin/owner boundaries | protected | evidence input validated | covered for current surfaces |
+| suppressions | contact IDOR actions stay tenant-scoped | admin/owner boundaries | protected | input validated | covered for current surfaces |
+| analytics/reports | foreign campaign filters cannot expose tenant B | authenticated workspace boundary | protected | CSV output hardened | covered for current report surfaces |
+| settings/data lifecycle | forged workspace selector rejected; exports tenant-scoped | Owner/Admin/Member/Viewer matrix | protected | CSRF, secret-free export, deletion concurrency, transfer/delete race | covered for current surfaces |
+| members/invitations | hidden foreign membership ID rejected; invitation workspace fixed | role matrix + email binding | protected where required | expiry + single-use/replay covered | covered for current surfaces |
+| credentials/object storage | tenant prefix and lookup boundaries | workspace/platform boundaries | protected indirectly | exports omit secrets; presigns short-lived | covered for current surfaces |
+| billing | account/subscription/usage/invoice scoped to workspace | authenticated workspace boundary | protected | foreign billing sentinel absent | covered for current read surfaces |
+| notifications | user + organization scoped | authenticated user boundary | unread endpoint protected | no foreign unread leakage | covered for current surfaces |
+| platform admin | workspace ownership cannot grant access | separate admin grant + disabled-user check | protected | captured disable-user, suspend, reactivate, and plan/limit actions rejected for normal users | covered for current mutations |
+| webhooks | durable inbox and recipient updates tenant-aware | signed external boundary | N/A | HMAC, duplicate, replay, Redis/DB failure covered | covered at current API/worker boundary |
 
-## Remaining rules for future endpoints
+## Known remaining high-value coverage
+
+The current branch intentionally does not claim that every future attack class is exhausted. The following additions remain worthwhile:
+
+- run adversarial **stored R2 CSV objects** through the complete contact-import worker integration, including hostile Unicode, pathological column counts, invalid-phone floods, duplicate-heavy files, and parser-failure cleanup. Parser-level malformed quoting, oversized-record, BOM/blank-line, and hostile-cell behavior is already executable; the remaining gap is the full object-storage-to-worker path.
+- require every newly added platform-admin mutation to ship with its own negative captured-action replay probe where practical.
+- add container/image vulnerability scanning to the release/deployment security pipeline when the image-release gate is finalized.
+- continue adding explicit IDOR tests whenever new recipient, credential, analytics, member, template, list, phone-number, or other identifier-bearing routes are introduced.
+
+## Rules for future endpoints
 
 The security suite should grow with the product rather than invent endpoints that do not exist. Add focused regressions when new surfaces introduce:
 
-- list, segment, template, phone-number, recipient, analytics, credential, or member ID routes
+- identifier-bearing read, mutation, export, or download routes
 - search/filter/sort parameters that create new SQL-query construction paths
-- direct multipart or raw CSV upload endpoints
-- additional platform-admin mutation endpoints
+- direct multipart, raw CSV, or object-upload endpoints
+- platform-admin mutation endpoints
 - new R2 object-read/download URLs
 - new webhook event types or replay semantics
+- new queues whose payloads contain tenant-owned identifiers
 
 For all new state-changing cookie-authenticated custom `/api/*` routes, the shared request boundary applies automatically. Better Auth routes retain Better Auth's own trusted-origin handling.
 
@@ -83,7 +178,7 @@ For all new state-changing cookie-authenticated custom `/api/*` routes, the shar
 - the isolated Playwright security suite against clean PostgreSQL and Valkey services
 - isolated fake R2 signing credentials for presign-policy tests; no real storage account is contacted
 
-Container/image scanning remains deferred until container images become part of the deployment path.
+The main CI workflow separately verifies migration drift/schema state, unit/integration tests, TypeScript, the production web build, and the browser E2E suite.
 
 ## Running locally
 
@@ -102,7 +197,9 @@ The suite uses generated `example.test` accounts and removes the organizations, 
 
 Prefer black-box HTTP tests. Seed the victim resource directly in the database only when the normal creation flow requires unrelated external systems such as Meta or R2. Always authenticate as a different organization for the attack request and assert both:
 
-1. the response is `404`, `403`, or a non-enumerating validation response; and
+1. the response is `404`, `403`, or another non-enumerating rejection; and
 2. the victim resource was not read, changed, queued, deleted, or leaked through the response.
+
+For server actions, preserve the real rendered action token/form protocol, replace only the attacker-controlled identifier, and verify the foreign row or secret remains unchanged.
 
 Whenever an identifier-bearing endpoint is added, its cross-tenant regression should be added in the same feature PR.

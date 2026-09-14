@@ -17,6 +17,15 @@ export type R2Config = {
   endpoint?: string;
 };
 
+export function isObjectKeyWithinPrefix(key: string, prefix: string): boolean {
+  if (!key || !prefix || !prefix.endsWith("/")) return false;
+  if (key.startsWith("/") || key.includes("\\") || key.includes("\0")) return false;
+  if (!key.startsWith(prefix) || key.length <= prefix.length) return false;
+
+  const segments = key.split("/");
+  return !segments.some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
 export function createR2Client(config: R2Config): S3Client {
   const configuredEndpoint = config.endpoint ?? process.env.R2_ENDPOINT;
   return new S3Client({

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { schema } from "@wa/db";
 import { workspaceDeletionSchedule } from "@/lib/data-lifecycle";
@@ -21,38 +21,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Type the workspace slug and confirm the permanent deletion warning" }, { status: 400 });
   }
 
-  const existing = (await db.select().from(schema.workspaceDeletionRequests)
-    .where(eq(schema.workspaceDeletionRequests.organizationId, context.workspace.organizationId)).limit(1))[0];
-  if (existing && ["cooling_off", "disabled", "purging"].includes(existing.status)) {
-    return NextResponse.json({ error: "Workspace deletion is already scheduled", request: existing }, { status: 409 });
-  }
-
   const now = new Date();
   const schedule = workspaceDeletionSchedule(now);
-  const [deletion] = await db.insert(schema.workspaceDeletionRequests).values({
-    organizationId: context.workspace.organizationId,
-    requestedByUserId: context.workspace.userId,
-    status: "cooling_off",
-    coolingOffEndsAt: schedule.coolingOffEndsAt,
-    purgeAfter: schedule.purgeAfter,
-  }).onConflictDoUpdate({
-    target: schema.workspaceDeletionRequests.organizationId,
-    set: {
+  const result = await db.transaction(async (tx) => {
+    const [deletion] = await tx.insert(schema.workspaceDeletionRequests).values({
+      organizationId: context.workspace.organizationId,
       requestedByUserId: context.workspace.userId,
       status: "cooling_off",
       coolingOffEndsAt: schedule.coolingOffEndsAt,
       purgeAfter: schedule.purgeAfter,
-      disabledAt: null,
-      purgeStartedAt: null,
-      completedAt: null,
-      cancelledAt: null,
-      failedAt: null,
-      errorMessage: null,
-      updatedAt: now,
-    },
-  }).returning();
+    }).onConflictDoUpdate({
+      target: schema.workspaceDeletionRequests.organizationId,
+      set: {
+        requestedByUserId: context.workspace.userId,
+        status: "cooling_off",
+        coolingOffEndsAt: schedule.coolingOffEndsAt,
+        purgeAfter: schedule.purgeAfter,
+        disabledAt: null,
+        purgeStartedAt: null,
+        completedAt: null,
+        cancelledAt: null,
+        failedAt: null,
+        errorMessage: null,
+        updatedAt: now,
+      },
+      setWhere: inArray(schema.workspaceDeletionRequests.status, ["completed", "cancelled", "failed"]),
+    }).returning();
 
-  await db.transaction(async (tx) => {
+    if (!deletion) {
+      const existing = (await tx.select().from(schema.workspaceDeletionRequests)
+        .where(eq(schema.workspaceDeletionRequests.organizationId, context.workspace.organizationId)).limit(1))[0];
+      return { deletion: null, existing };
+    }
+
     await tx.insert(schema.workspaceAuditLogs).values({
       organizationId: context.workspace.organizationId,
       actorUserId: context.workspace.userId,
@@ -68,11 +69,16 @@ export async function POST(request: Request) {
       action: "workspace.delete.requested",
       targetType: "organization",
       targetId: context.workspace.organizationId,
-      metadata: { deletionRequestId: deletion?.id, coolingOffEndsAt: schedule.coolingOffEndsAt.toISOString(), purgeAfter: schedule.purgeAfter.toISOString() },
+      metadata: { deletionRequestId: deletion.id, coolingOffEndsAt: schedule.coolingOffEndsAt.toISOString(), purgeAfter: schedule.purgeAfter.toISOString() },
     });
+    return { deletion, existing: null };
   });
 
-  return NextResponse.json({ request: deletion }, { status: 202 });
+  if (!result.deletion) {
+    return NextResponse.json({ error: "Workspace deletion is already scheduled", request: result.existing }, { status: 409 });
+  }
+
+  return NextResponse.json({ request: result.deletion }, { status: 202 });
 }
 
 export async function DELETE() {

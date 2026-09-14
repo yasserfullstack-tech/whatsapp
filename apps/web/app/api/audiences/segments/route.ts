@@ -4,6 +4,7 @@ import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
 import { validateSegmentDefinition } from "@/lib/audience-server";
 import { db } from "@/lib/server";
+import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,7 @@ const requestSchema = z.object({
 export async function POST(request: Request) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "audiences.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

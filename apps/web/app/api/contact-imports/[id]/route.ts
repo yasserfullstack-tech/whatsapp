@@ -4,6 +4,7 @@ import { schema } from "@wa/db";
 import { createR2Client, headStoredObject } from "@wa/storage";
 import { getAuthContext } from "@/lib/auth-context";
 import { contactImportQueue, db, getR2ServerConfig } from "@/lib/server";
+import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,7 @@ export async function GET(_request: Request, routeContext: RouteContext) {
 export async function POST(_request: Request, routeContext: RouteContext) {
   const context = await getAuthContext();
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!can(context.workspace.role, "imports.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await routeContext.params;
   const contactImport = await findImport(id, context.workspace.organizationId);
@@ -84,7 +86,10 @@ export async function POST(_request: Request, routeContext: RouteContext) {
     await db
       .update(schema.contactImports)
       .set({ status: "queued", errorMessage: null, updatedAt: new Date() })
-      .where(eq(schema.contactImports.id, contactImport.id));
+      .where(and(
+        eq(schema.contactImports.id, contactImport.id),
+        eq(schema.contactImports.organizationId, context.workspace.organizationId),
+      ));
 
     try {
       await contactImportQueue.add(
@@ -96,7 +101,10 @@ export async function POST(_request: Request, routeContext: RouteContext) {
       await db
         .update(schema.contactImports)
         .set({ status: "awaiting_upload", errorMessage: "Could not queue the import. Please try again.", updatedAt: new Date() })
-        .where(eq(schema.contactImports.id, contactImport.id));
+        .where(and(
+          eq(schema.contactImports.id, contactImport.id),
+          eq(schema.contactImports.organizationId, context.workspace.organizationId),
+        ));
       throw queueError;
     }
 

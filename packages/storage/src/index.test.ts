@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { S3Client } from "@aws-sdk/client-s3";
-import { deleteStoredPrefix } from "./index";
+import { deleteStoredPrefix, isObjectKeyWithinPrefix } from "./index";
 
 function fakeS3(objects: Set<string>, ignoreDeletes = false): S3Client {
   return {
@@ -18,6 +18,25 @@ function fakeS3(objects: Set<string>, ignoreDeletes = false): S3Client {
     },
   } as unknown as S3Client;
 }
+
+describe("R2 object key isolation", () => {
+  test("accepts only objects strictly below the expected prefix", () => {
+    const prefix = "org-a/data-exports/job-a/";
+    expect(isObjectKeyWithinPrefix("org-a/data-exports/job-a/file.ndjson", prefix)).toBe(true);
+    expect(isObjectKeyWithinPrefix(prefix, prefix)).toBe(false);
+    expect(isObjectKeyWithinPrefix("org-b/data-exports/job-a/file.ndjson", prefix)).toBe(false);
+    expect(isObjectKeyWithinPrefix("org-a2/data-exports/job-a/file.ndjson", prefix)).toBe(false);
+    expect(isObjectKeyWithinPrefix("org-a/data-exports/job-b/file.ndjson", prefix)).toBe(false);
+  });
+
+  test("rejects path-like traversal and separator tricks", () => {
+    const prefix = "org-a/contact-imports/import-a/";
+    expect(isObjectKeyWithinPrefix("org-a/contact-imports/import-a/../foreign.csv", prefix)).toBe(false);
+    expect(isObjectKeyWithinPrefix("org-a/contact-imports/import-a/.//foreign.csv", prefix)).toBe(false);
+    expect(isObjectKeyWithinPrefix("org-a/contact-imports/import-a\\foreign.csv", prefix)).toBe(false);
+    expect(isObjectKeyWithinPrefix("/org-a/contact-imports/import-a/foreign.csv", prefix)).toBe(false);
+  });
+});
 
 describe("R2 tenant prefix cleanup", () => {
   test("deletes every tenant object and leaves other tenants untouched", async () => {

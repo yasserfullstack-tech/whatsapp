@@ -21,6 +21,7 @@ import {
   type CampaignVariableBinding,
   type SendMessageJob,
 } from "@wa/queue";
+import { claimCampaignRecipientForSend } from "./campaign-security";
 
 type Database = ReturnType<typeof createDatabase>["db"];
 type RedisClient = ReturnType<typeof createRedisClient>;
@@ -150,23 +151,14 @@ export function startCampaignWorkers(input: {
     SEND_QUEUE_NAME,
     async (job: Job<SendMessageJob>) => {
       const now = new Date();
-      const [claimed] = await db
-        .update(schema.campaignRecipients)
-        .set({
-          attemptCount: sql`${schema.campaignRecipients.attemptCount} + 1`,
-          lastAttemptAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.campaignRecipients.id, job.data.recipientId),
-            eq(schema.campaignRecipients.campaignId, job.data.campaignId),
-            inArray(schema.campaignRecipients.status, ["pending", "queued"]),
-          ),
-        )
-        .returning({ id: schema.campaignRecipients.id });
+      const claimed = await claimCampaignRecipientForSend(db, {
+        organizationId: job.data.organizationId,
+        campaignId: job.data.campaignId,
+        recipientId: job.data.recipientId,
+        now,
+      });
 
-      if (!claimed) return { skipped: true, reason: "recipient-already-processed" };
+      if (!claimed) return { skipped: true, reason: "recipient-already-processed-or-foreign" };
 
       const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
       await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
@@ -180,7 +172,7 @@ export function startCampaignWorkers(input: {
 
         const result = await client.sendTemplate({
           phoneNumberId: job.data.phoneNumberId,
-          to: job.data.to,
+          to: claimed.phoneE164.replace(/^\+/, ""),
           templateName: job.data.templateName,
           languageCode: job.data.languageCode,
           ...(job.data.components ? { components: job.data.components } : {}),
@@ -197,7 +189,11 @@ export function startCampaignWorkers(input: {
             errorCode: null,
             updatedAt: submittedAt,
           })
-          .where(eq(schema.campaignRecipients.id, job.data.recipientId));
+          .where(and(
+            eq(schema.campaignRecipients.id, job.data.recipientId),
+            eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+            eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+          ));
 
         return { wamid: result.messageId };
       } catch (error) {
@@ -213,7 +209,11 @@ export function startCampaignWorkers(input: {
             ...(isFinalAttempt ? { failedAt } : {}),
             updatedAt: failedAt,
           })
-          .where(eq(schema.campaignRecipients.id, job.data.recipientId));
+          .where(and(
+            eq(schema.campaignRecipients.id, job.data.recipientId),
+            eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+            eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+          ));
         throw error;
       }
     },
