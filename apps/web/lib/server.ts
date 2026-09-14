@@ -29,7 +29,7 @@ function optionalPositiveIntegerEnv(name: string): number | undefined {
 const database = createDatabase(requiredEnv("DATABASE_URL"));
 export const db = database.db;
 export const databaseClient = database.client;
-const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+const redisUrl = requiredEnv("REDIS_URL");
 export const contactImportQueue = createContactImportQueue(redisUrl);
 export const campaignDispatchQueue = createCampaignDispatchQueue(redisUrl);
 export const sendQueue = createSendQueue(redisUrl);
