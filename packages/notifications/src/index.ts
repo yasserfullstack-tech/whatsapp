@@ -64,62 +64,70 @@ export function isNotificationMandatory(type: NotificationType): boolean {
   return definitionByType.get(type)?.mandatory ?? false;
 }
 
-function value(metadata: NotificationMetadata, key: string, fallback: string): string {
+function optionalValue(metadata: NotificationMetadata, key: string): string | null {
   const candidate = metadata[key];
   if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-  if (typeof candidate === "number") return String(candidate);
-  return fallback;
+  if (typeof candidate === "number" && Number.isFinite(candidate)) return String(candidate);
+  return null;
 }
 
 function notificationCopy(type: NotificationType, locale: NotificationLocale, metadata: NotificationMetadata) {
-  const campaign = value(metadata, "campaignName", locale === "ar" ? "الحملة" : "Campaign");
-  const file = value(metadata, "fileName", locale === "ar" ? "ملف الاستيراد" : "Import");
-  const template = value(metadata, "templateName", locale === "ar" ? "القالب" : "Template");
-  const number = value(metadata, "phoneNumber", locale === "ar" ? "رقم واتساب" : "WhatsApp number");
-  const percent = value(metadata, "percent", "90");
-  const detail = value(metadata, "detail", "");
-  const role = value(metadata, "role", locale === "ar" ? "عضو" : "member");
-  const workspace = value(metadata, "workspaceName", locale === "ar" ? "مساحة العمل" : "workspace");
+  const campaign = optionalValue(metadata, "campaignName");
+  const file = optionalValue(metadata, "fileName");
+  const template = optionalValue(metadata, "templateName");
+  const number = optionalValue(metadata, "phoneNumber");
+  const percent = optionalValue(metadata, "percent");
+  const detail = optionalValue(metadata, "detail");
+  const role = optionalValue(metadata, "role");
+  const workspace = optionalValue(metadata, "workspaceName");
 
   if (locale === "ar") {
     switch (type) {
-      case "campaign_completed": return { title: "اكتملت الحملة", message: `اكتملت الحملة «${campaign}».` };
-      case "campaign_failed": return { title: "فشلت الحملة", message: `فشلت الحملة «${campaign}». راجع التفاصيل وحاول مجدداً.` };
-      case "import_completed": return { title: "اكتمل الاستيراد", message: `اكتمل استيراد «${file}».` };
-      case "import_failed": return { title: "فشل الاستيراد", message: `فشل استيراد «${file}». راجع أخطاء الملف.` };
-      case "template_approved": return { title: "تمت الموافقة على القالب", message: `وافقت Meta على القالب «${template}».` };
-      case "template_rejected": return { title: "تم رفض القالب", message: `رفضت Meta القالب «${template}». راجع سبب الرفض.` };
-      case "whatsapp_disconnected": return { title: "انقطع اتصال واتساب", message: `الرقم ${number} غير متصل. أعد الاتصال لاستئناف الإرسال.` };
-      case "whatsapp_connection_problem": return { title: "اتصال واتساب يحتاج إلى انتباه", message: `توجد مشكلة في اتصال ${number}.` };
-      case "quality_rating_degraded": return { title: "انخفض تقييم الجودة", message: `انخفض تقييم الجودة للرقم ${number}. راجع جودة الرسائل والموافقة.` };
-      case "usage_limit_approaching": return { title: "تقترب من حد الاستخدام", message: `وصل الاستخدام إلى ${percent}% من الحد الحالي.` };
+      case "campaign_completed": return { title: "اكتملت الحملة", message: campaign ? `اكتملت الحملة «${campaign}».` : "اكتملت الحملة." };
+      case "campaign_failed": return { title: "فشلت الحملة", message: campaign ? `فشلت الحملة «${campaign}». راجع التفاصيل وحاول مجدداً.` : "فشلت الحملة. راجع التفاصيل وحاول مجدداً." };
+      case "import_completed": return { title: "اكتمل الاستيراد", message: file ? `اكتمل استيراد «${file}».` : "اكتمل الاستيراد." };
+      case "import_failed": return { title: "فشل الاستيراد", message: file ? `فشل استيراد «${file}». راجع أخطاء الملف.` : "فشل الاستيراد. راجع أخطاء الملف." };
+      case "template_approved": return { title: "تمت الموافقة على القالب", message: template ? `وافقت Meta على القالب «${template}».` : "وافقت Meta على القالب." };
+      case "template_rejected": return { title: "تم رفض القالب", message: template ? `رفضت Meta القالب «${template}». راجع سبب الرفض.` : "رفضت Meta القالب. راجع سبب الرفض." };
+      case "whatsapp_disconnected": return { title: "انقطع اتصال واتساب", message: number ? `الرقم ${number} غير متصل. أعد الاتصال لاستئناف الإرسال.` : "أحد أرقام واتساب غير متصل. راجع الاتصال لاستئناف الإرسال." };
+      case "whatsapp_connection_problem": return { title: "اتصال واتساب يحتاج إلى انتباه", message: number ? `توجد مشكلة في اتصال ${number}.` : "توجد مشكلة في اتصال أحد أرقام واتساب." };
+      case "quality_rating_degraded": return { title: "انخفض تقييم الجودة", message: number ? `انخفض تقييم الجودة للرقم ${number}. راجع جودة الرسائل والموافقة.` : "انخفض تقييم الجودة لأحد أرقام واتساب. راجع جودة الرسائل والموافقة." };
+      case "usage_limit_approaching": return { title: "تقترب من حد الاستخدام", message: percent ? `وصل الاستخدام إلى ${percent}% من الحد الحالي.` : "يقترب الاستخدام من الحد الحالي." };
       case "billing_payment_failed": return { title: "فشل الدفع", message: "تعذر إتمام دفعة الفوترة. راجع طريقة الدفع وحالة الفاتورة." };
       case "subscription_past_due": return { title: "الاشتراك متأخر الاستحقاق", message: "الاشتراك متأخر الاستحقاق ويحتاج إلى معالجة الفوترة." };
-      case "security_event": return { title: "حدث أمني مهم", message: detail || "تم رصد حدث أمني مهم في حسابك." };
-      case "team_invitation": return { title: "دعوة إلى الفريق", message: `تمت دعوتك للانضمام إلى ${workspace} بدور ${role}.` };
+      case "security_event": return { title: "حدث أمني مهم", message: detail ?? "تم رصد حدث أمني مهم في حسابك." };
+      case "team_invitation": {
+        if (workspace && role) return { title: "دعوة إلى الفريق", message: `تمت دعوتك للانضمام إلى ${workspace} بدور ${role}.` };
+        if (workspace) return { title: "دعوة إلى الفريق", message: `تمت دعوتك للانضمام إلى ${workspace}.` };
+        return { title: "دعوة إلى الفريق", message: "تمت دعوتك للانضمام إلى مساحة عمل." };
+      }
     }
   }
 
   switch (type) {
-    case "campaign_completed": return { title: "Campaign completed", message: `Campaign “${campaign}” completed.` };
-    case "campaign_failed": return { title: "Campaign failed", message: `Campaign “${campaign}” failed. Review the details and retry when ready.` };
-    case "import_completed": return { title: "Import completed", message: `Import “${file}” completed.` };
-    case "import_failed": return { title: "Import failed", message: `Import “${file}” failed. Review the file errors.` };
-    case "template_approved": return { title: "Template approved", message: `Meta approved template “${template}”.` };
-    case "template_rejected": return { title: "Template rejected", message: `Meta rejected template “${template}”. Review the rejection reason.` };
-    case "whatsapp_disconnected": return { title: "WhatsApp disconnected", message: `${number} is disconnected. Reconnect it to resume sending.` };
-    case "whatsapp_connection_problem": return { title: "WhatsApp connection needs attention", message: `There is a connection problem with ${number}.` };
-    case "quality_rating_degraded": return { title: "Quality rating degraded", message: `${number} has a lower quality rating. Review message quality and consent.` };
-    case "usage_limit_approaching": return { title: "Usage limit approaching", message: `Usage has reached ${percent}% of the current limit.` };
+    case "campaign_completed": return { title: "Campaign completed", message: campaign ? `Campaign “${campaign}” completed.` : "Campaign completed." };
+    case "campaign_failed": return { title: "Campaign failed", message: campaign ? `Campaign “${campaign}” failed. Review the details and retry when ready.` : "Campaign failed. Review the details and retry when ready." };
+    case "import_completed": return { title: "Import completed", message: file ? `Import “${file}” completed.` : "Import completed." };
+    case "import_failed": return { title: "Import failed", message: file ? `Import “${file}” failed. Review the file errors.` : "Import failed. Review the file errors." };
+    case "template_approved": return { title: "Template approved", message: template ? `Meta approved template “${template}”.` : "Meta approved the template." };
+    case "template_rejected": return { title: "Template rejected", message: template ? `Meta rejected template “${template}”. Review the rejection reason.` : "Meta rejected the template. Review the rejection reason." };
+    case "whatsapp_disconnected": return { title: "WhatsApp disconnected", message: number ? `${number} is disconnected. Reconnect it to resume sending.` : "A WhatsApp number is disconnected. Review the connection to resume sending." };
+    case "whatsapp_connection_problem": return { title: "WhatsApp connection needs attention", message: number ? `There is a connection problem with ${number}.` : "There is a connection problem with a WhatsApp number." };
+    case "quality_rating_degraded": return { title: "Quality rating degraded", message: number ? `${number} has a lower quality rating. Review message quality and consent.` : "A WhatsApp number has a lower quality rating. Review message quality and consent." };
+    case "usage_limit_approaching": return { title: "Usage limit approaching", message: percent ? `Usage has reached ${percent}% of the current limit.` : "Usage is approaching the current limit." };
     case "billing_payment_failed": return { title: "Billing payment failed", message: "A billing payment could not be completed. Review the payment method and invoice status." };
     case "subscription_past_due": return { title: "Subscription past due", message: "The subscription is past due and needs billing attention." };
-    case "security_event": return { title: "Important security event", message: detail || "An important security event was detected for your account." };
-    case "team_invitation": return { title: "Team invitation", message: `You were invited to join ${workspace} as ${role}.` };
+    case "security_event": return { title: "Important security event", message: detail ?? "An important security event was detected for your account." };
+    case "team_invitation": {
+      if (workspace && role) return { title: "Team invitation", message: `You were invited to join ${workspace} as ${role}.` };
+      if (workspace) return { title: "Team invitation", message: `You were invited to join ${workspace}.` };
+      return { title: "Team invitation", message: "You were invited to join a workspace." };
+    }
   }
 }
 
 function defaultLink(type: NotificationType, metadata: NotificationMetadata): string | null {
-  const id = value(metadata, "campaignId", "");
+  const id = optionalValue(metadata, "campaignId");
   switch (type) {
     case "campaign_completed":
     case "campaign_failed":
@@ -285,12 +293,6 @@ export class ConsoleEmailProvider implements EmailProvider {
   }
 }
 
-export class UnavailableEmailProvider implements EmailProvider {
-  async send(): Promise<never> {
-    throw new Error("No production EmailProvider is configured");
-  }
-}
-
 function escapeHtml(input: string): string {
   return input.replace(/[&<>'"]/g, (character) => ({
     "&": "&amp;",
@@ -311,9 +313,10 @@ export function renderNotificationEmail(input: {
   const direction = input.locale === "ar" ? "rtl" : "ltr";
   const actionLabel = input.locale === "ar" ? "عرض التفاصيل" : "View details";
   const footer = input.locale === "ar" ? "تم إرسال هذا الإشعار من مساحة عمل واتساب الخاصة بك." : "This notification was sent from your WhatsApp workspace.";
-  const absoluteLink = input.link
-    ? new URL(input.link, input.baseUrl ?? "http://127.0.0.1:3000").toString()
-    : null;
+  const fallbackBaseUrl = process.env.NODE_ENV === "production" ? null : "http://127.0.0.1:3000";
+  const baseUrl = input.baseUrl ?? fallbackBaseUrl;
+  if (input.link && !baseUrl) throw new Error("A notification base URL is required when rendering a production link");
+  const absoluteLink = input.link && baseUrl ? new URL(input.link, baseUrl).toString() : null;
   const title = escapeHtml(input.title);
   const message = escapeHtml(input.message);
   const html = `<!doctype html><html lang="${input.locale}" dir="${direction}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f6f7f8;font-family:Arial,sans-serif;direction:${direction};text-align:${input.locale === "ar" ? "right" : "left"}"><main style="max-width:600px;margin:0 auto;padding:32px 20px"><section style="background:#fff;border:1px solid #e7e9ec;border-radius:14px;padding:28px"><h1 style="font-size:22px;margin:0 0 12px">${title}</h1><p style="font-size:16px;line-height:1.65;margin:0 0 20px">${message}</p>${absoluteLink ? `<p style="margin:0"><a href="${escapeHtml(absoluteLink)}" style="display:inline-block;padding:11px 16px;border-radius:9px;background:#111;color:#fff;text-decoration:none">${actionLabel}</a></p>` : ""}</section><p style="font-size:12px;color:#68707a;line-height:1.5;margin:16px 4px">${footer}</p></main></body></html>`;
