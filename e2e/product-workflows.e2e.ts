@@ -93,7 +93,7 @@ test.describe("product workflows", () => {
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
       await page.locator('input[name="confirmation"]').check();
       await page.getByRole("button", { name: "Restore marketing eligibility" }).click();
-      await expect(page.getByText(/restored/i)).toBeVisible();
+      await expect(page.getByText(/eligible for future campaigns using the recorded new consent/i)).toBeVisible();
       await page.goto("/contacts?q=Imported+E2E&status=eligible");
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
       await health.expectHealthy();
