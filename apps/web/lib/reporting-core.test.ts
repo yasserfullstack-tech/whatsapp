@@ -33,4 +33,19 @@ describe("reporting core", () => {
     expect(csv).toContain('"Hello, world"');
     expect(csv).toContain('"quoted ""value"""');
   });
+
+  test("neutralizes spreadsheet formula injection without changing numeric cells", () => {
+    const csv = toCsv(["Name"], [
+      ["=2+2"],
+      ["+SUM(1,1)"],
+      ["-1+2"],
+      ["@cmd"],
+      [-5],
+    ]);
+    expect(csv).toContain("\r\n'=2+2\r\n");
+    expect(csv).toContain('"\'+SUM(1,1)"');
+    expect(csv).toContain("\r\n'-1+2\r\n");
+    expect(csv).toContain("\r\n'@cmd\r\n");
+    expect(csv).toContain("\r\n-5\r\n");
+  });
 });
