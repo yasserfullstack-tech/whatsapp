@@ -8,7 +8,7 @@ import { authClient } from "@/lib/auth-client";
 import { productionUiMessages } from "@/lib/i18n/production-ui";
 
 type Mode = "totp" | "backup";
-type AuthError = { message?: string | null; code?: string | null };
+type AuthError = { message?: string | null | undefined; code?: string | null | undefined };
 
 export function TwoFactorForm() {
   const router = useRouter();

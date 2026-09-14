@@ -26,6 +26,7 @@ const HIGH_RISK_MARKER = /\b(mock|fake|dummy|fixture|hardcoded|todo|fixme)\b|sim
 const AMBIGUOUS_MARKER = /\b(demo|sample|placeholder|temporary|fallback)\b/i;
 const LOOPBACK_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|[^/"'\s]*\.localhost)(?::\d+)?/i;
 const EXAMPLE_URL = /https?:\/\/[^/"'\s]*example\.com\b/i;
+const LOCAL_IMAGE_TAG = /\b[a-z0-9./_-]+:local\b/i;
 const SECRET_LITERAL = /\b(api[_-]?key|access[_-]?token|secret|password|verify[_-]?token)\b\s*[:=]\s*["'][^"'\n]{8,}["']/i;
 const FIXED_ID = /\b(?:organization|user|waba|phone(?:Number)?|template|campaign)(?:_?id|Id)\b\s*[:=]\s*["'][A-Za-z0-9_-]{6,}["']/i;
 const UUID_LITERAL = /["'][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}["']/i;
@@ -91,7 +92,7 @@ function isAllowedEnglishJsx(file: string, line: string): boolean {
 }
 
 describe("production mock/hardcoded data audit", () => {
-  test("production runtime has no unclassified mock, fixed-ID, secret, or loopback data", async () => {
+  test("production runtime has no unclassified mock, fixed-ID, secret, loopback, or local-image data", async () => {
     const discovered: string[] = [];
     for (const root of ROOTS) {
       for (const file of await walk(root)) {
@@ -110,6 +111,7 @@ describe("production mock/hardcoded data audit", () => {
           || AMBIGUOUS_MARKER.test(line)
           || LOOPBACK_URL.test(line)
           || EXAMPLE_URL.test(line)
+          || LOCAL_IMAGE_TAG.test(line)
           || SECRET_LITERAL.test(line)
           || FIXED_ID.test(line)
           || UUID_LITERAL.test(line);

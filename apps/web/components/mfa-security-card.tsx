@@ -12,7 +12,7 @@ type Enrollment = {
   verified: boolean;
 };
 
-type AuthError = { message?: string | null; code?: string | null };
+type AuthError = { message?: string | null | undefined; code?: string | null | undefined };
 
 export function MfaSecurityCard() {
   const { locale } = useI18n();
