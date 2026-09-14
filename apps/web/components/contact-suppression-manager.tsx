@@ -5,21 +5,22 @@ import { useI18n } from "@/components/i18n-provider";
 
 type ContactRow = { id: string; phoneE164: string; displayName: string | null; optedIn: boolean; optInSource: string | null; optInAt: string | null; unsubscribedAt: string | null; suppressedAt: string | null; suppressionReason: string | null; suppressionSource: string | null };
 type ConsentEvent = { id: string; phoneE164: string; eventType: string; source: string; note: string | null; occurredAt: string };
-type Props = { contacts: ContactRow[]; events: ConsentEvent[]; canSuppress: boolean; canResubscribe: boolean };
 type ActionMode = "suppress" | "resubscribe";
 type ContactAction = { mode: ActionMode; contactId: string };
+type Props = { contacts: ContactRow[]; events: ConsentEvent[]; canSuppress: boolean; canResubscribe: boolean; initialAction?: ContactAction | null };
 function localDateTimeDefault(): string { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 16); }
 
-export function ContactSuppressionManager({ contacts, events, canSuppress, canResubscribe }: Props) {
+export function ContactSuppressionManager({ contacts, events, canSuppress, canResubscribe, initialAction = null }: Props) {
   const { messages, dateTime, format } = useI18n();
   const [rows, setRows] = useState(contacts);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [action, setAction] = useState<ContactAction | null>(null);
+  const [action, setAction] = useState<ContactAction | null>(initialAction);
 
   useEffect(() => { setHydrated(true); }, []);
   useEffect(() => { setRows(contacts); }, [contacts]);
+  useEffect(() => { setAction(initialAction); }, [initialAction]);
 
   const selected = action ? rows.find((contact) => contact.id === action.contactId) ?? null : null;
   const selectedEligible = selected ? selected.optedIn && !selected.unsubscribedAt && !selected.suppressedAt : false;
@@ -29,13 +30,29 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
       ? "resubscribe"
       : null;
 
+  function clearRouteAction() {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("contactAction");
+    url.searchParams.delete("contactId");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
   function openAction(contact: ContactRow, nextMode: ActionMode) {
     setMessage(null);
+    if (nextMode === "resubscribe") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("contactAction", "resubscribe");
+      url.searchParams.set("contactId", contact.id);
+      window.location.assign(`${url.pathname}${url.search}${url.hash}`);
+      return;
+    }
     setAction({ mode: nextMode, contactId: contact.id });
   }
 
   function close() {
     setAction(null);
+    clearRouteAction();
   }
 
   async function submitSuppress(event: FormEvent<HTMLFormElement>) {
@@ -86,6 +103,7 @@ export function ContactSuppressionManager({ contacts, events, canSuppress, canRe
       } : contact));
       setMessage(format(messages.ui.restoredSuccess, { phone: selected.phoneE164 }));
       setAction(null);
+      clearRouteAction();
     }
     catch (error) { setMessage(error instanceof Error ? error.message : messages.ui.restoreFailed); }
     finally { setBusy(false); }
