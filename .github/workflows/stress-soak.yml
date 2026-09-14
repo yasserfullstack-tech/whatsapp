@@ -1,0 +1,200 @@
+name: Stress and Soak Validation
+
+on:
+  push:
+    branches: [test/stress-soak]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Benchmark mode
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - errors
+          - chaos
+          - soak
+          - recovery
+          - webhook-status
+      recipients:
+        description: Recipients for chaos/recovery/webhook-status modes
+        required: false
+        default: "10000"
+      soak_minutes:
+        description: Soak duration in minutes
+        required: false
+        default: "60"
+      soak_mps:
+        description: Soak target messages per second
+        required: false
+        default: "80"
+  schedule:
+    - cron: "17 3 * * 0"
+
+concurrency:
+  group: stress-soak-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  branch-validation:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: whatsapp
+          POSTGRES_USER: whatsapp
+          POSTGRES_PASSWORD: whatsapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatsapp -d whatsapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      BETTER_AUTH_SECRET: ci-only-secret-that-is-long-enough-for-better-auth
+      META_GRAPH_API_VERSION: v26.0
+      META_APP_ID: "123456789"
+      META_APP_SECRET: ci-only-meta-secret
+      META_CONFIG_ID: ci-only-config-id
+      META_VERIFY_TOKEN: ci-only-verify-token
+      LOAD_ALLOW_REMOTE: "0"
+      LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
+      LOAD_REDIS_URL: redis://127.0.0.1:56379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Create ephemeral encryption key
+        shell: bash
+        run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+      - run: bun install
+      - name: Apply migrations for DB-backed tests
+        run: bun run db:migrate
+      - name: Unit and integration tests
+        run: bun run test
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Production web build
+        run: bun run build
+      - name: Verify load-test safety gates
+        run: bun apps/load-test/src/safety-gates.ts
+      - name: Progressive load smoke with thresholds
+        run: bun run load:stress -- --profile=pr --webhook-events=1000 --webhook-concurrency=50
+      - name: Duplicate and out-of-order webhook smoke
+        run: bun run load:webhook-status -- --recipients=1000 --concurrency=50 --timeout-ms=120000
+      - name: Retry and recovery smoke
+        run: |
+          bun run load:recovery -- --mode=429 --recipients=250 --fault-after-ms=1200 --timeout-ms=90000 --runner-timeout-ms=120000
+          bun run load:recovery -- --mode=500 --recipients=250 --fault-after-ms=1200 --timeout-ms=90000 --runner-timeout-ms=120000
+          bun run load:recovery -- --mode=mixed --recipients=250 --fault-after-ms=1200 --timeout-ms=90000 --runner-timeout-ms=120000
+      - name: Valkey and worker restart durability smoke
+        run: |
+          bun run load:chaos -- --chaos=redis-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
+          bun run load:chaos -- --chaos=worker-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
+      - name: Upload summarized load reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-soak-branch-validation
+          path: load-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Cleanup isolated load infrastructure
+        if: always()
+        run: |
+          bun run load:infra:down || true
+          docker compose -f docker-compose.load-chaos.yml down --remove-orphans --volumes || true
+
+  dedicated-benchmark:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: [self-hosted, linux, x64, stress]
+    timeout-minutes: 300
+    env:
+      LOAD_ALLOW_REMOTE: "0"
+      LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
+      LOAD_REDIS_URL: redis://127.0.0.1:56379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install
+      - name: Verify load-test safety gates
+        run: bun apps/load-test/src/safety-gates.ts
+      - name: Execute selected dedicated benchmark
+        shell: bash
+        env:
+          MODE: ${{ github.event_name == 'schedule' && 'full' || inputs.mode }}
+          RECIPIENTS: ${{ inputs.recipients || '10000' }}
+          SOAK_MINUTES: ${{ inputs.soak_minutes || '60' }}
+          SOAK_MPS: ${{ inputs.soak_mps || '80' }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            full)
+              bun run load:stress -- --profile=full --webhook-events=100000 --webhook-concurrency=500
+              bun run load:webhook-status -- --recipients=10000 --concurrency=300 --timeout-ms=600000
+              ;;
+            errors)
+              bun run load:stress -- --profile=errors --webhook-events=10000 --webhook-concurrency=200
+              bun run load:recovery -- --mode=429 --recipients="$RECIPIENTS"
+              bun run load:recovery -- --mode=500 --recipients="$RECIPIENTS"
+              bun run load:recovery -- --mode=mixed --recipients="$RECIPIENTS"
+              ;;
+            chaos)
+              bun run load:chaos -- --chaos=redis-restart --scenario=baseline-1000 --recipients="$RECIPIENTS" --timeout-ms=600000
+              bun run load:chaos -- --chaos=worker-restart --scenario=baseline-1000 --recipients="$RECIPIENTS" --timeout-ms=600000
+              bun run load:chaos -- --chaos=postgres-pressure --scenario=baseline-1000 --recipients="$RECIPIENTS" --timeout-ms=600000
+              bun run load:chaos -- --chaos=multi-worker --scenario=multi-org --recipients="$RECIPIENTS" --extra-workers=2 --fault-after-ms=1000 --timeout-ms=600000
+              ;;
+            soak)
+              bun run load:soak -- --duration-minutes="$SOAK_MINUTES" --mps="$SOAK_MPS"
+              ;;
+            recovery)
+              bun run load:recovery -- --mode=429 --recipients="$RECIPIENTS"
+              bun run load:recovery -- --mode=500 --recipients="$RECIPIENTS"
+              bun run load:recovery -- --mode=mixed --recipients="$RECIPIENTS"
+              ;;
+            webhook-status)
+              bun run load:webhooks -- --events=100000 --concurrency=500 --timeout-ms=600000
+              bun run load:webhook-status -- --recipients="$RECIPIENTS" --concurrency=300 --timeout-ms=600000
+              ;;
+            *)
+              echo "Unknown mode: $MODE" >&2
+              exit 2
+              ;;
+          esac
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-soak-${{ github.run_id }}-${{ github.run_attempt }}
+          path: load-results/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Cleanup isolated load infrastructure
+        if: always()
+        run: |
+          bun run load:infra:down || true
+          docker compose -f docker-compose.load-chaos.yml down --remove-orphans --volumes || true

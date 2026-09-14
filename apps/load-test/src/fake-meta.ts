@@ -20,6 +20,12 @@ type FakeMetaState = {
   maxInFlight: number;
   latencies: number[];
   latencySamplesSeen: number;
+  successfulBySendIdentity: Map<string, number>;
+  duplicateSuccessfulSubmissions: number;
+  maxSuccessfulSubmissionsPerSendIdentity: number;
+  lastRequestAtBySendIdentity: Map<string, number>;
+  retryGapsMs: number[];
+  retryGapSamplesSeen: number;
 };
 
 const clampRate = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
@@ -48,6 +54,12 @@ const emptyState = (): FakeMetaState => ({
   maxInFlight: 0,
   latencies: [],
   latencySamplesSeen: 0,
+  successfulBySendIdentity: new Map(),
+  duplicateSuccessfulSubmissions: 0,
+  maxSuccessfulSubmissionsPerSendIdentity: 0,
+  lastRequestAtBySendIdentity: new Map(),
+  retryGapsMs: [],
+  retryGapSamplesSeen: 0,
 });
 
 let state = emptyState();
@@ -58,14 +70,35 @@ function sleep(milliseconds: number): Promise<void> {
 
 const MAX_LATENCY_SAMPLES = 100_000;
 
-function recordLatency(value: number): void {
-  state.latencySamplesSeen += 1;
-  if (state.latencies.length < MAX_LATENCY_SAMPLES) {
-    state.latencies.push(value);
+function recordSample(values: number[], seen: number, value: number): void {
+  if (values.length < MAX_LATENCY_SAMPLES) {
+    values.push(value);
     return;
   }
-  const index = Math.floor(Math.random() * state.latencySamplesSeen);
-  if (index < MAX_LATENCY_SAMPLES) state.latencies[index] = value;
+  const index = Math.floor(Math.random() * seen);
+  if (index < MAX_LATENCY_SAMPLES) values[index] = value;
+}
+
+function recordLatency(value: number): void {
+  state.latencySamplesSeen += 1;
+  recordSample(state.latencies, state.latencySamplesSeen, value);
+}
+
+function recordSendAttempt(sendIdentity: string): void {
+  const now = Date.now();
+  const previous = state.lastRequestAtBySendIdentity.get(sendIdentity);
+  if (previous !== undefined) {
+    state.retryGapSamplesSeen += 1;
+    recordSample(state.retryGapsMs, state.retryGapSamplesSeen, Math.max(0, now - previous));
+  }
+  state.lastRequestAtBySendIdentity.set(sendIdentity, now);
+}
+
+function recordSuccessfulSend(sendIdentity: string): void {
+  const count = (state.successfulBySendIdentity.get(sendIdentity) ?? 0) + 1;
+  state.successfulBySendIdentity.set(sendIdentity, count);
+  state.maxSuccessfulSubmissionsPerSendIdentity = Math.max(state.maxSuccessfulSubmissionsPerSendIdentity, count);
+  if (count > 1) state.duplicateSuccessfulSubmissions += 1;
 }
 
 function percentile(sorted: number[], quantile: number): number {
@@ -76,11 +109,17 @@ function percentile(sorted: number[], quantile: number): number {
 
 function stats() {
   const sorted = [...state.latencies].sort((a, b) => a - b);
+  const retryGaps = [...state.retryGapsMs].sort((a, b) => a - b);
   const elapsedSeconds = Math.max(0.001, (Date.now() - state.startedAt) / 1_000);
   return {
     ...config,
     requests: state.requests,
     succeeded: state.succeeded,
+    uniqueSuccessfulRecipients: state.successfulBySendIdentity.size,
+    uniqueSuccessfulSendIdentities: state.successfulBySendIdentity.size,
+    duplicateSuccessfulSubmissions: state.duplicateSuccessfulSubmissions,
+    maxSuccessfulSubmissionsPerRecipient: state.maxSuccessfulSubmissionsPerSendIdentity,
+    maxSuccessfulSubmissionsPerSendIdentity: state.maxSuccessfulSubmissionsPerSendIdentity,
     genericErrors: state.genericErrors,
     rateLimited: state.rateLimited,
     serverErrors: state.serverErrors,
@@ -92,6 +131,13 @@ function stats() {
       p95: percentile(sorted, 0.95),
       p99: percentile(sorted, 0.99),
       max: sorted.at(-1) ?? 0,
+    },
+    retryGapMs: {
+      samples: state.retryGapSamplesSeen,
+      p50: percentile(retryGaps, 0.5),
+      p95: percentile(retryGaps, 0.95),
+      p99: percentile(retryGaps, 0.99),
+      min: retryGaps.at(0) ?? 0,
     },
   };
 }
@@ -148,6 +194,15 @@ const server = Bun.serve({
 
     try {
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+      const to = typeof body?.to === "string" ? body.to : "unknown";
+      const providerPhoneNumberId = match[1] ?? "unknown-phone";
+      // Load scenarios may legitimately send several campaigns to the same contact.
+      // In those scenarios each logical channel uses a distinct synthetic provider
+      // phone number, so duplicate detection must key by channel + recipient rather
+      // than globally by recipient phone alone. Retries of the same logical send hit
+      // the same endpoint and recipient and are still detected.
+      const sendIdentity = `${providerPhoneNumberId}:${to}`;
+      recordSendAttempt(sendIdentity);
       const jitter = config.jitterMs ? Math.random() * config.jitterMs : 0;
       await sleep(config.latencyMs + jitter);
 
@@ -171,9 +226,9 @@ const server = Bun.serve({
         return json({ error: { message: "Load-test rejected request", code: 131000, fbtrace_id: "fake-400" } }, 400);
       }
 
-      const to = typeof body?.to === "string" ? body.to : "unknown";
       const id = `wamid.load.${Date.now().toString(36)}.${randomUUID()}`;
       state.succeeded += 1;
+      recordSuccessfulSend(sendIdentity);
       return json({
         messaging_product: "whatsapp",
         contacts: [{ input: to, wa_id: to }],
