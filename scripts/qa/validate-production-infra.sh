@@ -32,10 +32,10 @@ docker run --rm --entrypoint /bin/promtool \
   prom/prometheus:v3.13.3 \
   check config /etc/prometheus/prometheus.yml
 
-docker build -f infra/docker/web.Dockerfile -t whatsapp-web:qa .
-docker build -f infra/docker/api.Dockerfile -t whatsapp-api:qa .
-docker build -f infra/docker/worker.Dockerfile -t whatsapp-worker:qa .
-docker build -f infra/docker/api.Dockerfile --target migrator -t whatsapp-migrator:qa .
+docker build -f infra/docker/web.Dockerfile -t whatsapp-web:local .
+docker build -f infra/docker/api.Dockerfile -t whatsapp-api:local .
+docker build -f infra/docker/worker.Dockerfile -t whatsapp-worker:local .
+docker build -f infra/docker/api.Dockerfile --target migrator -t whatsapp-migrator:local .
 
 "${COMPOSE[@]}" up -d --no-build postgres valkey
 "${COMPOSE[@]}" --profile ops run --rm migrate
