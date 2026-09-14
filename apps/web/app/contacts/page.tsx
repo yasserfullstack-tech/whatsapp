@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { and, count, desc, eq, ilike, isNotNull, isNull, or, type SQL } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ContactSuppressionManager } from "@/components/contact-suppression-manager";
@@ -20,7 +21,10 @@ export default async function ContactsPage({ searchParams }: PageProps) {
   const query = (params.q ?? "").trim().slice(0, 80);
   const status = ["all", "eligible", "suppressed", "not_eligible"].includes(params.status ?? "") ? params.status! : "all";
   const contactId = (params.contactId ?? "").trim().slice(0, 80);
-  const initialAction = params.contactAction === "resubscribe" && contactId ? { mode: "resubscribe" as const, contactId } : null;
+
+  if (params.contactAction === "resubscribe" && contactId) {
+    redirect(`/contacts/${encodeURIComponent(contactId)}/resubscribe`);
+  }
 
   let where: SQL = eq(schema.contacts.organizationId, organizationId);
   if (query) where = and(where, or(ilike(schema.contacts.phoneE164, `%${query}%`), ilike(schema.contacts.displayName, `%${query}%`)))!;
@@ -42,7 +46,6 @@ export default async function ContactsPage({ searchParams }: PageProps) {
   const total = totalRows[0]?.total ?? 0;
   const suppressions = suppressionRows[0]?.total ?? 0;
   const eventCount = eventCountRows[0]?.total ?? 0;
-  const managerKey = `${initialAction?.mode ?? "none"}:${initialAction?.contactId ?? ""}:${query}:${status}`;
 
   return <main className="shell">
     <AppSidebar active="contacts" workspaceName={workspace.organizationName} email={session.user.email} initials={initials} />
@@ -62,8 +65,6 @@ export default async function ContactsPage({ searchParams }: PageProps) {
         </form><p className="subtitle">{messages.ui.showingContacts}</p>
       </section>
       <ContactSuppressionManager
-        key={managerKey}
-        initialAction={initialAction}
         filterQuery={query}
         filterStatus={status}
         canSuppress={workspace.role !== "viewer"}
