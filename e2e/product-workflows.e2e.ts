@@ -95,8 +95,8 @@ test.describe("product workflows", () => {
       await page.locator('input[name="consentSource"]').fill("E2E signed web form");
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
       await page.locator('input[name="confirmation"]').check();
-      await page.getByRole("button", { name: "Restore eligibility" }).click();
-      await expect(page.getByText(/restored/i)).toBeVisible();
+      await page.getByRole("button", { name: "Restore marketing eligibility" }).click();
+      await expect(page.getByText(/eligible for future campaigns/i)).toBeVisible();
       await page.goto("/contacts?q=Imported+E2E&status=eligible");
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
       await health.expectHealthy();
@@ -321,18 +321,27 @@ test.describe("product workflows", () => {
       expect(exportRecords[0]?.type).toBe("manifest");
       expect(exportRecords.some((record) => record.type === "contact")).toBe(true);
 
-      await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
-      await page.getByRole("button", { name: "Delete account permanently" }).click();
-      await expect(page.getByRole("dialog")).toBeVisible();
-      await page.getByRole("button", { name: "Yes, delete my account" }).click();
+      const dangerBlocks = page.locator(".dangerBlock");
+      const accountBlock = dangerBlocks.nth(1);
+      const accountInput = accountBlock.locator("input");
+      const accountConfirmation = (await accountBlock.locator("label span").first().textContent())?.trim();
+      if (!accountConfirmation) throw new Error("Missing account confirmation text");
+      await accountInput.fill(accountConfirmation);
+      await accountBlock.locator("button.dangerButton").click();
+      const confirmationDialog = page.locator("dialog.destructiveDialog");
+      await expect(confirmationDialog).toBeVisible();
+      await confirmationDialog.locator("button.dangerButton").click();
       await expect(page.getByRole("status")).toContainText(/workspace|owner|ownership/i);
+      await confirmationDialog.locator("button.secondary").click();
+      await expect(confirmationDialog).toBeHidden();
 
-      await page.getByPlaceholder(owner.organizationSlug).fill(owner.organizationSlug);
-      await page.locator(".destructiveCheck input[type=checkbox]").check();
-      await page.getByRole("button", { name: "Schedule deletion" }).click();
-      await expect(page.getByRole("status")).toContainText("Workspace deletion scheduled");
-      await page.getByRole("button", { name: "Cancel deletion request" }).click();
-      await expect(page.getByRole("status")).toContainText("Deletion request cancelled");
+      const workspaceBlock = dangerBlocks.first();
+      await workspaceBlock.locator("input").first().fill(owner.organizationSlug);
+      await workspaceBlock.locator('input[type="checkbox"]').check();
+      await workspaceBlock.locator("button.dangerButton").click();
+      await expect(page.getByRole("status")).toContainText(/scheduled/i);
+      await workspaceBlock.locator("button").filter({ hasText: /cancel/i }).click();
+      await expect(page.getByRole("status")).toContainText(/cancelled/i);
 
       await page.goto("/settings/team");
       await page.getByLabel("Email").fill(invited.email);
