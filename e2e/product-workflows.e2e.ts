@@ -53,7 +53,7 @@ test.describe("product workflows", () => {
 
       const presignPromise = page.waitForResponse((response) => response.url().endsWith("/api/contact-imports/presign") && response.request().method() === "POST");
       const uploadPromise = page.waitForResponse((response) => response.url().startsWith("http://127.0.0.1:4569/") && response.request().method() === "PUT");
-      const queuePromise = page.waitForResponse((response) => /\/api\/contact-imports\/[^/]+$/.test(new URL(response.url()).pathname) && response.request().method() === "POST");
+      const queuePromise = page.waitForResponse((response) => /^\/api\/contact-imports\/[0-9a-f-]{36}$/i.test(new URL(response.url()).pathname) && response.request().method() === "POST");
       await page.getByRole("button", { name: /upload.*import/i }).click();
 
       const presignResponse = await presignPromise;
