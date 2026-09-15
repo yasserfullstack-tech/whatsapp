@@ -164,10 +164,9 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
     language: "en_US",
     status: "approved",
     category: "marketing",
-    bodyText: "Hello from E2E",
+    bodyPreview: "Hello from E2E",
     components: [{ type: "BODY", text: "Hello from E2E" }],
-    variableIndexes: [],
-    syncedAt: now,
+    lastSyncedAt: now,
   });
   await functionalDb.insert(schema.contacts).values([
     { id: contactId, organizationId: tenant.organizationId, phoneE164: "+15550100001", displayName: "Alpha E2E", optedIn: true, optInSource: "e2e" },
