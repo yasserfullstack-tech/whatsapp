@@ -356,7 +356,15 @@ test.describe("product workflows", () => {
       await useTenantSession(context, invited);
       await page.goto(inviteUrl);
       await page.getByRole("button", { name: "Accept invitation" }).click();
-      await expect(page).toHaveURL(/\/settings\/general$/);
+      await expect(page).toHaveURL(/\/settings\/team$/);
+      await expect.poll(async () => {
+        const [membership] = await functionalDb.select({ role: schema.organizationMembers.role }).from(schema.organizationMembers).where(and(
+          eq(schema.organizationMembers.organizationId, owner.organizationId),
+          eq(schema.organizationMembers.userId, invited.appUserId),
+        )).limit(1);
+        return membership?.role;
+      }).toBe("member");
+      await page.goto("/settings/general");
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
       await health.expectHealthy();
     } finally {
