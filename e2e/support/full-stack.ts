@@ -16,7 +16,7 @@ const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,HEAD,PUT,POST,DELETE,OPTIONS",
   "access-control-allow-headers": "*",
-  "access-control-expose-headers": "etag,content-length,content-type",
+  "access-control-expose-headers": "etag,content-length,content-type,content-disposition",
 };
 
 function xml(value: string) {
@@ -62,7 +62,17 @@ const storageServer = Bun.serve({
     }
     if (request.method === "GET") {
       if (!stored) return new Response("Not found", { status: 404, headers: corsHeaders });
-      return new Response(stored.body, { status: 200, headers: { ...corsHeaders, "content-type": stored.contentType, etag: `\"${stored.etag}\"` } });
+      const disposition = url.searchParams.get("response-content-disposition");
+      return new Response(stored.body, {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "content-length": String(stored.body.byteLength),
+          "content-type": stored.contentType,
+          ...(disposition ? { "content-disposition": disposition } : {}),
+          etag: `\"${stored.etag}\"`,
+        },
+      });
     }
     if (request.method === "DELETE") {
       objects.delete(key);
