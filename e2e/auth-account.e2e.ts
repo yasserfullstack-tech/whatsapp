@@ -100,7 +100,7 @@ test.describe("authentication and account security workflows", () => {
       await page.getByLabel("New password", { exact: true }).fill(newPassword);
       await page.getByLabel("Confirm new password", { exact: true }).fill(`${newPassword}x`);
       await page.getByRole("button", { name: "Reset password" }).click();
-      await expect(page.getByRole("alert")).toContainText("do not match");
+      await expect(page.getByText("Passwords do not match.", { exact: true })).toBeVisible();
       await page.getByLabel("Confirm new password", { exact: true }).fill(newPassword);
       await page.getByRole("button", { name: "Reset password" }).click();
       await expect(page).toHaveURL(/\/sign-in\?passwordReset=1/);
