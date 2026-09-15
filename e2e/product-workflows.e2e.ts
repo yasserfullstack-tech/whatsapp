@@ -147,8 +147,13 @@ test.describe("product workflows", () => {
       await expect(connect).toBeEnabled();
       await connect.click();
       await expect(page.getByText(/connected/i).first()).toBeVisible({ timeout: 15_000 });
+      await expect.poll(async () => {
+        const rows = await functionalDb.select({ phoneNumberId: schema.whatsappPhoneNumbers.phoneNumberId }).from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
+        return rows[0]?.phoneNumberId;
+      }, { timeout: 15_000, intervals: [250, 500, 1000] }).toBe("e2e-phone");
       await page.reload();
-      await expect(page.getByText("E2E WhatsApp", { exact: true })).toBeVisible();
+      const connectedRow = page.locator(".settingsPhoneRow").filter({ hasText: "E2E WhatsApp" }).first();
+      await expect(connectedRow).toContainText("E2E WhatsApp");
       const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
       expect(rows).toHaveLength(1);
       expect(rows[0]?.phoneNumberId).toBe("e2e-phone");
@@ -209,7 +214,7 @@ test.describe("product workflows", () => {
       await expect(page.getByText(/cancelled/i).first()).toBeVisible();
 
       await page.goto("/reports");
-      await expect(page.getByText(campaignName, { exact: false })).toBeVisible();
+      await expect(page.getByRole("link", { name: campaignName, exact: true })).toBeVisible();
       await page.getByLabel("Date range").first().selectOption("today");
       await page.getByRole("button", { name: "Apply" }).click();
       await expect(page).toHaveURL(/range=today/);
@@ -307,11 +312,13 @@ test.describe("product workflows", () => {
       const exportDownloadPromise = page.waitForEvent("download");
       await exportRow.getByRole("button", { name: "Download" }).click();
       const exportDownload = await exportDownloadPromise;
-      expect(exportDownload.suggestedFilename()).toMatch(/\.csv$/);
+      expect(exportDownload.suggestedFilename()).toMatch(/\.ndjson$/);
       const exportPath = await exportDownload.path();
       expect(exportPath).toBeTruthy();
       const exportText = await readFile(exportPath!, "utf8");
-      expect(exportText).toMatch(/phone|contact/i);
+      const exportRecords = exportText.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type?: string; data?: unknown });
+      expect(exportRecords[0]?.type).toBe("manifest");
+      expect(exportRecords.some((record) => record.type === "contact")).toBe(true);
 
       await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
       await page.getByRole("button", { name: "Delete account permanently" }).click();
