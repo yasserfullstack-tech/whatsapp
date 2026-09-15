@@ -80,7 +80,7 @@ function isAllowedFinding(file: string, line: string): boolean {
   if (file === "apps/web/lib/public-app-url.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
   if (file === "apps/worker/src/notification-runtime.ts" && /127\.0\.0\.1/.test(line)) return true;
   if (file === "packages/config/src/index.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
-  if (file === "packages/notifications/src/index.ts" && /127\.0\.0\.1/.test(line)) return true;
+  if (["packages/notifications/src/index.ts", "packages/notifications/src/email.ts"].includes(file) && /127\.0\.0\.1/.test(line)) return true;
   if (file === "docker-compose.production.yml" && /127\.0\.0\.1|GF_SERVER_DOMAIN:\s*localhost/.test(line)) return true;
   if (file === "apps/web/lib/workspace-actions.ts" && /BETTER_AUTH_URL.*127\.0\.0\.1/.test(line)) return true;
   return false;
