@@ -33,6 +33,10 @@ test.describe("platform admin mutations", () => {
       await page.getByLabel("Campaign recipient limit").fill("54321");
       await page.getByLabel("Monthly message limit").fill("98765");
       await page.getByRole("button", { name: "Save plan / limits" }).click();
+      await expect.poll(async () => {
+        const [settings] = await functionalDb.select().from(schema.organizationAdminSettings).where(eq(schema.organizationAdminSettings.organizationId, target.organizationId)).limit(1);
+        return settings?.plan;
+      }).toBe("e2e-enterprise");
       await page.reload();
       await expect(page.getByLabel("Plan")).toHaveValue("e2e-enterprise");
       await expect(page.getByLabel("Contact limit")).toHaveValue("12345");
