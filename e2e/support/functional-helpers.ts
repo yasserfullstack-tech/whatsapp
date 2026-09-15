@@ -115,18 +115,11 @@ export async function createUnverifiedAccount(label: string) {
 }
 
 export async function useTenantSession(context: BrowserContext, tenant: FunctionalTenant) {
-  const cookies = tenant.cookie.split("; ").map((pair) => {
-    const index = pair.indexOf("=");
-    const name = pair.slice(0, index);
-    return {
-      name,
-      value: pair.slice(index + 1),
-      url: baseURL,
-      sameSite: "Lax" as const,
-      secure: name.startsWith("__Secure-") || name.startsWith("__Host-"),
-    };
+  await context.clearCookies();
+  const response = await context.request.post(`${baseURL}/api/auth/sign-in/email`, {
+    data: { email: tenant.email, password: tenant.password },
   });
-  await context.addCookies(cookies);
+  expect(response.ok(), `browser session sign-in failed: ${await response.text()}`).toBeTruthy();
 }
 
 export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<PopulatedResources> {
