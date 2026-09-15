@@ -50,10 +50,29 @@ test.describe("product workflows", () => {
       const country = page.getByLabel("Country");
       if (await country.count()) await country.fill("US");
       await page.locator(".confirmationRow input[type=checkbox]").check();
+
+      const presignPromise = page.waitForResponse((response) => response.url().endsWith("/api/contact-imports/presign") && response.request().method() === "POST");
+      const uploadPromise = page.waitForResponse((response) => response.url().startsWith("http://127.0.0.1:4569/") && response.request().method() === "PUT");
+      const queuePromise = page.waitForResponse((response) => /\/api\/contact-imports\/[^/]+$/.test(new URL(response.url()).pathname) && response.request().method() === "POST");
       await page.getByRole("button", { name: /upload.*import/i }).click();
-      const importRow = page.locator(".numberRow").filter({ hasText: "contacts-e2e.csv" });
-      await expect(importRow).toContainText("completed", { timeout: 30_000 });
-      await expect(importRow).toContainText(/2 new contacts|2/i);
+
+      const presignResponse = await presignPromise;
+      expect(presignResponse.ok(), `presign failed: ${await presignResponse.text()}`).toBeTruthy();
+      const uploadResponse = await uploadPromise;
+      expect(uploadResponse.ok(), `fake storage upload failed: ${await uploadResponse.text()}`).toBeTruthy();
+      const queueResponse = await queuePromise;
+      expect(queueResponse.ok(), `queue import failed: ${await queueResponse.text()}`).toBeTruthy();
+      const queued = await queueResponse.json() as { id: string; status: string };
+      expect(queued.id).toBeTruthy();
+
+      let completedImport: { status: string; importedRows: number } | undefined;
+      await expect.poll(async () => {
+        const response = await tenant.api.get(`/api/contact-imports/${queued.id}`);
+        if (!response.ok()) return `http-${response.status()}`;
+        completedImport = await response.json() as { status: string; importedRows: number };
+        return completedImport.status;
+      }, { timeout: 30_000, intervals: [500, 1000, 1500] }).toBe("completed");
+      expect(completedImport?.importedRows).toBe(2);
 
       await page.goto("/contacts");
       await page.locator('input[name="q"]').fill("Imported E2E");
@@ -166,7 +185,7 @@ test.describe("product workflows", () => {
       const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/campaigns") && response.request().method() === "POST");
       await page.getByRole("button", { name: /launch.*contacts/i }).click();
       const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(202);
+      expect(createResponse.status()).toBe(201);
       const created = await createResponse.json() as { campaignId: string };
       expect(created.campaignId).toBeTruthy();
 
@@ -285,10 +304,14 @@ test.describe("product workflows", () => {
       await page.getByRole("button", { name: "Export contacts" }).click();
       const exportRow = page.locator(".settingsListRow").filter({ hasText: "contacts" }).first();
       await expect(exportRow).toContainText("completed", { timeout: 35_000 });
+      const exportDownloadPromise = page.waitForEvent("download");
       await exportRow.getByRole("button", { name: "Download" }).click();
-      await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:4569\//);
-      await expect(page.locator("body")).toContainText(/phone|contact/i);
-      await page.goto("/settings/data");
+      const exportDownload = await exportDownloadPromise;
+      expect(exportDownload.suggestedFilename()).toMatch(/\.csv$/);
+      const exportPath = await exportDownload.path();
+      expect(exportPath).toBeTruthy();
+      const exportText = await readFile(exportPath!, "utf8");
+      expect(exportText).toMatch(/phone|contact/i);
 
       await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
       await page.getByRole("button", { name: "Delete account permanently" }).click();
