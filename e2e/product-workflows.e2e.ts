@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { schema } from "../packages/db/src/index";
 import {
   createTenant,
@@ -43,7 +43,7 @@ test.describe("product workflows", () => {
     try {
       await useTenantSession(context, tenant);
       const health = await guardBrowser(page);
-      await page.goto("/contacts");
+      await page.goto("/dashboard#contacts");
 
       const csv = "phone,name\n+15551234567,Imported E2E Contact\n+15557654321,Second Imported Contact\n";
       await page.locator('input[type="file"]').setInputFiles({ name: "contacts-e2e.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
@@ -55,6 +55,7 @@ test.describe("product workflows", () => {
       await expect(importRow).toContainText("completed", { timeout: 30_000 });
       await expect(importRow).toContainText(/2 new contacts|2/i);
 
+      await page.goto("/contacts");
       await page.locator('input[name="q"]').fill("Imported E2E");
       await page.getByRole("button", { name: /apply filters/i }).click();
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
@@ -98,7 +99,7 @@ test.describe("product workflows", () => {
       await filterRow.locator("select").first().selectOption("display_name");
       await filterRow.locator("input").fill("Alpha E2E");
       await page.getByRole("button", { name: "Preview audience" }).click();
-      await expect(page.getByText(/eligible contacts/i)).toContainText("1");
+      await expect(page.getByText("1 eligible contacts", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Save segment" }).click();
       await expect(page.getByText(/segment saved/i)).toBeVisible();
       await page.reload();
@@ -128,7 +129,7 @@ test.describe("product workflows", () => {
       await connect.click();
       await expect(page.getByText(/connected/i).first()).toBeVisible({ timeout: 15_000 });
       await page.reload();
-      await expect(page.getByText("E2E WhatsApp", { exact: false })).toBeVisible();
+      await expect(page.getByText("E2E WhatsApp", { exact: true })).toBeVisible();
       const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
       expect(rows).toHaveLength(1);
       expect(rows[0]?.phoneNumberId).toBe("e2e-phone");
@@ -217,6 +218,10 @@ test.describe("product workflows", () => {
       await page.getByLabel("Default country").fill("IQ");
       await page.getByLabel("Preferred language").selectOption("en");
       await page.getByRole("button", { name: "Save changes" }).click();
+      await expect.poll(async () => {
+        const [organization] = await functionalDb.select({ name: schema.organizations.name }).from(schema.organizations).where(eq(schema.organizations.id, owner.organizationId)).limit(1);
+        return organization?.name;
+      }).toBe("E2E Persisted Workspace");
       await page.reload();
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
       await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
@@ -224,9 +229,20 @@ test.describe("product workflows", () => {
       await page.goto("/settings/notifications");
       const optionalEmailToggle = page.locator('input[name^="email:"]:not(:disabled)').first();
       await expect(optionalEmailToggle).toBeChecked();
+      const optionalEmailName = await optionalEmailToggle.getAttribute("name");
+      const optionalType = optionalEmailName?.slice("email:".length);
+      if (!optionalType) throw new Error("Expected an optional email notification preference");
       await optionalEmailToggle.uncheck();
       await expect(page.locator('input:disabled').first()).toBeDisabled();
       await page.getByRole("button", { name: "Save preferences" }).click();
+      await expect.poll(async () => {
+        const [preference] = await functionalDb.select({ emailEnabled: schema.notificationPreferences.emailEnabled }).from(schema.notificationPreferences).where(and(
+          eq(schema.notificationPreferences.organizationId, owner.organizationId),
+          eq(schema.notificationPreferences.userId, owner.appUserId),
+          eq(schema.notificationPreferences.type, optionalType),
+        )).limit(1);
+        return preference?.emailEnabled;
+      }).toBe(false);
       await page.reload();
       await expect(page.locator('input[name^="email:"]:not(:disabled)').first()).not.toBeChecked();
 
