@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DestructiveConfirmDialog } from "@/components/destructive-confirm-dialog";
 
 type ExportKind = "contacts" | "campaign_recipients" | "consent_history" | "campaigns" | "workspace";
 type ExportJob = {
@@ -68,6 +69,10 @@ const copy = {
     account: "Delete account",
     accountHelp: "Type DELETE ACCOUNT. You must first transfer ownership or delete every workspace you own.",
     deleteAccount: "Delete account permanently",
+    confirmAccountTitle: "Permanently delete your account?",
+    confirmAccountDescription: "This final step cannot be undone. Your account will be deleted after the server verifies that you no longer own any workspaces.",
+    confirmAccountAction: "Yes, delete my account",
+    cancelAction: "Keep my account",
     reauth: "Destructive actions require a recent sign-in. Sign out and sign back in if requested.",
   },
   ar: {
@@ -97,6 +102,10 @@ const copy = {
     account: "حذف الحساب",
     accountHelp: "اكتب DELETE ACCOUNT. يجب نقل ملكية أو حذف كل مساحة عمل تملكها أولًا.",
     deleteAccount: "حذف الحساب نهائيًا",
+    confirmAccountTitle: "هل تريد حذف حسابك نهائيًا؟",
+    confirmAccountDescription: "لا يمكن التراجع عن هذه الخطوة النهائية. سيُحذف حسابك بعد أن يتحقق الخادم من أنك لم تعد تملك أي مساحة عمل.",
+    confirmAccountAction: "نعم، احذف حسابي",
+    cancelAction: "الاحتفاظ بحسابي",
     reauth: "الإجراءات الحساسة تتطلب تسجيل دخول حديثًا. سجّل الخروج ثم الدخول إذا طُلب ذلك.",
   },
 } as const;
@@ -192,7 +201,7 @@ export function DataLifecyclePanel(props: Props) {
     finally { setBusy(false); }
   }
 
-  async function deleteAccount() {
+  async function deleteAccount(): Promise<boolean> {
     setBusy(true); setMessage(null);
     try {
       const response = await fetch("/api/settings/data/account-deletion", {
@@ -203,8 +212,11 @@ export function DataLifecyclePanel(props: Props) {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not delete account");
       window.location.assign("/sign-in");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete account"); }
-    finally { setBusy(false); }
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not delete account");
+      return false;
+    } finally { setBusy(false); }
   }
 
   const exportButtons: Array<[ExportKind, string]> = [
@@ -245,7 +257,15 @@ export function DataLifecyclePanel(props: Props) {
       <div className="dangerBlock">
         <strong>{t.account}</strong><p>{t.accountHelp}</p>
         <label><span>DELETE ACCOUNT</span><input value={accountConfirmation} onChange={(event) => setAccountConfirmation(event.target.value)} placeholder="DELETE ACCOUNT" autoComplete="off" /></label>
-        <button className="dangerButton" disabled={busy || accountConfirmation !== "DELETE ACCOUNT"} onClick={() => void deleteAccount()}>{t.deleteAccount}</button>
+        <DestructiveConfirmDialog
+          triggerLabel={t.deleteAccount}
+          title={t.confirmAccountTitle}
+          description={t.confirmAccountDescription}
+          confirmLabel={t.confirmAccountAction}
+          cancelLabel={t.cancelAction}
+          disabled={busy || accountConfirmation !== "DELETE ACCOUNT"}
+          onConfirm={deleteAccount}
+        />
       </div>
     </section>
   </div>;
