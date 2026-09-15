@@ -92,16 +92,16 @@ test.describe("authentication and account security workflows", () => {
       await page.goto("/forgot-password");
       await page.getByLabel("Email").fill(tenant.email);
       await page.getByRole("button", { name: "Send reset link" }).click();
-      await expect(page.getByRole("status")).toContainText("reset link");
+      await expect(page.getByText(/reset link/i)).toBeVisible();
       const resetUrl = await capturedEmailUrl(tenant.email, "Reset your password");
       await page.goto(resetUrl);
 
       const newPassword = `Reset-${randomUUID()}-Bb2!`;
-      await page.getByLabel("New password").fill(newPassword);
-      await page.getByLabel("Confirm new password").fill(`${newPassword}x`);
+      await page.getByLabel("New password", { exact: true }).fill(newPassword);
+      await page.getByLabel("Confirm new password", { exact: true }).fill(`${newPassword}x`);
       await page.getByRole("button", { name: "Reset password" }).click();
-      await expect(page.getByRole("alert")).toContainText("do not match");
-      await page.getByLabel("Confirm new password").fill(newPassword);
+      await expect(page.getByText("Passwords do not match.", { exact: true })).toBeVisible();
+      await page.getByLabel("Confirm new password", { exact: true }).fill(newPassword);
       await page.getByRole("button", { name: "Reset password" }).click();
       await expect(page).toHaveURL(/\/sign-in\?passwordReset=1/);
 
