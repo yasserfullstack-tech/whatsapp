@@ -45,7 +45,7 @@ test.describe("product workflows", () => {
       const health = await guardBrowser(page);
       await page.goto("/dashboard#contacts");
 
-      const csv = "phone,name\n+15551234567,Imported E2E Contact\n+15557654321,Second Imported Contact\n";
+      const csv = "phone,name\n+14155552671,Imported E2E Contact\n+14155552672,Second Imported Contact\n";
       await page.locator('input[type="file"]').setInputFiles({ name: "contacts-e2e.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
       const country = page.getByLabel("Country");
       if (await country.count()) await country.fill("US");
@@ -323,6 +323,8 @@ test.describe("product workflows", () => {
 
       await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
       await page.getByRole("button", { name: "Delete account permanently" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await page.getByRole("button", { name: "Yes, delete my account" }).click();
       await expect(page.getByRole("status")).toContainText(/workspace|owner|ownership/i);
 
       await page.getByPlaceholder(owner.organizationSlug).fill(owner.organizationSlug);
