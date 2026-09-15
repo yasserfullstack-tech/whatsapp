@@ -115,11 +115,11 @@ export async function createUnverifiedAccount(label: string) {
 }
 
 export async function useTenantSession(context: BrowserContext, tenant: FunctionalTenant) {
-  await context.clearCookies();
-  const response = await context.request.post(`${baseURL}/api/auth/sign-in/email`, {
-    data: { email: tenant.email, password: tenant.password },
+  const cookies = tenant.cookie.split("; ").map((pair) => {
+    const index = pair.indexOf("=");
+    return { name: pair.slice(0, index), value: pair.slice(index + 1), url: baseURL, sameSite: "Lax" as const };
   });
-  expect(response.ok(), `browser session sign-in failed: ${await response.text()}`).toBeTruthy();
+  await context.addCookies(cookies);
 }
 
 export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<PopulatedResources> {
@@ -164,9 +164,10 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
     language: "en_US",
     status: "approved",
     category: "marketing",
-    bodyPreview: "Hello from E2E",
+    bodyText: "Hello from E2E",
     components: [{ type: "BODY", text: "Hello from E2E" }],
-    lastSyncedAt: now,
+    variableIndexes: [],
+    syncedAt: now,
   });
   await functionalDb.insert(schema.contacts).values([
     { id: contactId, organizationId: tenant.organizationId, phoneE164: "+15550100001", displayName: "Alpha E2E", optedIn: true, optInSource: "e2e" },

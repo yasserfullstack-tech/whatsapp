@@ -313,6 +313,9 @@ const contactImportWorker = new Worker<ContactImportJob>(
 );
 
 function attachLifecycleMetrics(queue: string, worker: Worker) {
+  worker.on("error", (error) => {
+    log.error("queue_worker_error", { queue, error });
+  });
   worker.on("active", () => changeActiveJobs(queue, 1));
   worker.on("completed", (job) => {
     changeActiveJobs(queue, -1);

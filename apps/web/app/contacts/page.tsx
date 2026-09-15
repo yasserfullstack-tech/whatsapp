@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { and, count, desc, eq, ilike, isNotNull, isNull, or, type SQL } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ContactSuppressionManager } from "@/components/contact-suppression-manager";
@@ -9,7 +10,7 @@ import { getI18n } from "@/lib/i18n/server";
 import { db } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
-type PageProps = { searchParams: Promise<{ q?: string; status?: string }> };
+type PageProps = { searchParams: Promise<{ q?: string; status?: string; contactAction?: string; contactId?: string }> };
 
 export default async function ContactsPage({ searchParams }: PageProps) {
   const { session, workspace } = await requireAuthContext();
@@ -19,6 +20,11 @@ export default async function ContactsPage({ searchParams }: PageProps) {
   const organizationId = workspace.organizationId;
   const query = (params.q ?? "").trim().slice(0, 80);
   const status = ["all", "eligible", "suppressed", "not_eligible"].includes(params.status ?? "") ? params.status! : "all";
+  const contactId = (params.contactId ?? "").trim().slice(0, 80);
+
+  if (params.contactAction === "resubscribe" && contactId) {
+    redirect(`/contacts/${encodeURIComponent(contactId)}/resubscribe`);
+  }
 
   let where: SQL = eq(schema.contacts.organizationId, organizationId);
   if (query) where = and(where, or(ilike(schema.contacts.phoneE164, `%${query}%`), ilike(schema.contacts.displayName, `%${query}%`)))!;
@@ -58,7 +64,14 @@ export default async function ContactsPage({ searchParams }: PageProps) {
           <button className="primary" type="submit">{messages.ui.applyFilters}</button>{(query || status !== "all") ? <Link className="secondary" href="/contacts">{messages.ui.clear}</Link> : null}
         </form><p className="subtitle">{messages.ui.showingContacts}</p>
       </section>
-      <ContactSuppressionManager canSuppress={workspace.role !== "viewer"} canResubscribe={workspace.role === "owner" || workspace.role === "admin"} contacts={contactRows.map((contact) => ({ ...contact, optInAt: contact.optInAt?.toISOString() ?? null, unsubscribedAt: contact.unsubscribedAt?.toISOString() ?? null, suppressedAt: contact.suppressedAt?.toISOString() ?? null }))} events={events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() }))} />
+      <ContactSuppressionManager
+        filterQuery={query}
+        filterStatus={status}
+        canSuppress={workspace.role !== "viewer"}
+        canResubscribe={workspace.role === "owner" || workspace.role === "admin"}
+        contacts={contactRows.map((contact) => ({ ...contact, optInAt: contact.optInAt?.toISOString() ?? null, unsubscribedAt: contact.unsubscribedAt?.toISOString() ?? null, suppressedAt: contact.suppressedAt?.toISOString() ?? null }))}
+        events={events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() }))}
+      />
     </section>
   </main>;
 }

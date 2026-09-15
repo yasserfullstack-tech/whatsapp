@@ -92,7 +92,7 @@ test.describe("authentication and account security workflows", () => {
       await page.goto("/forgot-password");
       await page.getByLabel("Email").fill(tenant.email);
       await page.getByRole("button", { name: "Send reset link" }).click();
-      await expect(page.getByText(/reset link/i)).toBeVisible();
+      await expect(page.getByRole("status")).toContainText("reset link");
       const resetUrl = await capturedEmailUrl(tenant.email, "Reset your password");
       await page.goto(resetUrl);
 

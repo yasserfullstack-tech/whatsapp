@@ -47,6 +47,12 @@ jobs:
       META_APP_SECRET: ci-only-meta-secret
       META_CONFIG_ID: ci-only-config-id
       META_VERIFY_TOKEN: ci-only-verify-token
+      R2_ACCOUNT_ID: e2e
+      R2_ACCESS_KEY_ID: e2e-access
+      R2_SECRET_ACCESS_KEY: e2e-secret
+      R2_BUCKET: wa-e2e
+      R2_ENDPOINT: http://127.0.0.1:4569
+      E2E_BLOCK_EXTERNAL: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

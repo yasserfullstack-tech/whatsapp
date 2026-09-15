@@ -38,7 +38,7 @@ export function ForgotPasswordForm() {
   if (sent) {
     return (
       <div className="authForm">
-        <p>{copy.forgotPassword.sent}</p>
+        <p role="status">{copy.forgotPassword.sent}</p>
         <p className="authSwitch"><Link href="/sign-in">{copy.common.backToSignIn}</Link></p>
       </div>
     );

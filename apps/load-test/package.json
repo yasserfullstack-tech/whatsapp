@@ -5,8 +5,13 @@
   "scripts": {
     "fake-meta": "cd ../.. && bun apps/load-test/src/fake-meta.ts",
     "run": "cd ../.. && bun apps/load-test/src/run.ts",
+    "stress": "cd ../.. && bun apps/load-test/src/stress-suite.ts",
+    "soak": "cd ../.. && bun apps/load-test/src/soak.ts",
+    "recovery": "cd ../.. && bun apps/load-test/src/recovery.ts",
+    "chaos": "cd ../.. && bun apps/load-test/src/chaos.ts",
     "reporting": "cd ../.. && bun apps/load-test/src/reporting.ts",
     "webhook-flood": "cd ../.. && bun apps/load-test/src/webhook-flood.ts",
+    "webhook-status-flood": "cd ../.. && bun apps/load-test/src/webhook-status-flood.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

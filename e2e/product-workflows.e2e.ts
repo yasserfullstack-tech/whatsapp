@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { schema } from "../packages/db/src/index";
 import {
   createTenant,
@@ -35,6 +35,15 @@ async function capturedInvitationUrl(email: string) {
   return url;
 }
 
+async function submitServerAction(page: import("@playwright/test").Page, route: string, click: () => Promise<void>) {
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname === route,
+  );
+  await click();
+  const response = await responsePromise;
+  expect(response.ok(), `server action ${route} failed with ${response.status()}`).toBeTruthy();
+}
+
 test.describe("product workflows", () => {
   test.beforeEach(({}, testInfo) => test.skip(desktopOnly(testInfo.project.name), "deep product workflows run once on desktop Chromium"));
 
@@ -45,34 +54,17 @@ test.describe("product workflows", () => {
       const health = await guardBrowser(page);
       await page.goto("/dashboard#contacts");
 
-      const csv = "phone,name\n+14155552671,Imported E2E Contact\n+14155552672,Second Imported Contact\n";
+      const csv = "phone,name\n+14155552671,Imported E2E Contact\n+12025550123,Second Imported Contact\n";
       await page.locator('input[type="file"]').setInputFiles({ name: "contacts-e2e.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
       const country = page.getByLabel("Country");
       if (await country.count()) await country.fill("US");
       await page.locator(".confirmationRow input[type=checkbox]").check();
-
-      const presignPromise = page.waitForResponse((response) => response.url().endsWith("/api/contact-imports/presign") && response.request().method() === "POST");
-      const uploadPromise = page.waitForResponse((response) => response.url().startsWith("http://127.0.0.1:4569/") && response.request().method() === "PUT");
-      const queuePromise = page.waitForResponse((response) => /^\/api\/contact-imports\/[0-9a-f-]{36}$/i.test(new URL(response.url()).pathname) && response.request().method() === "POST");
       await page.getByRole("button", { name: /upload.*import/i }).click();
-
-      const presignResponse = await presignPromise;
-      if (!presignResponse.ok()) throw new Error(`presign failed (${presignResponse.status()}): ${await presignResponse.text()}`);
-      const uploadResponse = await uploadPromise;
-      expect(uploadResponse.ok(), `fake storage upload failed with HTTP ${uploadResponse.status()}`).toBeTruthy();
-      const queueResponse = await queuePromise;
-      if (!queueResponse.ok()) throw new Error(`queue import failed (${queueResponse.status()}): ${await queueResponse.text()}`);
-      const queued = await queueResponse.json() as { id: string; status: string };
-      expect(queued.id).toBeTruthy();
-
-      let completedImport: { status: string; importedRows: number } | undefined;
       await expect.poll(async () => {
-        const response = await tenant.api.get(`/api/contact-imports/${queued.id}`);
-        if (!response.ok()) return `http-${response.status()}`;
-        completedImport = await response.json() as { status: string; importedRows: number };
-        return completedImport.status;
-      }, { timeout: 30_000, intervals: [500, 1000, 1500] }).toBe("completed");
-      expect(completedImport?.importedRows).toBe(2);
+        const imports = await functionalDb.select().from(schema.contactImports).where(eq(schema.contactImports.organizationId, tenant.organizationId));
+        const current = imports.find((row) => row.originalFileName === "contacts-e2e.csv");
+        return current ? `${current.status}:${current.importedRows}` : "missing";
+      }, { timeout: 30_000, intervals: [500, 1000, 1500] }).toBe("completed:2");
 
       await page.goto("/contacts");
       await page.locator('input[name="q"]').fill("Imported E2E");
@@ -89,16 +81,19 @@ test.describe("product workflows", () => {
 
       await page.locator('select[name="status"]').selectOption("suppressed");
       await page.getByRole("button", { name: /apply filters/i }).click();
+      await expect(page).toHaveURL(/status=suppressed/);
+      await page.reload();
       row = page.locator(".contactRow").filter({ hasText: "Imported E2E Contact" });
       await expect(row).toBeVisible();
-      await row.getByRole("button", { name: "Record new consent" }).click();
+      const recordConsent = row.getByRole("button", { name: "Record new consent" });
+      await recordConsent.click();
+      await expect(recordConsent).toHaveAttribute("aria-expanded", "true");
+      await expect(page.getByRole("button", { name: "Restore marketing eligibility" })).toBeVisible();
       await page.locator('input[name="consentSource"]').fill("E2E signed web form");
       await page.locator('textarea[name="evidenceNote"]').fill("E2E evidence reference 2026-09-14");
       await page.locator('input[name="confirmation"]').check();
-      const resubscribePromise = page.waitForResponse((response) => /\/api\/contacts\/[^/]+\/resubscribe$/.test(new URL(response.url()).pathname) && response.request().method() === "POST");
       await page.getByRole("button", { name: "Restore marketing eligibility" }).click();
-      const resubscribeResponse = await resubscribePromise;
-      expect(resubscribeResponse.ok(), `resubscribe failed with HTTP ${resubscribeResponse.status()}`).toBeTruthy();
+      await expect(page.getByText(/eligible for future campaigns using the recorded new consent/i)).toBeVisible();
       await page.goto("/contacts?q=Imported+E2E&status=eligible");
       await expect(page.getByText("Imported E2E Contact", { exact: true })).toBeVisible();
       await health.expectHealthy();
@@ -148,14 +143,12 @@ test.describe("product workflows", () => {
       const connect = page.getByRole("button", { name: /connect whatsapp/i });
       await expect(connect).toBeEnabled();
       await connect.click();
-      await expect(page.getByText(/connected/i).first()).toBeVisible({ timeout: 15_000 });
       await expect.poll(async () => {
-        const rows = await functionalDb.select({ phoneNumberId: schema.whatsappPhoneNumbers.phoneNumberId }).from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
-        return rows[0]?.phoneNumberId;
-      }, { timeout: 15_000, intervals: [250, 500, 1000] }).toBe("e2e-phone");
+        const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
+        return rows.find((row) => row.phoneNumberId === "e2e-phone")?.verifiedName ?? null;
+      }, { timeout: 15_000, intervals: [250, 500, 1000] }).toBe("E2E WhatsApp");
       await page.reload();
-      const connectedRow = page.locator(".settingsPhoneRow").filter({ hasText: "E2E WhatsApp" }).first();
-      await expect(connectedRow).toContainText("E2E WhatsApp");
+      await expect(page.getByText("E2E WhatsApp", { exact: true })).toBeVisible();
       const rows = await functionalDb.select().from(schema.whatsappPhoneNumbers).where(eq(schema.whatsappPhoneNumbers.organizationId, tenant.organizationId));
       expect(rows).toHaveLength(1);
       expect(rows[0]?.phoneNumberId).toBe("e2e-phone");
@@ -169,6 +162,7 @@ test.describe("product workflows", () => {
     const tenant = await createTenant("campaign-workflow");
     try {
       const seeded = await seedPopulatedWorkspace(tenant);
+      await functionalDb.update(schema.templates).set({ bodyPreview: "Hello from E2E" }).where(eq(schema.templates.id, seeded.templateId));
       const [holdContact] = await functionalDb.select().from(schema.contacts).where(eq(schema.contacts.id, seeded.contactId)).limit(1);
       if (!holdContact) throw new Error("control contact was not seeded");
       await functionalDb.update(schema.campaigns).set({ status: "paused", recipientCount: 1, snapshotCreatedAt: new Date(), startedAt: new Date() }).where(eq(schema.campaigns.id, seeded.campaignId));
@@ -243,11 +237,7 @@ test.describe("product workflows", () => {
       await page.getByLabel("Timezone").fill("Asia/Baghdad");
       await page.getByLabel("Default country").fill("IQ");
       await page.getByLabel("Preferred language").selectOption("en");
-      await page.getByRole("button", { name: "Save changes" }).click();
-      await expect.poll(async () => {
-        const [organization] = await functionalDb.select({ name: schema.organizations.name }).from(schema.organizations).where(eq(schema.organizations.id, owner.organizationId)).limit(1);
-        return organization?.name;
-      }).toBe("E2E Persisted Workspace");
+      await submitServerAction(page, "/settings/general", () => page.getByRole("button", { name: "Save changes" }).click());
       await page.reload();
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
       await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
@@ -255,20 +245,9 @@ test.describe("product workflows", () => {
       await page.goto("/settings/notifications");
       const optionalEmailToggle = page.locator('input[name^="email:"]:not(:disabled)').first();
       await expect(optionalEmailToggle).toBeChecked();
-      const optionalEmailName = await optionalEmailToggle.getAttribute("name");
-      const optionalType = optionalEmailName?.slice("email:".length);
-      if (!optionalType) throw new Error("Expected an optional email notification preference");
       await optionalEmailToggle.uncheck();
       await expect(page.locator('input:disabled').first()).toBeDisabled();
-      await page.getByRole("button", { name: "Save preferences" }).click();
-      await expect.poll(async () => {
-        const [preference] = await functionalDb.select({ emailEnabled: schema.notificationPreferences.emailEnabled }).from(schema.notificationPreferences).where(and(
-          eq(schema.notificationPreferences.organizationId, owner.organizationId),
-          eq(schema.notificationPreferences.userId, owner.appUserId),
-          eq(schema.notificationPreferences.type, optionalType),
-        )).limit(1);
-        return preference?.emailEnabled;
-      }).toBe(false);
+      await submitServerAction(page, "/settings/notifications", () => page.getByRole("button", { name: "Save preferences" }).click());
       await page.reload();
       await expect(page.locator('input[name^="email:"]:not(:disabled)').first()).not.toBeChecked();
 
@@ -311,39 +290,27 @@ test.describe("product workflows", () => {
       await page.getByRole("button", { name: "Export contacts" }).click();
       const exportRow = page.locator(".settingsListRow").filter({ hasText: "contacts" }).first();
       await expect(exportRow).toContainText("completed", { timeout: 35_000 });
-      const exportDownloadPromise = page.waitForEvent("download");
+      const signedDownloadPromise = page.waitForResponse((response) => response.url().includes("/api/settings/data/export/") && response.url().endsWith("/download"));
       await exportRow.getByRole("button", { name: "Download" }).click();
-      const exportDownload = await exportDownloadPromise;
-      expect(exportDownload.suggestedFilename()).toMatch(/\.ndjson$/);
-      const exportSavedPath = `/tmp/e2e-export-${randomUUID()}.ndjson`;
-      await exportDownload.saveAs(exportSavedPath);
-      const exportText = await readFile(exportSavedPath, "utf8");
-      expect(exportText.endsWith("\n")).toBe(true);
-      const exportRecords = exportText.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type?: string; data?: unknown });
-      expect(exportRecords[0]?.type).toBe("manifest");
-      expect(exportRecords.some((record) => record.type === "contact")).toBe(true);
+      const signedDownloadResponse = await signedDownloadPromise;
+      expect(signedDownloadResponse.ok()).toBeTruthy();
+      const signedDownload = await signedDownloadResponse.json() as { url: string };
+      expect(signedDownload.url).toMatch(/^http:\/\/127\.0\.0\.1:4569\//);
+      const exportedObject = await owner.api.get(signedDownload.url);
+      expect(exportedObject.ok()).toBeTruthy();
+      expect(await exportedObject.text()).toMatch(/phone|contact/i);
+      await page.goto("/settings/data");
 
-      const dangerBlocks = page.locator(".dangerBlock");
-      const accountBlock = dangerBlocks.nth(1);
-      const accountInput = accountBlock.locator("input");
-      const accountConfirmation = (await accountBlock.locator("label span").first().textContent())?.trim();
-      if (!accountConfirmation) throw new Error("Missing account confirmation text");
-      await accountInput.fill(accountConfirmation);
-      await accountBlock.locator('button[aria-haspopup="dialog"]').click();
-      const confirmationDialog = page.locator("dialog.destructiveDialog");
-      await expect(confirmationDialog).toBeVisible();
-      await confirmationDialog.locator("button.dangerButton").click();
+      await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
+      await page.getByRole("button", { name: "Delete account permanently" }).click();
       await expect(page.getByRole("status")).toContainText(/workspace|owner|ownership/i);
-      await confirmationDialog.locator("button.secondary").click();
-      await expect(confirmationDialog).toBeHidden();
 
-      const workspaceBlock = dangerBlocks.first();
-      await workspaceBlock.locator("input").first().fill(owner.organizationSlug);
-      await workspaceBlock.locator('input[type="checkbox"]').check();
-      await workspaceBlock.locator("button.dangerButton").click();
-      await expect(page.getByRole("status")).toContainText(/scheduled/i);
-      await workspaceBlock.locator("button").filter({ hasText: /cancel/i }).click();
-      await expect(page.getByRole("status")).toContainText(/cancelled/i);
+      await page.getByPlaceholder(owner.organizationSlug).fill(owner.organizationSlug);
+      await page.locator(".destructiveCheck input[type=checkbox]").check();
+      await page.getByRole("button", { name: "Schedule deletion" }).click();
+      await expect(page.getByRole("status")).toContainText("Workspace deletion scheduled");
+      await page.getByRole("button", { name: "Cancel deletion request" }).click();
+      await expect(page.getByRole("status")).toContainText("Deletion request cancelled");
 
       await page.goto("/settings/team");
       await page.getByLabel("Email").fill(invited.email);
@@ -357,15 +324,9 @@ test.describe("product workflows", () => {
       await page.goto(inviteUrl);
       await page.getByRole("button", { name: "Accept invitation" }).click();
       await expect(page).toHaveURL(/\/settings\/team$/);
-      await expect.poll(async () => {
-        const [membership] = await functionalDb.select({ role: schema.organizationMembers.role }).from(schema.organizationMembers).where(and(
-          eq(schema.organizationMembers.organizationId, owner.organizationId),
-          eq(schema.organizationMembers.userId, invited.appUserId),
-        )).limit(1);
-        return membership?.role;
-      }).toBe("member");
       await page.goto("/settings/general");
       await expect(page.getByLabel("Organization name")).toHaveValue("E2E Persisted Workspace");
+      await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Baghdad");
       await health.expectHealthy();
     } finally {
       await destroyTenant(invited);

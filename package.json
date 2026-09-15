@@ -28,7 +28,12 @@
     "load:infra:down": "docker compose -f docker-compose.load.yml down --remove-orphans",
     "load:fake-meta": "bun run --filter @wa/load-test fake-meta",
     "load:run": "bun run --filter @wa/load-test run",
-    "load:webhooks": "bun run --filter @wa/load-test webhook-flood"
+    "load:stress": "bun run --filter @wa/load-test stress",
+    "load:soak": "bun run --filter @wa/load-test soak",
+    "load:recovery": "bun run --filter @wa/load-test recovery",
+    "load:chaos": "bun run --filter @wa/load-test chaos",
+    "load:webhooks": "bun run --filter @wa/load-test webhook-flood",
+    "load:webhook-status": "bun run --filter @wa/load-test webhook-status-flood"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

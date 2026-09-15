@@ -26,6 +26,15 @@ function optionalPositiveIntegerEnv(name: string): number | undefined {
   return parsed;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized === "127.0.0.1"
+    || normalized === "::1"
+    || normalized === "[::1]";
+}
+
 const database = createDatabase(requiredEnv("DATABASE_URL"));
 export const db = database.db;
 export const databaseClient = database.client;
@@ -43,13 +52,16 @@ if (process.env.NODE_ENV !== "production") globalForAuthRedis.authRedis = authRe
 
 const authUrl = requiredEnv("BETTER_AUTH_URL");
 const appUrl = process.env.APP_URL ?? authUrl;
+const isolatedE2eRuntime = process.env.E2E_BLOCK_EXTERNAL === "1" && isLoopbackHostname(new URL(authUrl).hostname);
+const productionCookies = process.env.NODE_ENV === "production";
 
 export const auth = createAppAuth({
   db,
   baseUrl: authUrl,
   secret: requiredEnv("BETTER_AUTH_SECRET"),
   trustedOrigins: [...new Set([appUrl, authUrl])],
-  secureCookies: process.env.NODE_ENV === "production",
+  secureCookies: productionCookies,
+  secureCookiePrefix: productionCookies && !isolatedE2eRuntime,
   secondaryStorage: redisStorage({ client: authRedis, keyPrefix: "wa:auth:" }),
   signInRateLimitMax: optionalPositiveIntegerEnv("AUTH_SIGNIN_RATE_LIMIT_MAX"),
   signUpRateLimitMax: optionalPositiveIntegerEnv("AUTH_SIGNUP_RATE_LIMIT_MAX"),

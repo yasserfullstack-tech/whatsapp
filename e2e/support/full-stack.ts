@@ -16,7 +16,7 @@ const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,HEAD,PUT,POST,DELETE,OPTIONS",
   "access-control-allow-headers": "*",
-  "access-control-expose-headers": "etag,content-length,content-type,content-disposition",
+  "access-control-expose-headers": "etag,content-length,content-type",
 };
 
 function xml(value: string) {
@@ -27,47 +27,6 @@ function objectKey(url: URL): string {
   const segments = url.pathname.split("/").filter(Boolean);
   if (segments[0] === bucket) segments.shift();
   return decodeURIComponent(segments.join("/"));
-}
-
-function findCrlf(bytes: Uint8Array, start: number) {
-  for (let index = start; index + 1 < bytes.length; index += 1) {
-    if (bytes[index] === 13 && bytes[index + 1] === 10) return index;
-  }
-  return -1;
-}
-
-function decodeAwsChunked(bytes: Uint8Array) {
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let offset = 0;
-  const decoder = new TextDecoder("ascii");
-
-  while (offset < bytes.length) {
-    const headerEnd = findCrlf(bytes, offset);
-    if (headerEnd < 0) throw new Error("Malformed aws-chunked upload: missing chunk header terminator");
-    const header = decoder.decode(bytes.subarray(offset, headerEnd));
-    const sizeToken = header.split(";", 1)[0]?.trim();
-    const size = sizeToken ? Number.parseInt(sizeToken, 16) : Number.NaN;
-    if (!Number.isSafeInteger(size) || size < 0) throw new Error(`Malformed aws-chunked upload size: ${sizeToken ?? ""}`);
-    offset = headerEnd + 2;
-
-    if (size === 0) break;
-    if (offset + size > bytes.length) throw new Error("Malformed aws-chunked upload: chunk exceeds request body");
-    const chunk = bytes.slice(offset, offset + size);
-    chunks.push(chunk);
-    total += chunk.byteLength;
-    offset += size;
-    if (bytes[offset] !== 13 || bytes[offset + 1] !== 10) throw new Error("Malformed aws-chunked upload: missing chunk data terminator");
-    offset += 2;
-  }
-
-  const decoded = new Uint8Array(total);
-  let writeOffset = 0;
-  for (const chunk of chunks) {
-    decoded.set(chunk, writeOffset);
-    writeOffset += chunk.byteLength;
-  }
-  return decoded;
 }
 
 const storageServer = Bun.serve({
@@ -90,15 +49,7 @@ const storageServer = Bun.serve({
     if (!key) return new Response("Not found", { status: 404, headers: corsHeaders });
 
     if (request.method === "PUT") {
-      const encodedBody = new Uint8Array(await request.arrayBuffer());
-      const contentEncoding = request.headers.get("content-encoding") ?? "";
-      const body = contentEncoding.split(",").map((value) => value.trim().toLowerCase()).includes("aws-chunked")
-        ? decodeAwsChunked(encodedBody)
-        : encodedBody;
-      const expectedDecodedLength = Number(request.headers.get("x-amz-decoded-content-length") ?? body.byteLength);
-      if (Number.isSafeInteger(expectedDecodedLength) && expectedDecodedLength >= 0 && body.byteLength !== expectedDecodedLength) {
-        return new Response("Decoded content length mismatch", { status: 400, headers: corsHeaders });
-      }
+      const body = new Uint8Array(await request.arrayBuffer());
       const etag = `e2e-${body.byteLength}-${Date.now()}`;
       objects.set(key, { body, contentType: request.headers.get("content-type") ?? "application/octet-stream", etag });
       return new Response(null, { status: 200, headers: { ...corsHeaders, etag: `\"${etag}\"` } });
@@ -111,17 +62,7 @@ const storageServer = Bun.serve({
     }
     if (request.method === "GET") {
       if (!stored) return new Response("Not found", { status: 404, headers: corsHeaders });
-      const disposition = url.searchParams.get("response-content-disposition");
-      return new Response(stored.body, {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          "content-length": String(stored.body.byteLength),
-          "content-type": stored.contentType,
-          ...(disposition ? { "content-disposition": disposition } : {}),
-          etag: `\"${stored.etag}\"`,
-        },
-      });
+      return new Response(stored.body, { status: 200, headers: { ...corsHeaders, "content-type": stored.contentType, etag: `\"${stored.etag}\"` } });
     }
     if (request.method === "DELETE") {
       objects.delete(key);
@@ -200,7 +141,7 @@ const metaServer = Bun.serve({
 
 const childEnv = {
   ...process.env,
-  NODE_ENV: "test",
+  NODE_ENV: "production",
   HOSTNAME: "127.0.0.1",
   PORT: "3000",
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? "https://app.e2e.test",
@@ -213,8 +154,8 @@ const childEnv = {
   R2_BUCKET: bucket,
 };
 
-function spawn(command: string[], cwd = root) {
-  return Bun.spawn(command, { cwd, env: childEnv, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
+function spawn(command: string[], cwd = root, env: Record<string, string | undefined> = {}) {
+  return Bun.spawn(command, { cwd, env: { ...childEnv, ...env }, stdout: "inherit", stderr: "inherit", stdin: "inherit" });
 }
 
 const webDir = resolve(root, "apps/web");
@@ -240,8 +181,8 @@ if (existsSync(sourcePublic)) {
 }
 
 const web = spawn(["node", "--require", preload, standaloneServer], standaloneWebDir);
-const api = spawn(["bun", "--preload", preload, resolve(root, "apps/api/src/index.ts")]);
-const worker = spawn(["bun", "--preload", preload, resolve(root, "apps/worker/src/entry.ts")]);
+const api = spawn(["bun", "--preload", preload, resolve(root, "apps/api/src/index.ts")], root, { NODE_ENV: "test" });
+const worker = spawn(["bun", "--preload", preload, resolve(root, "apps/worker/src/entry.ts")], root, { NODE_ENV: "test" });
 const children = [web, api, worker];
 
 let closing = false;
