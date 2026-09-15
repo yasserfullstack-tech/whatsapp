@@ -57,11 +57,11 @@ test.describe("product workflows", () => {
       await page.getByRole("button", { name: /upload.*import/i }).click();
 
       const presignResponse = await presignPromise;
-      expect(presignResponse.ok(), `presign failed: ${await presignResponse.text()}`).toBeTruthy();
+      if (!presignResponse.ok()) throw new Error(`presign failed (${presignResponse.status()}): ${await presignResponse.text()}`);
       const uploadResponse = await uploadPromise;
-      expect(uploadResponse.ok(), `fake storage upload failed: ${await uploadResponse.text()}`).toBeTruthy();
+      expect(uploadResponse.ok(), `fake storage upload failed with HTTP ${uploadResponse.status()}`).toBeTruthy();
       const queueResponse = await queuePromise;
-      expect(queueResponse.ok(), `queue import failed: ${await queueResponse.text()}`).toBeTruthy();
+      if (!queueResponse.ok()) throw new Error(`queue import failed (${queueResponse.status()}): ${await queueResponse.text()}`);
       const queued = await queueResponse.json() as { id: string; status: string };
       expect(queued.id).toBeTruthy();
 
@@ -313,9 +313,10 @@ test.describe("product workflows", () => {
       await exportRow.getByRole("button", { name: "Download" }).click();
       const exportDownload = await exportDownloadPromise;
       expect(exportDownload.suggestedFilename()).toMatch(/\.ndjson$/);
-      const exportPath = await exportDownload.path();
-      expect(exportPath).toBeTruthy();
-      const exportText = await readFile(exportPath!, "utf8");
+      const exportSavedPath = `/tmp/e2e-export-${randomUUID()}.ndjson`;
+      await exportDownload.saveAs(exportSavedPath);
+      const exportText = await readFile(exportSavedPath, "utf8");
+      expect(exportText.endsWith("\n")).toBe(true);
       const exportRecords = exportText.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type?: string; data?: unknown });
       expect(exportRecords[0]?.type).toBe("manifest");
       expect(exportRecords.some((record) => record.type === "contact")).toBe(true);
