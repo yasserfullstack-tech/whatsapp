@@ -1,0 +1,35 @@
+groups:
+  - name: whatsapp.meta-assets
+    rules:
+      - alert: WhatsAppMetaAssetDeadLetters
+        expr: sum(whatsapp_meta_asset_dead_letter_events) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: meta
+        annotations:
+          summary: "Meta asset webhook dead letters exist"
+          description: "At least one Meta asset webhook exhausted synchronization retries and requires investigation."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/meta-asset-sync.md#alerts-and-recovery"
+
+      - alert: WhatsAppMetaAssetSyncFailures
+        expr: sum(increase(whatsapp_meta_asset_sync_failures_total[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: meta
+        annotations:
+          summary: "Meta asset synchronization failures are elevated"
+          description: "More than five webhook, scanner, or reconciliation failures occurred in ten minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/meta-asset-sync.md#alerts-and-recovery"
+
+      - alert: WhatsAppMetaAssetReconciliationStale
+        expr: (absent(whatsapp_meta_asset_reconciliation_last_success_timestamp_seconds) == 1) or (time() - max(whatsapp_meta_asset_reconciliation_last_success_timestamp_seconds) > 1800)
+        for: 15m
+        labels:
+          severity: warning
+          service: meta
+        annotations:
+          summary: "Meta asset reconciliation has not succeeded recently"
+          description: "No successful Meta asset reconciliation has been observed for at least 30 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/meta-asset-sync.md#alerts-and-recovery"
