@@ -154,6 +154,7 @@ async function recordInboundMessage(
   const senderPhone = normalizeWhatsappPhone(message.from);
   if (!senderPhone) throw new Error(`Inbound WhatsApp sender is invalid for ${message.messageId}`);
   const at = eventTime(message.timestampSeconds);
+  const atIso = at.toISOString();
 
   const result = await db.transaction(async (tx) => {
     const contact = (
@@ -190,8 +191,8 @@ async function recordInboundMessage(
           customerDisplayName: message.profileName ?? contact?.displayName ?? sql`${schema.inboxConversations.customerDisplayName}`,
           status: "open",
           closedAt: null,
-          lastMessageAt: sql`greatest(${schema.inboxConversations.lastMessageAt}, ${at})`,
-          lastInboundAt: sql`greatest(coalesce(${schema.inboxConversations.lastInboundAt}, ${at}), ${at})`,
+          lastMessageAt: sql`greatest(${schema.inboxConversations.lastMessageAt}, ${atIso}::timestamptz)`,
+          lastInboundAt: sql`greatest(coalesce(${schema.inboxConversations.lastInboundAt}, ${atIso}::timestamptz), ${atIso}::timestamptz)`,
           updatedAt: new Date(),
         },
       })
