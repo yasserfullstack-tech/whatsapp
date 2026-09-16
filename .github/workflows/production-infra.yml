@@ -107,6 +107,17 @@ jobs:
             test "$source" = "$expected_source"
           done
 
+      - name: Record production dependency HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-dependencies.json
+          exit-code: "0"
+          vuln-type: library
+          severity: HIGH,CRITICAL
+
       - name: Record web image HIGH/CRITICAL vulnerability report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -116,6 +127,7 @@ jobs:
           exit-code: "0"
           vuln-type: os,library
           severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
 
       - name: Record API image HIGH/CRITICAL vulnerability report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -150,13 +162,27 @@ jobs:
           severity: HIGH,CRITICAL
           skip-setup-trivy: "true"
 
-      - name: Upload container vulnerability reports
+      - name: Upload production vulnerability reports
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-production-images-${{ github.run_id }}-${{ github.run_attempt }}
+          name: trivy-production-security-${{ github.run_id }}-${{ github.run_attempt }}
           path: trivy-*.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Enforce production dependency vulnerability policy
+        id: policy_dependencies
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
 
       - name: Enforce web image vulnerability policy
         id: policy_web
@@ -210,20 +236,21 @@ jobs:
           severity: HIGH,CRITICAL
           skip-setup-trivy: "true"
 
-      - name: Require every production image to pass the blocking vulnerability policy
+      - name: Require production dependencies and images to pass the blocking vulnerability policy
         shell: bash
         run: |
           set -euo pipefail
           failed=0
           for result in \
+            "dependencies:${{ steps.policy_dependencies.outcome }}" \
             "web:${{ steps.policy_web.outcome }}" \
             "api:${{ steps.policy_api.outcome }}" \
             "worker:${{ steps.policy_worker.outcome }}" \
             "migrator:${{ steps.policy_migrator.outcome }}"; do
-            image="${result%%:*}"
+            target="${result%%:*}"
             outcome="${result#*:}"
             if [ "$outcome" != "success" ]; then
-              echo "${image} image failed the blocking HIGH/CRITICAL vulnerability policy." >&2
+              echo "${target} failed the blocking HIGH/CRITICAL vulnerability policy." >&2
               failed=1
             fi
           done
