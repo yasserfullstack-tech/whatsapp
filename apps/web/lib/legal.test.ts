@@ -36,16 +36,19 @@ describe("legal document acceptance", () => {
 describe("legal acceptance enforcement", () => {
   test("bypasses only the isolated loopback E2E runtime", () => {
     expect(shouldEnforceLegalAcceptance({
+      NODE_ENV: "test",
       E2E_BLOCK_EXTERNAL: "1",
       BETTER_AUTH_URL: "http://127.0.0.1:3000",
     } as NodeJS.ProcessEnv)).toBe(false);
 
     expect(shouldEnforceLegalAcceptance({
+      NODE_ENV: "test",
       E2E_BLOCK_EXTERNAL: "1",
       BETTER_AUTH_URL: "https://app.example.com",
     } as NodeJS.ProcessEnv)).toBe(true);
 
     expect(shouldEnforceLegalAcceptance({
+      NODE_ENV: "test",
       E2E_BLOCK_EXTERNAL: "0",
       BETTER_AUTH_URL: "http://localhost:3000",
     } as NodeJS.ProcessEnv)).toBe(true);
