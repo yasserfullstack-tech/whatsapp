@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
 import { requirePlatformAdmin } from "./platform-admin";
@@ -207,22 +207,31 @@ export async function updateMembershipRoleAction(formData: FormData) {
   const role = requiredText(formData, "role");
   if (!workspaceRoles.has(role)) throw new Error("Invalid workspace role");
 
-  const [membership] = await db
-    .select({
-      id: schema.organizationMembers.id,
-      organizationId: schema.organizationMembers.organizationId,
-      userId: schema.organizationMembers.userId,
-      currentRole: schema.organizationMembers.role,
-      email: schema.users.email,
-    })
+  const [membershipRef] = await db
+    .select({ organizationId: schema.organizationMembers.organizationId })
     .from(schema.organizationMembers)
-    .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
     .where(eq(schema.organizationMembers.id, membershipId))
     .limit(1);
-  if (!membership) throw new Error("Membership not found");
-  if (membership.currentRole === role) return;
+  if (!membershipRef) throw new Error("Membership not found");
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`select ${schema.organizations.id} from ${schema.organizations} where ${schema.organizations.id} = ${membershipRef.organizationId} for update`);
+
+    const [membership] = await tx
+      .select({
+        id: schema.organizationMembers.id,
+        organizationId: schema.organizationMembers.organizationId,
+        userId: schema.organizationMembers.userId,
+        currentRole: schema.organizationMembers.role,
+        email: schema.users.email,
+      })
+      .from(schema.organizationMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
+      .where(eq(schema.organizationMembers.id, membershipId))
+      .limit(1);
+    if (!membership) throw new Error("Membership not found");
+    if (membership.currentRole === role) return;
+
     if (membership.currentRole === "owner" && role !== "owner") {
       const [owners] = await tx
         .select({ value: count() })
@@ -245,28 +254,37 @@ export async function updateMembershipRoleAction(formData: FormData) {
     });
   });
 
-  refreshOrganization(membership.organizationId);
+  refreshOrganization(membershipRef.organizationId);
 }
 
 export async function removeMembershipAction(formData: FormData) {
   const actor = await requirePlatformAdmin();
   const membershipId = requiredText(formData, "membershipId");
 
-  const [membership] = await db
-    .select({
-      id: schema.organizationMembers.id,
-      organizationId: schema.organizationMembers.organizationId,
-      userId: schema.organizationMembers.userId,
-      role: schema.organizationMembers.role,
-      email: schema.users.email,
-    })
+  const [membershipRef] = await db
+    .select({ organizationId: schema.organizationMembers.organizationId })
     .from(schema.organizationMembers)
-    .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
     .where(eq(schema.organizationMembers.id, membershipId))
     .limit(1);
-  if (!membership) throw new Error("Membership not found");
+  if (!membershipRef) throw new Error("Membership not found");
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`select ${schema.organizations.id} from ${schema.organizations} where ${schema.organizations.id} = ${membershipRef.organizationId} for update`);
+
+    const [membership] = await tx
+      .select({
+        id: schema.organizationMembers.id,
+        organizationId: schema.organizationMembers.organizationId,
+        userId: schema.organizationMembers.userId,
+        role: schema.organizationMembers.role,
+        email: schema.users.email,
+      })
+      .from(schema.organizationMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
+      .where(eq(schema.organizationMembers.id, membershipId))
+      .limit(1);
+    if (!membership) throw new Error("Membership not found");
+
     if (membership.role === "owner") {
       const [owners] = await tx
         .select({ value: count() })
@@ -286,7 +304,7 @@ export async function removeMembershipAction(formData: FormData) {
     });
   });
 
-  refreshOrganization(membership.organizationId);
+  refreshOrganization(membershipRef.organizationId);
 }
 
 export async function setUserDisabledAction(formData: FormData) {
