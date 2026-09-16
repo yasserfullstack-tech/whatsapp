@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { schema } from "@wa/db";
+import { missingRequiredLegalDocuments, shouldEnforceLegalAcceptance } from "./legal";
 import { auth, db } from "./server";
 import { ensureWorkspace, WORKSPACE_COOKIE } from "./workspace";
 
@@ -37,6 +38,18 @@ export async function getAuthContext() {
       .limit(1)
   )[0];
   if (organizationControl?.status === "suspended") redirect("/workspace-suspended");
+
+  if (shouldEnforceLegalAcceptance()) {
+    const acceptedDocuments = await db
+      .select({
+        documentType: schema.legalAcceptances.documentType,
+        documentVersion: schema.legalAcceptances.documentVersion,
+      })
+      .from(schema.legalAcceptances)
+      .where(eq(schema.legalAcceptances.authUserId, session.user.id));
+
+    if (missingRequiredLegalDocuments(acceptedDocuments).length > 0) redirect("/legal/accept");
+  }
 
   return { session, workspace };
 }
