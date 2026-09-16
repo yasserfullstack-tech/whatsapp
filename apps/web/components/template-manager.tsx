@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TemplatePreview } from "@/components/template-preview";
 import { useI18n } from "@/components/i18n-provider";
+import { formatRichTemplateCopy, getRichTemplateCopy } from "@/lib/rich-template-copy";
 
 type WabaOption = { wabaId: string; label: string };
 type HeaderType = "none" | "text" | "image" | "video" | "document";
@@ -18,7 +19,8 @@ function variableIndexes(text: string): number[] {
 
 export function TemplateManager({ wabas }: { wabas: WabaOption[] }) {
   const router = useRouter();
-  const { messages, number, format } = useI18n();
+  const { messages, number, format, locale } = useI18n();
+  const copy = getRichTemplateCopy(locale);
   const [wabaId, setWabaId] = useState(wabas[0]?.wabaId ?? "");
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en_US");
@@ -155,7 +157,7 @@ export function TemplateManager({ wabas }: { wabas: WabaOption[] }) {
     </div>
 
     <div style={{ borderTop: "1px solid var(--line)", paddingTop: 20, display: "grid", gap: 14 }}>
-      <div><p className="eyebrow">{messages.ui.createTemplate}</p><h2>Submit rich WhatsApp template</h2><p className="subtitle">Headers, media, buttons, and positional variables are stored exactly as Meta components.</p></div>
+      <div><p className="eyebrow">{messages.ui.createTemplate}</p><h2>{copy.richTemplateTitle}</h2><p className="subtitle">{copy.richTemplateDescription}</p></div>
       <div className="formGrid3">
         <label className="formLabel">{messages.ui.templateName}<input value={name} onChange={(event) => setName(event.target.value.toLowerCase().replace(/[^a-z0-9_]+/g, "_"))} placeholder="september_offer" /></label>
         <label className="formLabel">{messages.ui.languageLabel}<input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="en_US" /></label>
@@ -163,14 +165,14 @@ export function TemplateManager({ wabas }: { wabas: WabaOption[] }) {
       </div>
 
       <div className="formGrid2">
-        <label className="formLabel">Header type
+        <label className="formLabel">{copy.headerType}
           <select value={headerType} onChange={(event) => setHeaderType(event.target.value as HeaderType)}>
-            <option value="none">None</option><option value="text">Text</option><option value="image">Image</option><option value="video">Video</option><option value="document">Document</option>
+            <option value="none">{copy.none}</option><option value="text">{copy.text}</option><option value="image">{copy.image}</option><option value="video">{copy.video}</option><option value="document">{copy.document}</option>
           </select>
         </label>
-        {headerType === "text" ? <label className="formLabel">Header text<input maxLength={60} value={headerText} onChange={(event) => setHeaderText(event.target.value)} placeholder="Our {{1}} is on!" /></label> : headerType !== "none" ? <label className="formLabel">Meta media handle for review<input value={mediaHandle} onChange={(event) => setMediaHandle(event.target.value)} placeholder="4::..." /></label> : <div />}
+        {headerType === "text" ? <label className="formLabel">{copy.headerText}<input maxLength={60} value={headerText} onChange={(event) => setHeaderText(event.target.value)} placeholder="Our {{1}} is on!" /></label> : headerType !== "none" ? <label className="formLabel">{copy.mediaReviewHandle}<input value={mediaHandle} onChange={(event) => setMediaHandle(event.target.value)} placeholder="4::..." /></label> : <div />}
       </div>
-      {headerType === "text" && headerVariables.length ? <label className="formLabel">Header example values · {headerVariables.length} required<textarea rows={2} value={headerExamplesText} onChange={(event) => setHeaderExamplesText(event.target.value)} placeholder="Summer Sale" /></label> : null}
+      {headerType === "text" && headerVariables.length ? <label className="formLabel">{copy.headerExamples} · {formatRichTemplateCopy(copy.requiredCount, { count: headerVariables.length })}<textarea rows={2} value={headerExamplesText} onChange={(event) => setHeaderExamplesText(event.target.value)} placeholder="Summer Sale" /></label> : null}
 
       <label className="formLabel">{messages.ui.body} · {body.length}/1024<textarea rows={6} maxLength={1024} value={body} onChange={(event) => setBody(event.target.value)} placeholder="Hi {{1}}, your order {{2}} is ready." /></label>
       <div className="formGrid2">
@@ -179,15 +181,15 @@ export function TemplateManager({ wabas }: { wabas: WabaOption[] }) {
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
-        <div className="actionRow"><strong>Buttons</strong><button className="secondary" type="button" onClick={addButton} disabled={buttons.length >= 3}>Add button</button></div>
+        <div className="actionRow"><strong>{copy.buttons}</strong><button className="secondary" type="button" onClick={addButton} disabled={buttons.length >= 3}>{copy.addButton}</button></div>
         {buttons.map((button, index) => <div className="bindingRow" key={index}>
           <select value={button.type} onChange={(event) => updateButton(index, { type: event.target.value as ButtonType, value: "", example: "" })}>
-            <option value="QUICK_REPLY">Quick reply</option><option value="URL">URL</option><option value="PHONE_NUMBER">Phone</option>
+            <option value="QUICK_REPLY">{copy.quickReply}</option><option value="URL">{copy.url}</option><option value="PHONE_NUMBER">{copy.phone}</option>
           </select>
-          <input value={button.text} onChange={(event) => updateButton(index, { text: event.target.value })} placeholder="Button label" maxLength={25} />
-          {button.type === "URL" ? <input value={button.value} onChange={(event) => updateButton(index, { value: event.target.value })} placeholder="https://example.com/{{1}}" /> : button.type === "PHONE_NUMBER" ? <input value={button.value} onChange={(event) => updateButton(index, { value: event.target.value })} placeholder="+15550001111" /> : <span className="subtitle">Payload is mapped per campaign.</span>}
-          {button.type === "URL" && variableIndexes(button.value).length ? <input value={button.example} onChange={(event) => updateButton(index, { example: event.target.value })} placeholder="Meta URL example value" /> : null}
-          <button className="secondary" type="button" onClick={() => removeButton(index)}>Remove</button>
+          <input value={button.text} onChange={(event) => updateButton(index, { text: event.target.value })} placeholder={copy.buttonLabel} maxLength={25} />
+          {button.type === "URL" ? <input value={button.value} onChange={(event) => updateButton(index, { value: event.target.value })} placeholder="https://example.org/{{1}}" /> : button.type === "PHONE_NUMBER" ? <input value={button.value} onChange={(event) => updateButton(index, { value: event.target.value })} placeholder="+15550001111" /> : <span className="subtitle">{copy.quickReplyPayloadHint}</span>}
+          {button.type === "URL" && variableIndexes(button.value).length ? <input value={button.example} onChange={(event) => updateButton(index, { example: event.target.value })} placeholder="campaign-42" /> : null}
+          <button className="secondary" type="button" onClick={() => removeButton(index)}>{copy.remove}</button>
         </div>)}
       </div>
 
