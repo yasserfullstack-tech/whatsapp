@@ -6,12 +6,15 @@ on:
       - ".github/workflows/production-infra.yml"
       - ".dockerignore"
       - ".env.production.example"
+      - ".env.staging.example"
       - "apps/web/next.config.ts"
       - "apps/web/**"
       - "apps/api/**"
       - "apps/worker/**"
       - "packages/**"
       - "docker-compose.production.yml"
+      - "docs/deployment.md"
+      - "docs/production-infrastructure.md"
       - "infra/docker/**"
       - "infra/production/**"
   push:
@@ -20,12 +23,15 @@ on:
       - ".github/workflows/production-infra.yml"
       - ".dockerignore"
       - ".env.production.example"
+      - ".env.staging.example"
       - "apps/web/next.config.ts"
       - "apps/web/**"
       - "apps/api/**"
       - "apps/worker/**"
       - "packages/**"
       - "docker-compose.production.yml"
+      - "docs/deployment.md"
+      - "docs/production-infrastructure.md"
       - "infra/docker/**"
       - "infra/production/**"
 
@@ -39,15 +45,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare placeholder production environment
+      - name: Prepare placeholder deployment environments
         run: |
           cp .env.production.example .env.production.ci
-          sed -i \
-            -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
-            -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
-            -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
-            -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
-            .env.production.ci
+          cp .env.staging.example .env.staging.ci
+
+          for file in .env.production.ci .env.staging.ci; do
+            sed -i \
+              -e "s|^RELEASE_SHA=.*|RELEASE_SHA=${GITHUB_SHA}|" \
+              -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
+              -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
+              -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
+              -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
+              "$file"
+          done
+
           sh infra/production/scripts/render-monitoring-config.sh .env.production.ci
           printf '%s\n' 'http://127.0.0.1:65535/alerts' > .runtime/monitoring/alertmanager-webhook-url
           chmod 0600 .runtime/monitoring/alertmanager-webhook-url
@@ -57,11 +69,32 @@ jobs:
           sh -n infra/production/scripts/backup-postgres.sh
           sh -n infra/production/scripts/verify-postgres-backup.sh
           sh -n infra/production/scripts/smoke-test.sh
+          sh -n infra/production/scripts/check-immutable-images.sh
+          sh -n infra/production/scripts/verify-environment-isolation.sh
+          sh -n infra/production/scripts/write-release-manifest.sh
+          sh -n infra/production/scripts/collect-infrastructure-evidence.sh
+          sh -n infra/production/scripts/rollback-release.sh
           sh -n infra/production/scripts/render-monitoring-config.sh
           sh -n infra/production/scripts/test-alert-delivery.sh
 
+      - name: Validate environment isolation examples
+        run: sh infra/production/scripts/verify-environment-isolation.sh .env.staging.example .env.production.example
+
+      - name: Validate immutable image guardrails
+        run: |
+          cp .env.production.example .env.production.release-ci
+          cp .env.staging.example .env.staging.release-ci
+          digest=1111111111111111111111111111111111111111111111111111111111111111
+          for file in .env.production.release-ci .env.staging.release-ci; do
+            sed -i "s|sha256:0000000000000000000000000000000000000000000000000000000000000000|sha256:${digest}|g" "$file"
+            sh infra/production/scripts/check-immutable-images.sh "$file"
+          done
+
       - name: Validate production Compose configuration
         run: docker compose --env-file .env.production.ci -f docker-compose.production.yml config --quiet
+
+      - name: Validate staging Compose configuration
+        run: docker compose --env-file .env.staging.ci -f docker-compose.production.yml config --quiet
 
       - name: Validate Caddy configuration
         run: |

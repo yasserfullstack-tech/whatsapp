@@ -6,10 +6,10 @@ const englishPages = [
   ["/whatsapp", "Connect the customer's own Meta business assets"],
   ["/security", "Security claims should match the controls that actually exist"],
   ["/contact", "Talk to the team"],
-  ["/privacy", "Privacy notice"],
-  ["/terms", "Terms of service"],
-  ["/acceptable-use", "Acceptable use"],
-  ["/anti-spam", "Anti-spam policy"],
+  ["/privacy", "Privacy Policy"],
+  ["/terms", "Terms of Service"],
+  ["/acceptable-use", "Acceptable Use Policy"],
+  ["/anti-spam", "Anti-Spam Policy"],
 ] as const;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -51,8 +51,10 @@ test("public site is bilingual and responsive", async ({ page }) => {
   await expectDirection(page, "ar", "rtl");
   await expectNoHorizontalOverflow(page);
 
+  // Legal body copy stays in English until a counsel-reviewed Arabic translation is approved.
   await page.goto("/anti-spam");
-  await expect(page.getByRole("heading", { name: "سياسة مكافحة الرسائل المزعجة" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Anti-Spam Policy" })).toBeVisible();
+  await expect(page.getByText(/legally operative draft is currently maintained in English/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "EN" }).click();

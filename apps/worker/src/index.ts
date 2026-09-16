@@ -1,7 +1,8 @@
 import { Worker, type Job } from "bullmq";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { parse } from "csv-parse";
 import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js/max";
+import { BillingLimitExceededError, DrizzleBillingRepository, EntitlementService } from "@wa/billing";
 import { loadWorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import { createLogger, MetricsRegistry } from "@wa/observability";
@@ -23,6 +24,7 @@ const env = loadWorkerEnv();
 const redis = createRedisClient(env.REDIS_URL);
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
+const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
 const log = createLogger({ service: "worker" });
 const metrics = new MetricsRegistry();
 const r2 = createR2Client({
@@ -130,6 +132,10 @@ async function processContactImport(job: ContactImportJob) {
   if (!contactImport) throw new Error(`Contact import ${job.importId} was not found`);
   if (contactImport.status === "completed") return { alreadyCompleted: true };
 
+  const importEntitlement = await entitlements.assertUsage(contactImport.organizationId, "max_import_size", { requested: 0 });
+  await entitlements.assertUsage(contactImport.organizationId, "max_contacts", { requested: 0, currentUsage: 0 });
+  const planImportRowLimit = importEntitlement.limit;
+
   await db
     .update(schema.contactImports)
     .set({
@@ -181,6 +187,35 @@ async function processContactImport(job: ContactImportJob) {
       await db.transaction(async (tx) => {
         let insertedCount = 0;
         if (batch.length) {
+          const phoneNumbers = [...new Set(batch.map((row) => row.phoneE164))];
+
+          // Serialize contact-capacity mutations for this organization. This
+          // makes concurrent imports observe each other's committed inserts.
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`entitlement:max_contacts:${contactImport.organizationId}`})::bigint)`);
+
+          const [[currentCount], existingContacts] = await Promise.all([
+            tx
+              .select({ total: count() })
+              .from(schema.contacts)
+              .where(eq(schema.contacts.organizationId, contactImport.organizationId)),
+            tx
+              .select({ phoneE164: schema.contacts.phoneE164 })
+              .from(schema.contacts)
+              .where(and(
+                eq(schema.contacts.organizationId, contactImport.organizationId),
+                inArray(schema.contacts.phoneE164, phoneNumbers),
+              )),
+          ]);
+
+          const existingPhoneNumbers = new Set(existingContacts.map((contact) => contact.phoneE164));
+          const newContactCount = phoneNumbers.filter((phoneNumber) => !existingPhoneNumbers.has(phoneNumber)).length;
+          if (newContactCount > 0) {
+            await entitlements.assertUsage(contactImport.organizationId, "max_contacts", {
+              currentUsage: currentCount?.total ?? 0,
+              requested: newContactCount,
+            });
+          }
+
           const inserted = await tx
             .insert(schema.contacts)
             .values(batch)
@@ -189,7 +224,6 @@ async function processContactImport(job: ContactImportJob) {
           insertedCount = inserted.length;
 
           if (contactImport.listId) {
-            const phoneNumbers = [...new Set(batch.map((row) => row.phoneE164))];
             const contacts = await tx
               .select({ id: schema.contacts.id })
               .from(schema.contacts)
@@ -234,6 +268,9 @@ async function processContactImport(job: ContactImportJob) {
       seenRows += 1;
       if (seenRows > MAX_IMPORT_ROWS) {
         throw new Error(`CSV exceeds the ${MAX_IMPORT_ROWS.toLocaleString()} row safety limit`);
+      }
+      if (planImportRowLimit !== null && seenRows > planImportRowLimit) {
+        throw new BillingLimitExceededError("max_import_size", planImportRowLimit, seenRows);
       }
 
       if (seenRows <= resumeFrom) continue;
