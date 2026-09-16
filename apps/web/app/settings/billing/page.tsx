@@ -1,10 +1,19 @@
 import { entitlementDefinitions, type EntitlementKey } from "@wa/billing";
 import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
+import {
+  getOnlineBillingPlanOptions,
+  isStripeBillingConfigured,
+} from "@/lib/billing-provider";
 import { getBillingOverview } from "@/lib/billing-server";
 import { billingMessages } from "@/lib/i18n/billing";
 import { getI18n } from "@/lib/i18n/server";
 import { can } from "@/lib/workspace-access";
+import {
+  cancelOnlineSubscriptionAction,
+  changeOnlinePlanAction,
+  openBillingPortalAction,
+} from "./actions";
 
 const entitlementOrder = Object.keys(entitlementDefinitions) as EntitlementKey[];
 
@@ -16,6 +25,8 @@ export default async function BillingSettingsPage() {
   const [{ workspace }, i18n] = await Promise.all([requireAuthContext(), getI18n()]);
   const overview = await getBillingOverview(workspace.organizationId);
   const canManage = can(workspace.role, "billing.manage");
+  const providerConfigured = isStripeBillingConfigured();
+  const onlinePlans = getOnlineBillingPlanOptions();
   const m = billingMessages[i18n.locale];
   const date = new Intl.DateTimeFormat(i18n.localeTag, { dateStyle: "medium" });
   const integer = new Intl.NumberFormat(i18n.localeTag, { maximumFractionDigits: 0 });
@@ -26,6 +37,9 @@ export default async function BillingSettingsPage() {
       ? m.planLabels[subscription.planCode as keyof typeof m.planLabels]
       : subscription.planName
     : m.noPlan;
+  const hasStripeCustomer = overview.account?.providerKey === "stripe" && Boolean(overview.account.providerCustomerId);
+  const hasStripeSubscription = subscription?.providerKey === "stripe" && Boolean(subscription.providerSubscriptionId);
+  const canUseOnlineBilling = canManage && providerConfigured && !subscription?.isManual;
 
   return (
     <>
@@ -48,6 +62,7 @@ export default async function BillingSettingsPage() {
         <article className="panel billingSummaryCard">
           <span className="billingLabel">{m.subscriptionStatus}</span>
           <strong>{subscription ? m.statusLabels[subscription.status] : "—"}</strong>
+          {subscription?.cancelAtPeriodEnd ? <small>{m.cancellationScheduled}</small> : null}
         </article>
         <article className="panel billingSummaryCard">
           <span className="billingLabel">{m.billingPeriod}</span>
@@ -101,8 +116,44 @@ export default async function BillingSettingsPage() {
         <article className="panel settingsPanel">
           <h2>{m.upgrade}</h2>
           <p className="subtitle">{m.upgradeBody}</p>
-          <button className="primary billingDisabledButton" type="button" disabled>{m.upgradeButton}</button>
+          <div className="settingsActions">
+            {onlinePlans.map((option) => {
+              const current = subscription?.planCode === option.code;
+              const label = option.code === "growth" ? m.chooseGrowth : m.chooseScale;
+              const disabled = !canUseOnlineBilling || !option.configured || current;
+              return (
+                <form action={changeOnlinePlanAction} key={option.code}>
+                  <input name="planCode" type="hidden" value={option.code} />
+                  <button className="primary" type="submit" disabled={disabled}>
+                    {current ? m.currentChoice : label}
+                  </button>
+                </form>
+              );
+            })}
+          </div>
+          {!providerConfigured || onlinePlans.some((option) => !option.configured) ? (
+            <p className="settingsHint">{m.providerNotConfigured}</p>
+          ) : null}
         </article>
+
+        <article className="panel settingsPanel">
+          <h2>{m.manageBilling}</h2>
+          <p className="subtitle">{m.manageBillingBody}</p>
+          <div className="settingsActions">
+            {hasStripeCustomer && canManage ? (
+              <form action={openBillingPortalAction}>
+                <button className="primary" type="submit">{m.manageBilling}</button>
+              </form>
+            ) : null}
+            {hasStripeSubscription && canManage && !subscription?.cancelAtPeriodEnd ? (
+              <form action={cancelOnlineSubscriptionAction}>
+                <button type="submit">{m.cancelSubscription}</button>
+              </form>
+            ) : null}
+          </div>
+          {subscription?.cancelAtPeriodEnd ? <p className="settingsHint">{m.cancellationScheduled}</p> : null}
+        </article>
+
         <article className="panel settingsPanel">
           <h2>{m.manualBilling}</h2>
           <p className="subtitle">{m.manualBillingBody}</p>
