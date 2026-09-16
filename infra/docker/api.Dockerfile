@@ -23,7 +23,7 @@ COPY apps/worker/package.json ./apps/worker/package.json
 RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
-    && bun install --frozen-lockfile --ignore-scripts --filter "!./" --filter @wa/db
+    && bun install --production --frozen-lockfile --ignore-scripts --filter "!./" --filter @wa/db
 ARG IMAGE_SOURCE="https://github.com/yasserfullstack-tech/whatsapp"
 ARG IMAGE_REVISION="unknown"
 ARG IMAGE_VERSION="dev"
@@ -31,7 +31,7 @@ LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
       org.opencontainers.image.revision="$IMAGE_REVISION" \
       org.opencontainers.image.version="$IMAGE_VERSION"
 ENV NODE_ENV=production
-CMD ["bun", "run", "--filter", "@wa/db", "db:migrate"]
+CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]
 
 FROM oven/bun:1.4.2-slim AS runtime
 WORKDIR /app
