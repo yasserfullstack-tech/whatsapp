@@ -91,6 +91,7 @@ function parseMessage(
   const supportedMedia = new Set(["image", "video", "audio", "document", "sticker"]);
   const profiles = contactProfiles(value);
   const senderKey = item.from.replace(/\D/g, "");
+  const profileName = profiles.get(senderKey);
   const timestampSeconds = parseTimestampSeconds(item.timestamp);
   let type: InboxInboundMessageType = "other";
   let text: string | undefined;
@@ -140,7 +141,7 @@ function parseMessage(
     ...(phoneNumberId ? { phoneNumberId } : {}),
     ...(businessDisplayPhoneNumber ? { businessDisplayPhoneNumber } : {}),
     ...(wabaId ? { wabaId } : {}),
-    ...(profiles.get(senderKey) ? { profileName: profiles.get(senderKey) } : {}),
+    ...(profileName ? { profileName } : {}),
     ...(text ? { text } : {}),
     ...(media ? { media } : {}),
     ...(interactivePayload ? { interactivePayload } : {}),
