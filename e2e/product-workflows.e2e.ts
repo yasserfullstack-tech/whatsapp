@@ -303,7 +303,12 @@ test.describe("product workflows", () => {
 
       await page.getByPlaceholder("DELETE ACCOUNT").fill("DELETE ACCOUNT");
       await page.getByRole("button", { name: "Delete account permanently" }).click();
+      const confirmationDialog = page.locator("dialog.destructiveDialog");
+      await expect(confirmationDialog).toBeVisible();
+      await confirmationDialog.getByRole("button", { name: "Yes, delete my account" }).click();
       await expect(page.getByRole("status")).toContainText(/workspace|owner|ownership/i);
+      await confirmationDialog.getByRole("button", { name: "Keep my account" }).click();
+      await expect(confirmationDialog).toBeHidden();
 
       await page.getByPlaceholder(owner.organizationSlug).fill(owner.organizationSlug);
       await page.locator(".destructiveCheck input[type=checkbox]").check();
