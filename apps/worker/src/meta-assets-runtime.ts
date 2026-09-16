@@ -12,9 +12,11 @@ import { parseWhatsAppWebhook, type WhatsAppMetaAssetEvent } from "@wa/meta/webh
 import { createLogger, MetricsRegistry } from "@wa/observability";
 import {
   accountConnectionStatus,
+  accountPhoneStatusAfter,
+  matchingPhonesByDisplayNumber,
+  missingSynchronizedTemplateIds,
   normalizeMetaTemplateCategory,
   normalizeMetaTemplateStatus,
-  normalizedPhoneDigits,
   shouldApplyMetaAssetState,
   stableFingerprint,
   webhookEventTime,
@@ -191,14 +193,6 @@ async function phonesForWaba(wabaId: string): Promise<PhoneRow[]> {
     .where(eq(schema.whatsappPhoneNumbers.wabaId, wabaId));
 }
 
-function matchingPhones(phones: PhoneRow[], displayPhoneNumber: string | undefined): PhoneRow[] {
-  const expected = normalizedPhoneDigits(displayPhoneNumber);
-  if (!expected) return phones.length === 1 ? phones : [];
-  const exact = phones.filter((phone) => normalizedPhoneDigits(phone.displayPhoneNumber) === expected);
-  if (exact.length) return exact;
-  return phones.length === 1 ? phones : [];
-}
-
 async function reconcilePhone(phone: PhoneRow, observedAt = new Date()): Promise<void> {
   const accessToken = await loadAccessToken(phone);
   const remote = await getWhatsAppPhoneNumber({
@@ -348,7 +342,7 @@ async function applyTemplateStatus(event: Extract<WhatsAppMetaAssetEvent, { kind
 }
 
 async function applyPhoneName(event: Extract<WhatsAppMetaAssetEvent, { kind: "phone_name" }>, fallbackAt: Date) {
-  const phones = matchingPhones(await phonesForWaba(event.wabaId), event.displayPhoneNumber);
+  const phones = matchingPhonesByDisplayNumber(await phonesForWaba(event.wabaId), event.displayPhoneNumber);
   const providerEventAt = webhookEventTime(event.timestampSeconds, fallbackAt);
 
   for (const phone of phones) {
@@ -398,7 +392,7 @@ async function applyPhoneName(event: Extract<WhatsAppMetaAssetEvent, { kind: "ph
 }
 
 async function applyPhoneQuality(event: Extract<WhatsAppMetaAssetEvent, { kind: "phone_quality" }>) {
-  const phones = matchingPhones(await phonesForWaba(event.wabaId), event.displayPhoneNumber);
+  const phones = matchingPhonesByDisplayNumber(await phonesForWaba(event.wabaId), event.displayPhoneNumber);
   for (const phone of phones) {
     await reconcilePhone(phone, new Date());
   }
@@ -420,11 +414,21 @@ async function applyAccountUpdate(event: Extract<WhatsAppMetaAssetEvent, { kind:
       source: "webhook",
     })) return;
 
+    let transitionedPhones = 0;
     if (nextStatus) {
-      await tx
-        .update(schema.whatsappPhoneNumbers)
-        .set({ status: nextStatus, updatedAt: new Date() })
-        .where(eq(schema.whatsappPhoneNumbers.wabaId, event.wabaId));
+      for (const phone of phones) {
+        const effectiveStatus = accountPhoneStatusAfter(phone.status, nextStatus);
+        if (effectiveStatus === phone.status) continue;
+        const [updated] = await tx
+          .update(schema.whatsappPhoneNumbers)
+          .set({ status: effectiveStatus, updatedAt: new Date() })
+          .where(and(
+            eq(schema.whatsappPhoneNumbers.id, phone.id),
+            eq(schema.whatsappPhoneNumbers.status, phone.status),
+          ))
+          .returning({ id: schema.whatsappPhoneNumbers.id });
+        if (updated) transitionedPhones += 1;
+      }
     }
 
     await recordAudit(tx, {
@@ -437,6 +441,7 @@ async function applyAccountUpdate(event: Extract<WhatsAppMetaAssetEvent, { kind:
         banState: event.banState,
         banDate: event.banDate,
         connectionStatus: nextStatus,
+        transitionedPhones,
         providerEventAt: providerEventAt.toISOString(),
       },
     });
@@ -650,10 +655,68 @@ async function reconcileTemplatesForWaba(input: {
       }
     });
   }
-  return remoteTemplates.length;
+
+  const localTemplates = await db
+    .select({
+      id: schema.templates.id,
+      metaTemplateId: schema.templates.metaTemplateId,
+      status: schema.templates.status,
+      metaStatus: schema.templates.metaStatus,
+    })
+    .from(schema.templates)
+    .where(and(
+      eq(schema.templates.organizationId, input.organizationId),
+      eq(schema.templates.wabaId, input.wabaId),
+      isNotNull(schema.templates.metaTemplateId),
+    ));
+  const missingIds = new Set(missingSynchronizedTemplateIds(
+    localTemplates,
+    new Set(remoteTemplates.map((template) => template.id)),
+  ));
+
+  for (const template of localTemplates) {
+    if (!missingIds.has(template.id)) continue;
+    await db.transaction(async (tx) => {
+      const fingerprint = stableFingerprint({
+        status: "disabled",
+        metaStatus: template.metaStatus,
+        reason: "missing_from_provider_listing",
+      });
+      if (!await claimStateVersion(tx, {
+        resourceType: "template_status",
+        resourceKey: template.id,
+        providerEventAt: input.observedAt,
+        fingerprint,
+        source: "reconciliation",
+      })) return;
+
+      await tx.update(schema.templates).set({
+        status: "disabled",
+        lastSyncedAt: input.observedAt,
+        updatedAt: new Date(),
+      }).where(eq(schema.templates.id, template.id));
+
+      if (template.status !== "disabled") {
+        await recordAudit(tx, {
+          organizationId: input.organizationId,
+          action: "meta.asset.template_missing_reconciled",
+          targetType: "template",
+          targetId: template.id,
+          metadata: {
+            metaTemplateId: template.metaTemplateId,
+            beforeStatus: template.status,
+            afterStatus: "disabled",
+            reason: "missing_from_provider_listing",
+          },
+        });
+      }
+    });
+  }
+
+  return remoteTemplates.length + missingIds.size;
 }
 
-export async function reconcileMetaAssets(): Promise<{ phones: number; templates: number }> {
+export async function reconcileMetaAssets(): Promise<{ phones: number; templates: number; failures: number }> {
   const observedAt = new Date();
   const phones = await db
     .select({
@@ -671,7 +734,23 @@ export async function reconcileMetaAssets(): Promise<{ phones: number; templates
     .from(schema.whatsappPhoneNumbers)
     .where(ne(schema.whatsappPhoneNumbers.status, "disconnected"));
 
-  for (const phone of phones) await reconcilePhone(phone, observedAt);
+  let reconciledPhones = 0;
+  let failures = 0;
+  for (const phone of phones) {
+    try {
+      await reconcilePhone(phone, observedAt);
+      reconciledPhones += 1;
+    } catch (error) {
+      failures += 1;
+      metrics.incCounter("whatsapp_meta_asset_sync_failures_total", { operation: "phone_reconciliation" });
+      log.error("meta_asset_phone_reconciliation_failed", {
+        organizationId: phone.organizationId,
+        wabaId: phone.wabaId,
+        phoneNumberId: phone.phoneNumberId,
+        error,
+      });
+    }
+  }
 
   const uniqueWabas = new Map<string, { organizationId: string; wabaId: string; credentialKey: string }>();
   for (const phone of phones) {
@@ -684,9 +763,19 @@ export async function reconcileMetaAssets(): Promise<{ phones: number; templates
 
   let templateCount = 0;
   for (const waba of uniqueWabas.values()) {
-    templateCount += await reconcileTemplatesForWaba({ ...waba, observedAt });
+    try {
+      templateCount += await reconcileTemplatesForWaba({ ...waba, observedAt });
+    } catch (error) {
+      failures += 1;
+      metrics.incCounter("whatsapp_meta_asset_sync_failures_total", { operation: "template_reconciliation" });
+      log.error("meta_asset_template_reconciliation_failed", {
+        organizationId: waba.organizationId,
+        wabaId: waba.wabaId,
+        error,
+      });
+    }
   }
-  return { phones: phones.length, templates: templateCount };
+  return { phones: reconciledPhones, templates: templateCount, failures };
 }
 
 let scanRunning = false;
@@ -711,9 +800,14 @@ async function reconcile() {
   const startedAt = performance.now();
   try {
     const result = await reconcileMetaAssets();
-    metrics.incCounter("whatsapp_meta_asset_reconciliation_total", { outcome: "success" });
-    metrics.setGauge("whatsapp_meta_asset_reconciliation_last_success_timestamp_seconds", Date.now() / 1_000);
-    log.info("meta_asset_reconciliation_completed", result);
+    const outcome = result.failures > 0 ? "partial" : "success";
+    metrics.incCounter("whatsapp_meta_asset_reconciliation_total", { outcome });
+    if (result.failures === 0) {
+      metrics.setGauge("whatsapp_meta_asset_reconciliation_last_success_timestamp_seconds", Date.now() / 1_000);
+      log.info("meta_asset_reconciliation_completed", result);
+    } else {
+      log.warn("meta_asset_reconciliation_completed_with_failures", result);
+    }
   } catch (error) {
     metrics.incCounter("whatsapp_meta_asset_reconciliation_total", { outcome: "failed" });
     metrics.incCounter("whatsapp_meta_asset_sync_failures_total", { operation: "reconciliation" });
