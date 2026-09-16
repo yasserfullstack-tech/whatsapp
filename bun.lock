@@ -41,6 +41,7 @@
         "@wa/credentials": "workspace:*",
         "@wa/db": "workspace:*",
         "@wa/meta": "workspace:*",
+        "@wa/notifications": "workspace:*",
         "@wa/queue": "workspace:*",
         "@wa/storage": "workspace:*",
         "better-auth": "1.7.3",
@@ -64,6 +65,7 @@
         "@wa/credentials": "workspace:*",
         "@wa/db": "workspace:*",
         "@wa/meta": "workspace:*",
+        "@wa/notifications": "workspace:*",
         "@wa/observability": "workspace:*",
         "@wa/queue": "workspace:*",
         "@wa/storage": "workspace:*",
@@ -110,6 +112,13 @@
       "name": "@wa/meta",
       "dependencies": {
         "@wa/observability": "workspace:*",
+      },
+    },
+    "packages/notifications": {
+      "name": "@wa/notifications",
+      "dependencies": {
+        "@wa/db": "workspace:*",
+        "drizzle-orm": "0.45.2",
       },
     },
     "packages/observability": {
@@ -462,6 +471,8 @@
     "@wa/load-test": ["@wa/load-test@workspace:apps/load-test"],
 
     "@wa/meta": ["@wa/meta@workspace:packages/meta"],
+
+    "@wa/notifications": ["@wa/notifications@workspace:packages/notifications"],
 
     "@wa/observability": ["@wa/observability@workspace:packages/observability"],
 
