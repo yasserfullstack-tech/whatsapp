@@ -104,6 +104,9 @@ export async function POST(request: Request) {
     const credentialKey = `org/${context.workspace.organizationId}/whatsapp/${phone.id}/access-token`;
     const encrypted = encryptSecret(token.accessToken, getCredentialEncryptionKey());
     const throughputMps = inferThroughputMps(phone.throughputLevel);
+    const credentialExpiresAt = typeof token.expiresIn === "number" && token.expiresIn > 0
+      ? new Date(Date.now() + token.expiresIn * 1_000)
+      : undefined;
 
     await saveVerifiedWhatsAppConnectionAtomic(db, {
       organizationId: context.workspace.organizationId,
@@ -119,6 +122,7 @@ export async function POST(request: Request) {
       credential: {
         key: credentialKey,
         ...encrypted,
+        ...(credentialExpiresAt ? { expiresAt: credentialExpiresAt } : {}),
       },
     });
 
