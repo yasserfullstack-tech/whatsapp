@@ -46,8 +46,8 @@ const REQUIRED_APPROVAL_FIELDS = [
   "LEGAL_DISPUTE_FORUM",
 ] as const;
 
-function configured(name: (typeof REQUIRED_APPROVAL_FIELDS)[number], fallback: string): string {
-  return process.env[name]?.trim() || fallback;
+function configured(name: (typeof REQUIRED_APPROVAL_FIELDS)[number], draftValue: string): string {
+  return process.env[name]?.trim() || draftValue;
 }
 
 function getLegalEntityDetails(): LegalEntityDetails {
