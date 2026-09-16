@@ -41,7 +41,7 @@ test.describe("campaign scheduling", () => {
       await page.goto("/campaigns");
       const campaignName = `Scheduled browser campaign ${Date.now()}`;
       await page.getByLabel("Campaign name").fill(campaignName);
-      await page.getByLabel("Delivery timing").selectOption("scheduled");
+      await page.getByLabel("Delivery").selectOption("scheduled");
 
       const firstInstant = new Date(Date.now() + 60 * 60_000);
       await page.getByLabel("Schedule time").fill(formatDateTimeLocalInZone(firstInstant, "Asia/Baghdad"));
