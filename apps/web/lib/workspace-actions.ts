@@ -1,7 +1,7 @@
 "use server";
 
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, count, eq, gt, isNull, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -9,6 +9,7 @@ import { z } from "zod";
 import { schema } from "@wa/db";
 import { sendAuthEmail } from "./auth-email";
 import { requireAuthContext } from "./auth-context";
+import { entitlements } from "./entitlements-server";
 import { db } from "./server";
 import { can, type WorkspaceAction } from "./workspace-access";
 import { transferWorkspaceOwnershipAtomic } from "./workspace-ownership";
@@ -141,6 +142,15 @@ export async function inviteWorkspaceMemberAction(formData: FormData) {
   )[0];
   if (existingMember) throw new Error("That user is already a workspace member");
 
+  const [memberCount] = await db
+    .select({ total: count() })
+    .from(schema.organizationMembers)
+    .where(eq(schema.organizationMembers.organizationId, workspace.organizationId));
+  await entitlements.assertUsage(workspace.organizationId, "max_members", {
+    currentUsage: memberCount?.total ?? 0,
+    requested: 1,
+  });
+
   const token = randomBytes(32).toString("base64url");
   const hash = tokenHash(token);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -219,6 +229,8 @@ export async function acceptWorkspaceInvitationAction(formData: FormData) {
   }
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`entitlement:max_members:${invitation.organizationId}`})::bigint)`);
+
     const membership = (
       await tx
         .select({ id: schema.organizationMembers.id, role: schema.organizationMembers.role })
@@ -231,6 +243,15 @@ export async function acceptWorkspaceInvitationAction(formData: FormData) {
     )[0];
 
     if (!membership) {
+      const [memberCount] = await tx
+        .select({ total: count() })
+        .from(schema.organizationMembers)
+        .where(eq(schema.organizationMembers.organizationId, invitation.organizationId));
+      await entitlements.assertUsage(invitation.organizationId, "max_members", {
+        currentUsage: memberCount?.total ?? 0,
+        requested: 1,
+      });
+
       await tx.insert(schema.organizationMembers).values({
         organizationId: invitation.organizationId,
         userId: workspace.userId,
