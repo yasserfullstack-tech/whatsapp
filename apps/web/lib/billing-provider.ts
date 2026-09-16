@@ -118,7 +118,10 @@ function priceRefFor(code: OnlineBillingPlanCode): string {
 async function activePlanVersion(code: OnlineBillingPlanCode) {
   const row = (
     await db
-      .select({ id: schema.billingPlanVersions.id })
+      .select({
+        id: schema.billingPlanVersions.id,
+        providerPriceRef: schema.billingPlanVersions.providerPriceRef,
+      })
       .from(schema.billingPlanVersions)
       .innerJoin(schema.billingPlans, eq(schema.billingPlans.id, schema.billingPlanVersions.planId))
       .where(and(eq(schema.billingPlans.code, code), eq(schema.billingPlans.isActive, true)))
@@ -135,8 +138,12 @@ export async function requestOnlinePlanChange(input: {
   organizationName?: string;
   planCode: OnlineBillingPlanCode;
 }): Promise<{ kind: "checkout"; url: string } | { kind: "changed" }> {
-  await activePlanVersion(input.planCode);
+  const planVersion = await activePlanVersion(input.planCode);
   const priceRef = priceRefFor(input.planCode);
+  if (planVersion.providerPriceRef && planVersion.providerPriceRef !== priceRef) {
+    throw new Error(`Billing plan ${input.planCode} is already bound to a different Stripe Price; create a new plan version before changing price configuration`);
+  }
+
   const subscription = await currentSubscription(input.organizationId);
   if (subscription?.isManual) throw new Error("Manual subscriptions must be changed by a platform administrator");
 
