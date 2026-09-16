@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
+import { parseCampaignScheduledAt } from "@/lib/campaign-scheduling";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
@@ -11,7 +12,15 @@ export const runtime = "nodejs";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-const controlSchema = z.object({ action: z.enum(["pause", "resume", "cancel"]) });
+const controlSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("pause") }),
+  z.object({ action: z.literal("resume") }),
+  z.object({ action: z.literal("cancel") }),
+  z.object({
+    action: z.literal("reschedule"),
+    scheduledAt: z.string().trim().min(1).max(64),
+  }),
+]);
 
 export async function POST(request: Request, routeContext: RouteContext) {
   const context = await getAuthContext();
@@ -30,6 +39,33 @@ export async function POST(request: Request, routeContext: RouteContext) {
     .limit(1);
 
   if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+
+  if (parsed.data.action === "reschedule") {
+    if (campaign.status !== "scheduled") {
+      return NextResponse.json({ error: `Campaign cannot be rescheduled from ${campaign.status}` }, { status: 409 });
+    }
+
+    let scheduledAt: Date;
+    try {
+      scheduledAt = parseCampaignScheduledAt(parsed.data.scheduledAt)!;
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid campaign schedule" }, { status: 400 });
+    }
+
+    const [rescheduled] = await db.update(schema.campaigns)
+      .set({ scheduledAt, updatedAt: new Date() })
+      .where(and(
+        eq(schema.campaigns.id, campaign.id),
+        eq(schema.campaigns.organizationId, organizationId),
+        eq(schema.campaigns.status, "scheduled"),
+      ))
+      .returning({ id: schema.campaigns.id });
+
+    if (!rescheduled) {
+      return NextResponse.json({ error: "Campaign dispatch already started; it can no longer be rescheduled" }, { status: 409 });
+    }
+    return NextResponse.json({ status: "scheduled", scheduledAt: scheduledAt.toISOString() });
+  }
 
   if (parsed.data.action === "pause") {
     if (campaign.status !== "sending") {
@@ -73,6 +109,23 @@ export async function POST(request: Request, routeContext: RouteContext) {
     }
 
     return NextResponse.json({ status: "sending" });
+  }
+
+  if (campaign.status === "scheduled") {
+    const now = new Date();
+    const [cancelled] = await db.update(schema.campaigns)
+      .set({ status: "cancelled", completedAt: now, updatedAt: now })
+      .where(and(
+        eq(schema.campaigns.id, campaign.id),
+        eq(schema.campaigns.organizationId, organizationId),
+        eq(schema.campaigns.status, "scheduled"),
+      ))
+      .returning({ id: schema.campaigns.id });
+
+    if (!cancelled) {
+      return NextResponse.json({ error: "Campaign dispatch already started; it can no longer be cancelled as scheduled work" }, { status: 409 });
+    }
+    return NextResponse.json({ status: "cancelled" });
   }
 
   if (campaign.status !== "sending" && campaign.status !== "paused") {
