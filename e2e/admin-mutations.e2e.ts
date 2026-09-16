@@ -58,13 +58,14 @@ test.describe("platform admin mutations", () => {
 
       const organizationRoute = `/admin/organizations/${target.organizationId}`;
       await page.goto(organizationRoute);
-      let supportRow = page.locator("tr").filter({ hasText: admin.email }).first();
+      const membershipSection = page.getByRole("heading", { name: "Membership support" }).locator("..").locator("..");
+      let supportRow = membershipSection.locator("tr").filter({ hasText: admin.email }).first();
       await supportRow.getByLabel(`Role for ${admin.email}`).selectOption("admin");
       await submitServerAction(page, organizationRoute, () => supportRow.getByRole("button", { name: "Save role" }).click());
-      supportRow = page.locator("tr").filter({ hasText: admin.email }).first();
+      supportRow = membershipSection.locator("tr").filter({ hasText: admin.email }).first();
       await expect(supportRow.getByLabel(`Role for ${admin.email}`)).toHaveValue("admin");
       await submitServerAction(page, organizationRoute, () => supportRow.getByRole("button", { name: "Remove membership" }).click());
-      await expect(page.locator("tr").filter({ hasText: admin.email })).toHaveCount(0);
+      await expect(membershipSection.locator("tr").filter({ hasText: admin.email })).toHaveCount(0);
 
       await page.getByLabel("Plan").fill("e2e-enterprise");
       await page.getByLabel("Contact limit").fill("12345");
