@@ -102,6 +102,6 @@ Never commit real Meta tokens or production secrets.
 
 ## Next production milestones
 
-- end-to-end tests with a real Meta test/business number;
-- controlled 1k / 10k / 50k / large-volume load tests with PostgreSQL, Redis, worker, and Meta latency metrics;
-- deployment hardening, monitoring, backups, and billing.
+The source-of-truth launch and product-completeness checklist is [`docs/production-readiness-plan.md`](docs/production-readiness-plan.md). It tracks ownership, dependencies, acceptance criteria, evidence requirements, and verified completion for every readiness task.
+
+Near-term priorities include real-provider Meta validation, representative load/soak evidence, production infrastructure and recovery proof, alerting, billing, and entitlement enforcement. Use the readiness plan rather than this summary to determine launch status.

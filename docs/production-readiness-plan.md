@@ -20,11 +20,59 @@ This document is the source of truth for closing the production-readiness and pr
 - **Product scope**: may ship after initial launch unless it is part of the promised launch offering.
 - **Continuous**: remains an ongoing security/operations responsibility.
 
+## Tracking index
+
+Every top-level task has an assigned GitHub issue with acceptance criteria, dependencies, and evidence requirements. The repository owner, `@yasserfullstack-tech`, is the initial owner for all tasks and can reassign them as execution is delegated.
+
+| Task | Tracking issue | Classification |
+| --- | --- | --- |
+| PR-001 Production readiness tracking | [#46](https://github.com/yasserfullstack-tech/whatsapp/issues/46) | Launch blocker |
+| PR-002 Current Meta Embedded Signup migration | [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47) | Launch blocker / Meta / external evidence |
+| PR-003 Connection health and reauthorization | [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) | Launch blocker / Meta / security |
+| PR-004 Meta asset/account synchronization | [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49) | Launch blocker / Meta |
+| PR-005 External Meta production prerequisites | [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50) | Launch blocker / Meta / external evidence |
+| PR-006 Real billing provider | [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51) | Launch blocker / billing |
+| PR-007 Server-side entitlement enforcement | [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | Launch blocker / billing / security |
+| PR-008 Legal and compliance | [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53) | Launch blocker / external evidence |
+| PR-009 Staging/production infrastructure | [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54) | Launch blocker / ops / external evidence |
+| PR-010 Backup/recovery proof | [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55) | Launch blocker / ops / external evidence |
+| PR-011 Production alerting | [#56](https://github.com/yasserfullstack-tech/whatsapp/issues/56) | Launch blocker / ops / external evidence |
+| PR-012 Real-provider validation | [#57](https://github.com/yasserfullstack-tech/whatsapp/issues/57) | Launch blocker / ops / Meta / billing / external evidence |
+| PR-013 Representative scale validation | [#58](https://github.com/yasserfullstack-tech/whatsapp/issues/58) | Launch blocker / ops / external evidence |
+| PR-014 Inbound inbox | [#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59) | Product scope / Meta |
+| PR-015 Rich WhatsApp templates | [#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60) | Product scope / Meta |
+| PR-016 Campaign scheduling/automation | [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) | Product scope |
+| PR-017 Onboarding test mode | [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62) | Product scope / security |
+| PR-018 Contact management | [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) | Product scope / security |
+| PR-019 Notification runtime | [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) | Product scope / ops |
+| PR-020 Platform admin tooling | [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65) | Product scope / ops / security |
+| PR-021 Container/supply-chain security | [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66) | Continuous / security / ops |
+| PR-022 Application security / independent testing | [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67) | Continuous / security / external evidence |
+
+The readiness labels now in use are `launch-blocker`, `product-scope`, `security`, `meta`, `billing`, `ops`, and `external-evidence`.
+
+## Current CI/E2E baseline
+
+Verified on **2026-09-16** against the most recent merged product PR head, `5cc8bd3b350b1e7b256c3beb6d05a3343378ff46` from PR #42:
+
+- CI run #394: **success**.
+- Unit/integration tests (`bun run test`): **success**.
+- Typecheck (`bun run typecheck`): **success**.
+- Production build (`bun run build`): **success**.
+- Browser E2E (EN/AR · desktop/tablet/mobile): **success**.
+- Security run #306: **success**.
+- Production Infra run #148: **success**.
+- Webhook Reliability Load Validation run #141: **skipped by path filter**, not failed.
+
+The newer `main` commit `c478e524070ec45e7315c10fdcb1d2ceb2cca32f` only added this readiness plan and has no PR-triggered workflow runs attached. Browser E2E has therefore been successfully executed on the latest merged product change; older notes must not claim that it has never run successfully. A Bun lockfile defect must likewise not be claimed unless a frozen install reproduces one.
+
 ---
 
 # Phase 0 — Release control
 
-## [ ] PR-001 — Production readiness tracking
+## [x] PR-001 — Production readiness tracking
+
+**Tracking issue:** [#46](https://github.com/yasserfullstack-tech/whatsapp/issues/46)
 
 **Suggested branch:** `chore/production-readiness-tracking`
 
@@ -42,16 +90,18 @@ This document is the source of truth for closing the production-readiness and pr
 
 ### Definition of done
 
-- [ ] Every task below has a corresponding GitHub issue.
-- [ ] Every issue has an owner, acceptance criteria, dependencies, and evidence requirements.
-- [ ] Repository readiness documentation points to this file as the main checklist.
-- [ ] Current CI/E2E status is documented accurately.
+- [x] Every task below has a corresponding GitHub issue.
+- [x] Every issue has an owner, acceptance criteria, dependencies, and evidence requirements.
+- [x] Repository readiness documentation points to this file as the main checklist.
+- [x] Current CI/E2E status is documented accurately.
 
 ---
 
 # Phase 1 — Meta / WhatsApp production integration
 
 ## [ ] PR-002 — Migrate Embedded Signup to the current Meta flow
+
+**Tracking issue:** [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47)
 
 **Suggested branch:** `feat/meta-embedded-signup-v4`
 
@@ -78,6 +128,8 @@ This document is the source of truth for closing the production-readiness and pr
 - [ ] A real Meta test/business onboarding has been completed and evidence attached.
 
 ## [ ] PR-003 — WhatsApp connection health and reauthorization lifecycle
+
+**Tracking issue:** [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48)
 
 **Suggested branch:** `feat/meta-connection-health`
 
@@ -106,6 +158,8 @@ This document is the source of truth for closing the production-readiness and pr
 
 ## [ ] PR-004 — Meta asset and account synchronization
 
+**Tracking issue:** [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49)
+
 **Suggested branch:** `feat/meta-asset-sync`
 
 **Priority:** Launch blocker
@@ -130,6 +184,8 @@ This document is the source of truth for closing the production-readiness and pr
 - [ ] Operational failures surface in logs/metrics/alerts.
 
 ## [ ] PR-005 — Complete external Meta production prerequisites
+
+**Tracking issue:** [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50)
 
 **Suggested branch:** `docs/meta-production-evidence`
 
@@ -160,6 +216,8 @@ Track and attach evidence for the Meta-side prerequisites that cannot be proven 
 # Phase 2 — Billing and entitlement enforcement
 
 ## [ ] PR-006 — Implement the real billing provider
+
+**Tracking issue:** [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51)
 
 **Suggested branch:** `feat/billing-provider`
 
@@ -193,6 +251,8 @@ Track and attach evidence for the Meta-side prerequisites that cannot be proven 
 - [ ] Automated integration tests cover the lifecycle.
 
 ## [ ] PR-007 — Enforce entitlements and usage limits server-side
+
+**Tracking issue:** [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52)
 
 **Suggested branch:** `feat/entitlement-enforcement`
 
@@ -231,6 +291,8 @@ Also:
 # Phase 3 — Legal and compliance
 
 ## [ ] PR-008 — Finalize legal documents and compliance procedures
+
+**Tracking issue:** [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53)
 
 **Suggested branch:** `docs/legal-and-compliance`
 
@@ -277,6 +339,8 @@ Create operating procedures for:
 
 ## [ ] PR-009 — Provision and validate staging/production infrastructure
 
+**Tracking issue:** [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54)
+
 **Suggested branch:** `ops/production-infrastructure`
 
 **Priority:** Launch blocker / external evidence
@@ -315,6 +379,8 @@ Do not share production databases, Valkey instances, storage credentials, or Met
 
 ## [ ] PR-010 — Activate and prove backup/recovery
 
+**Tracking issue:** [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55)
+
 **Suggested branch:** `ops/backup-recovery`
 
 **Priority:** Launch blocker
@@ -348,6 +414,8 @@ Build on `docs/backups.md`:
 # Phase 5 — Monitoring, alerting, and incident response
 
 ## [ ] PR-011 — Add actionable production alerting
+
+**Tracking issue:** [#56](https://github.com/yasserfullstack-tech/whatsapp/issues/56)
 
 **Suggested branch:** `ops/production-alerting`
 
@@ -398,6 +466,8 @@ Also:
 
 ## [ ] PR-012 — Real-provider production validation
 
+**Tracking issue:** [#57](https://github.com/yasserfullstack-tech/whatsapp/issues/57)
+
 **Suggested branch:** `test/production-provider-validation`
 
 **Priority:** Launch blocker
@@ -431,6 +501,8 @@ Run and record real external-system tests for:
 - [ ] No test relies only on fake Meta/provider implementations for launch approval.
 
 ## [ ] PR-013 — Representative load, soak, and recovery validation
+
+**Tracking issue:** [#58](https://github.com/yasserfullstack-tech/whatsapp/issues/58)
 
 **Suggested branch:** `test/production-scale-validation`
 
@@ -468,6 +540,8 @@ Build on `docs/stress-soak.md`.
 # Phase 7 — Inbound inbox
 
 ## [ ] PR-014 — Build the inbound WhatsApp inbox
+
+**Tracking issue:** [#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59)
 
 **Suggested branch:** `feat/inbound-inbox`
 
@@ -508,6 +582,8 @@ Build on `docs/stress-soak.md`.
 
 ## [ ] PR-015 — Support rich WhatsApp templates
 
+**Tracking issue:** [#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60)
+
 **Suggested branch:** `feat/rich-message-templates`
 
 **Priority:** Product scope
@@ -538,6 +614,8 @@ Extend the current text-oriented template flow to support the Meta template stru
 
 ## [ ] PR-016 — Campaign scheduling and automation foundation
 
+**Tracking issue:** [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61)
+
 **Suggested branch:** `feat/campaign-scheduling`
 
 **Priority:** Product scope
@@ -565,6 +643,8 @@ Extend the current text-oriented template flow to support the Meta template stru
 
 ## [ ] PR-017 — Implement real onboarding test mode
 
+**Tracking issue:** [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62)
+
 **Suggested branch:** `feat/onboarding-test-mode`
 
 **Priority:** Product scope / launch UX
@@ -591,6 +671,8 @@ Extend the current text-oriented template flow to support the Meta template stru
 # Phase 9 — Contacts, notifications, and admin depth
 
 ## [ ] PR-018 — Complete contact management
+
+**Tracking issue:** [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63)
 
 **Suggested branch:** `feat/contact-management`
 
@@ -623,6 +705,8 @@ Build on existing filtering and consent history:
 
 ## [ ] PR-019 — Wire the full notification catalog
 
+**Tracking issue:** [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64)
+
 **Suggested branch:** `feat/notification-runtime`
 
 **Priority:** Product scope
@@ -650,6 +734,8 @@ Wire existing/needed notification definitions into runtime events for:
 - [ ] Failure handling is observable.
 
 ## [ ] PR-020 — Expand platform admin tooling
+
+**Tracking issue:** [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65)
 
 **Suggested branch:** `feat/platform-admin-tools`
 
@@ -686,6 +772,8 @@ Keep user impersonation out unless/until a separate privileged-session threat mo
 
 ## [ ] PR-021 — Container and supply-chain security hardening
 
+**Tracking issue:** [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66)
+
 **Suggested branch:** `security/container-supply-chain`
 
 **Priority:** Continuous / launch hardening
@@ -708,6 +796,8 @@ Keep existing Bun audit, Gitleaks, CodeQL, and security E2E checks. Add:
 - [ ] Existing security jobs remain green.
 
 ## [ ] PR-022 — Application security hardening and independent testing
+
+**Tracking issue:** [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67)
 
 **Suggested branch:** `security/application-hardening`
 
@@ -740,19 +830,19 @@ Keep existing Bun audit, Gitleaks, CodeQL, and security E2E checks. Add:
 
 Do not mark the release production-ready until every launch-blocking item below is checked.
 
-- [ ] PR-001 Production readiness tracking
-- [ ] PR-002 Current Meta Embedded Signup migration
-- [ ] PR-003 Connection health and reauthorization
-- [ ] PR-004 Meta asset/account synchronization
-- [ ] PR-005 External Meta production prerequisites
-- [ ] PR-006 Real billing provider
-- [ ] PR-007 Server-side entitlement enforcement
-- [ ] PR-008 Final legal/compliance package
-- [ ] PR-009 Production infrastructure
-- [ ] PR-010 Backup/recovery proof
-- [ ] PR-011 Alerting/on-call readiness
-- [ ] PR-012 Real-provider validation
-- [ ] PR-013 Representative scale validation for any published capacity claim
+- [x] PR-001 Production readiness tracking ([#46](https://github.com/yasserfullstack-tech/whatsapp/issues/46))
+- [ ] PR-002 Current Meta Embedded Signup migration ([#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47))
+- [ ] PR-003 Connection health and reauthorization ([#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48))
+- [ ] PR-004 Meta asset/account synchronization ([#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49))
+- [ ] PR-005 External Meta production prerequisites ([#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50))
+- [ ] PR-006 Real billing provider ([#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51))
+- [ ] PR-007 Server-side entitlement enforcement ([#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52))
+- [ ] PR-008 Final legal/compliance package ([#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53))
+- [ ] PR-009 Production infrastructure ([#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54))
+- [ ] PR-010 Backup/recovery proof ([#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55))
+- [ ] PR-011 Alerting/on-call readiness ([#56](https://github.com/yasserfullstack-tech/whatsapp/issues/56))
+- [ ] PR-012 Real-provider validation ([#57](https://github.com/yasserfullstack-tech/whatsapp/issues/57))
+- [ ] PR-013 Representative scale validation for any published capacity claim ([#58](https://github.com/yasserfullstack-tech/whatsapp/issues/58))
 
 ## Launch evidence required
 
@@ -780,15 +870,15 @@ Before checking the final release gate, attach or link evidence for:
 
 These do not necessarily block the first paid launch unless they are explicitly promised in the launch scope.
 
-- [ ] PR-014 Inbound inbox
-- [ ] PR-015 Rich WhatsApp templates
-- [ ] PR-016 Campaign scheduling/automation foundation
-- [ ] PR-017 Onboarding test mode
-- [ ] PR-018 Contact management depth
-- [ ] PR-019 Full notification runtime
-- [ ] PR-020 Expanded platform admin tooling
-- [ ] PR-021 Container/supply-chain hardening
-- [ ] PR-022 Application security hardening / independent testing
+- [ ] PR-014 Inbound inbox ([#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59))
+- [ ] PR-015 Rich WhatsApp templates ([#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60))
+- [ ] PR-016 Campaign scheduling/automation foundation ([#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61))
+- [ ] PR-017 Onboarding test mode ([#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62))
+- [ ] PR-018 Contact management depth ([#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63))
+- [ ] PR-019 Full notification runtime ([#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64))
+- [ ] PR-020 Expanded platform admin tooling ([#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65))
+- [ ] PR-021 Container/supply-chain hardening ([#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66))
+- [ ] PR-022 Application security hardening / independent testing ([#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67))
 
 ---
 
