@@ -108,6 +108,29 @@ describe("EntitlementService", () => {
     expect((await service.checkUsage("org-a", "max_import_size", { requested: 5001 })).allowed).toBe(false);
   });
 
+  test("throws structured errors from server-side assertions", async () => {
+    const repository = new FakeBillingRepository();
+    repository.subscriptions.set("org-a", subscription("org-a"));
+    repository.entitlement("plan-v1", "max_members", 3);
+    const service = new EntitlementService(repository);
+
+    await expect(service.assertUsage("org-a", "max_members", { currentUsage: 2, requested: 1 })).resolves.toMatchObject({
+      allowed: true,
+      limit: 3,
+      used: 2,
+      remaining: 1,
+    });
+
+    const overLimit = service.assertUsage("org-a", "max_members", { currentUsage: 3, requested: 1 });
+    await expect(overLimit).rejects.toBeInstanceOf(BillingLimitExceededError);
+    await expect(overLimit).rejects.toMatchObject({ key: "max_members", limit: 3, attemptedTotal: 4 });
+
+    repository.subscriptions.set("org-a", subscription("org-a", { status: "suspended" }));
+    const inactive = service.assertUsage("org-a", "max_members", { currentUsage: 1, requested: 1 });
+    await expect(inactive).rejects.toBeInstanceOf(BillingEntitlementError);
+    await expect(inactive).rejects.toMatchObject({ key: "max_members", reason: "subscription_inactive" });
+  });
+
   test("allows a live trial and stops it after the trial boundary", async () => {
     const repository = new FakeBillingRepository();
     repository.subscriptions.set("org-a", subscription("org-a", {
@@ -172,7 +195,7 @@ describe("EntitlementService", () => {
       key: "monthly_campaign_recipients",
       quantity: 1,
       idempotencyKey: "campaign-3",
-    })).rejects.toBeInstanceOf(BillingEntitlementError);
+    })).rejects.toBeInstanceOf(BillingLimitExceededError);
   });
 
   test("rolls metered usage with the subscription billing period", async () => {
