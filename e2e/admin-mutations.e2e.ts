@@ -27,7 +27,7 @@ async function submitServerAction(page: import("@playwright/test").Page, route: 
 test.describe("platform admin mutations", () => {
   test.beforeEach(({}, testInfo) => test.skip(desktopOnly(testInfo.project.name), "admin mutations run once on desktop Chromium"));
 
-  test("platform admin updates limits, suspends/reactivates workspace, and disables/re-enables user", async ({ page, context }) => {
+  test("platform admin manages access, membership, limits, lifecycle, and user state", async ({ page, context }) => {
     const admin = await createTenant("admin-actor");
     const target = await createTenant("admin-target");
     try {
@@ -36,8 +36,36 @@ test.describe("platform admin mutations", () => {
       await useTenantSession(context, admin);
       const health = await guardBrowser(page);
 
+      await page.goto(`/admin/access?q=${encodeURIComponent(target.email)}`);
+      let accessRow = page.locator("tr").filter({ hasText: target.email }).first();
+      await submitServerAction(page, "/admin/access", () => accessRow.getByRole("button", { name: "Grant platform admin" }).click());
+      accessRow = page.locator("tr").filter({ hasText: target.email }).first();
+      await expect(accessRow).toContainText("active");
+      let [targetGrant] = await functionalDb.select().from(schema.platformAdminGrants).where(eq(schema.platformAdminGrants.authUserId, target.authUserId));
+      expect(targetGrant?.revokedAt).toBeNull();
+
+      await submitServerAction(page, "/admin/access", () => accessRow.getByRole("button", { name: "Revoke platform admin" }).click());
+      accessRow = page.locator("tr").filter({ hasText: target.email }).first();
+      await expect(accessRow).toContainText("revoked");
+      [targetGrant] = await functionalDb.select().from(schema.platformAdminGrants).where(eq(schema.platformAdminGrants.authUserId, target.authUserId));
+      expect(targetGrant?.revokedAt).not.toBeNull();
+
+      await functionalDb.insert(schema.organizationMembers).values({
+        organizationId: target.organizationId,
+        userId: admin.appUserId,
+        role: "member",
+      });
+
       const organizationRoute = `/admin/organizations/${target.organizationId}`;
       await page.goto(organizationRoute);
+      let supportRow = page.locator("tr").filter({ hasText: admin.email }).first();
+      await supportRow.getByLabel(`Role for ${admin.email}`).selectOption("admin");
+      await submitServerAction(page, organizationRoute, () => supportRow.getByRole("button", { name: "Save role" }).click());
+      supportRow = page.locator("tr").filter({ hasText: admin.email }).first();
+      await expect(supportRow.getByLabel(`Role for ${admin.email}`)).toHaveValue("admin");
+      await submitServerAction(page, organizationRoute, () => supportRow.getByRole("button", { name: "Remove membership" }).click());
+      await expect(page.locator("tr").filter({ hasText: admin.email })).toHaveCount(0);
+
       await page.getByLabel("Plan").fill("e2e-enterprise");
       await page.getByLabel("Contact limit").fill("12345");
       await page.getByLabel("Campaign recipient limit").fill("54321");
@@ -67,7 +95,7 @@ test.describe("platform admin mutations", () => {
       await expect(row).toContainText("active");
 
       await page.goto("/admin/audit");
-      await expect(page.getByText(/suspend|organization/i).first()).toBeVisible();
+      await expect(page.getByText(/platform_admin\.granted|membership\.role_changed|organization\.suspended/).first()).toBeVisible();
       await health.expectHealthy();
     } finally {
       await destroyTenant(target);
