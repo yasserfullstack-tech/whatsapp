@@ -4,6 +4,7 @@ export type MetaAssetVersion = {
 };
 
 export type LocalTemplateStatus = "draft" | "pending" | "approved" | "rejected" | "paused" | "disabled";
+export type LocalConnectionStatus = "pending" | "connected" | "restricted" | "disconnected";
 
 export function normalizeMetaTemplateStatus(status: string): LocalTemplateStatus {
   switch (status.trim().toUpperCase()) {
@@ -47,10 +48,37 @@ export function accountConnectionStatus(input: {
   return null;
 }
 
+export function accountPhoneStatusAfter(
+  current: LocalConnectionStatus,
+  incoming: "connected" | "restricted",
+): LocalConnectionStatus {
+  if (incoming === "restricted" && current === "connected") return "restricted";
+  if (incoming === "connected" && current === "restricted") return "connected";
+  return current;
+}
+
 export function normalizedPhoneDigits(value: string | null | undefined): string | null {
   if (!value) return null;
   const digits = value.replace(/\D/g, "");
   return digits || null;
+}
+
+export function matchingPhonesByDisplayNumber<T extends { displayPhoneNumber: string | null }>(
+  phones: T[],
+  displayPhoneNumber: string | undefined,
+): T[] {
+  const expected = normalizedPhoneDigits(displayPhoneNumber);
+  if (!expected) return phones.length === 1 ? phones : [];
+  return phones.filter((phone) => normalizedPhoneDigits(phone.displayPhoneNumber) === expected);
+}
+
+export function missingSynchronizedTemplateIds(
+  localTemplates: Array<{ id: string; metaTemplateId: string | null }>,
+  remoteTemplateIds: ReadonlySet<string>,
+): string[] {
+  return localTemplates
+    .filter((template) => template.metaTemplateId && !remoteTemplateIds.has(template.metaTemplateId))
+    .map((template) => template.id);
 }
 
 export function shouldApplyMetaAssetState(
