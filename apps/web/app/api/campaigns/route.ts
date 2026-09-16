@@ -9,6 +9,7 @@ import {
   countEligibleAudience,
   resolveAudienceSelection,
 } from "@/lib/audience-server";
+import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
@@ -108,6 +109,18 @@ export async function POST(request: Request) {
   const eligibleContacts = await countEligibleAudience(organizationId, audience.definition);
   if (eligibleContacts === 0) {
     return NextResponse.json({ error: "The selected audience has no currently eligible, non-suppressed contacts" }, { status: 400 });
+  }
+
+  try {
+    // This is an early UX check only. The worker records the authoritative
+    // billable event immediately before the provider send boundary.
+    await entitlements.assertUsage(organizationId, "monthly_campaign_recipients", {
+      requested: eligibleContacts,
+    });
+  } catch (error) {
+    const payload = entitlementErrorPayload(error);
+    if (payload) return NextResponse.json(payload, { status: 409 });
+    throw error;
   }
 
   const campaignId = await db.transaction(async (tx) => {
