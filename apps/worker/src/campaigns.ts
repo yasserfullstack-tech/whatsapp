@@ -22,6 +22,7 @@ import {
   type SendMessageJob,
 } from "@wa/queue";
 import { claimCampaignRecipientForSend } from "./campaign-security";
+import { claimDueScheduledCampaigns } from "./campaign-scheduling";
 import {
   classifyMetaConnectionError,
   markConnectionRequiresReauthorization,
@@ -468,6 +469,7 @@ export function startCampaignWorkers(input: {
         campaignId: schema.campaigns.id,
         organizationId: schema.campaigns.organizationId,
         campaignStatus: schema.campaigns.status,
+        scheduledAt: schema.campaigns.scheduledAt,
         snapshotCreatedAt: schema.campaigns.snapshotCreatedAt,
         templateBindings: schema.campaigns.templateBindings,
         audienceDefinition: schema.campaignAudiences.definition,
@@ -498,6 +500,11 @@ export function startCampaignWorkers(input: {
 
     if (!record) throw new Error(`Campaign ${job.campaignId} was not found`);
     if (["completed", "cancelled", "failed"].includes(record.campaignStatus)) return { terminal: record.campaignStatus };
+    // A forged, stale, or prematurely restored queue job must never bypass the
+    // persisted schedule. Reconciliation atomically claims due rows first.
+    if (record.campaignStatus === "scheduled") {
+      return { deferred: true, scheduledAt: record.scheduledAt?.toISOString() ?? null };
+    }
 
     const connection = await prepareConnectionForSend(db, {
       organizationId: record.organizationId,
@@ -746,6 +753,11 @@ export function startCampaignWorkers(input: {
   const reconcile = async () => {
     const staleBefore = new Date(Date.now() - STALE_QUEUED_MS);
     const reconciliationAt = new Date();
+
+    // PostgreSQL owns schedules. The conditional scheduled -> dispatching claim
+    // is safe across concurrent worker processes; the normal dispatcher queue is
+    // then reconstructed from DB state just like any other active campaign.
+    await claimDueScheduledCampaigns(db, reconciliationAt);
 
     await db
       .update(schema.campaignRecipients)
