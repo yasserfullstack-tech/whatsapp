@@ -36,9 +36,12 @@ export function isStripeBillingConfigured(): boolean {
 }
 
 export function getStripeBillingProvider(requireWebhookSecret = false): StripeBillingProvider {
+  const webhookSecret = requireWebhookSecret
+    ? requiredEnv("STRIPE_WEBHOOK_SECRET")
+    : process.env.STRIPE_WEBHOOK_SECRET?.trim();
   return new StripeBillingProvider({
     secretKey: requiredEnv("STRIPE_SECRET_KEY"),
-    webhookSecret: requireWebhookSecret ? requiredEnv("STRIPE_WEBHOOK_SECRET") : process.env.STRIPE_WEBHOOK_SECRET?.trim(),
+    ...(webhookSecret ? { webhookSecret } : {}),
   });
 }
 
@@ -91,8 +94,8 @@ async function ensureStripeCustomer(input: {
   const provider = getStripeBillingProvider();
   const customer = await provider.createCustomer({
     organizationId: input.organizationId,
-    email: input.email,
-    name: input.name,
+    ...(input.email ? { email: input.email } : {}),
+    ...(input.name ? { name: input.name } : {}),
   });
   await db
     .update(schema.billingAccounts)
@@ -148,8 +151,8 @@ export async function requestOnlinePlanChange(input: {
 
   const customerExternalId = await ensureStripeCustomer({
     organizationId: input.organizationId,
-    email: input.userEmail,
-    name: input.organizationName,
+    ...(input.userEmail ? { email: input.userEmail } : {}),
+    ...(input.organizationName ? { name: input.organizationName } : {}),
   });
   const root = appUrl();
   const checkout = await provider.createCheckout({
