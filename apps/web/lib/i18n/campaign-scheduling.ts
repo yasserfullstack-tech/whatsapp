@@ -16,7 +16,7 @@ const en = {
   campaignRescheduled: "Campaign rescheduled in {timeZone}.",
   rescheduling: "Rescheduling…",
   reschedule: "Reschedule",
-} as const;
+};
 
 const ar: typeof en = {
   sendTiming: "توقيت الإرسال",
