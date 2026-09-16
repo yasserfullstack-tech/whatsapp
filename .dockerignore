@@ -14,6 +14,7 @@ test-results
 !.env.production.example
 docs
 e2e
-apps/load-test
+apps/load-test/**
+!apps/load-test/package.json
 docker-compose*.yml
 README.md
