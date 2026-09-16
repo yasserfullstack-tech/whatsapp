@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, count, desc, eq, ilike, or } from "drizzle-orm";
+import { count, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { AdminBadge, AdminSection } from "@/components/admin-ui";
 import { grantPlatformAdminAction, revokePlatformAdminAction } from "@/lib/admin-actions";
@@ -40,12 +40,11 @@ export default async function AdminAccessPage({ searchParams }: PageProps) {
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE),
     db.select({ value: count() }).from(schema.authUser).where(where),
-    db.select({ value: count() }).from(schema.platformAdminGrants).where(and(eq(schema.platformAdminGrants.revokedAt, null as never))),
+    db.select({ value: count() }).from(schema.platformAdminGrants).where(isNull(schema.platformAdminGrants.revokedAt)),
   ]);
 
   const total = totalRows[0]?.value ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const activeGrants = users.filter((user) => user.grantId && !user.grantRevokedAt).length;
   const href = (nextPage: number) => {
     const next = new URLSearchParams();
     if (q) next.set("q", q);
@@ -54,7 +53,7 @@ export default async function AdminAccessPage({ searchParams }: PageProps) {
   };
 
   return <>
-    <header className="admin-header"><div><h1>Platform access</h1><p>Platform-admin grants are explicit, revocable, and independent of workspace roles.</p></div><AdminBadge tone="warn">{activeGrantRows[0]?.value ?? activeGrants} active grants</AdminBadge></header>
+    <header className="admin-header"><div><h1>Platform access</h1><p>Platform-admin grants are explicit, revocable, and independent of workspace roles.</p></div><AdminBadge tone="warn">{activeGrantRows[0]?.value ?? 0} active grants</AdminBadge></header>
     <AdminSection title="Find authentication users">
       <form className="admin-filter" method="get"><label>Search<input name="q" defaultValue={q} placeholder="Email or name" /></label><button className="admin-button" type="submit">Search</button>{q ? <Link href="/admin/access">Clear</Link> : null}</form>
     </AdminSection>
