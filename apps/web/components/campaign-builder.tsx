@@ -7,7 +7,7 @@ import { TemplatePreview } from "@/components/template-preview";
 import { useI18n } from "@/components/i18n-provider";
 
 type PhoneOption = { id: string; wabaId: string; label: string; throughputMps: number };
-type TemplateOption = { id: string; wabaId: string; name: string; language: string; components: unknown[]; slots: TemplateParameterSlot[] };
+type TemplateOption = { id: string; wabaId: string; name: string; language: string; components: unknown; slots: TemplateParameterSlot[] };
 type AudienceOption = { key: string; type: "all" | "list" | "segment"; id?: string; name: string; count: number };
 type Progress = { id: string; name: string; status: string; recipientCount: number; processed: number; progress: number; counts: Record<string, number> };
 
