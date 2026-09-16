@@ -170,28 +170,38 @@ async function notifyWorkspaceAdmins(
     transitionKey: string;
   },
 ) {
-  const admins = await db
-    .select({ userId: schema.organizationMembers.userId })
-    .from(schema.organizationMembers)
-    .where(and(
-      eq(schema.organizationMembers.organizationId, input.organizationId),
-      inArray(schema.organizationMembers.role, ["owner", "admin"]),
-    ));
-  if (!admins.length) return;
+  try {
+    const admins = await db
+      .select({ userId: schema.organizationMembers.userId })
+      .from(schema.organizationMembers)
+      .where(and(
+        eq(schema.organizationMembers.organizationId, input.organizationId),
+        inArray(schema.organizationMembers.role, ["owner", "admin"]),
+      ));
+    if (!admins.length) return;
 
-  const notifications = new NotificationService({ db });
-  await notifications.emit({
-    id: `whatsapp-connection:${input.phoneId}:${input.code}:${input.transitionKey}`,
-    type: "whatsapp_connection_problem",
-    organizationId: input.organizationId,
-    userIds: admins.map((admin) => admin.userId),
-    metadata: {
-      phoneNumberId: input.phoneId,
-      phoneNumber: input.phoneNumber,
-      failureCode: input.code,
-    },
-    link: "/settings/whatsapp",
-  });
+    const notifications = new NotificationService({ db });
+    await notifications.emit({
+      id: `whatsapp-connection:${input.phoneId}:${input.code}:${input.transitionKey}`,
+      type: "whatsapp_connection_problem",
+      organizationId: input.organizationId,
+      userIds: admins.map((admin) => admin.userId),
+      metadata: {
+        phoneNumberId: input.phoneId,
+        phoneNumber: input.phoneNumber,
+        failureCode: input.code,
+      },
+      link: "/settings/whatsapp",
+    });
+  } catch (error) {
+    // The durable health transition is more important than its alert side effect.
+    // Email delivery reconciliation will handle successfully-created pending rows.
+    console.error("WhatsApp connection health notification failed", {
+      organizationId: input.organizationId,
+      phoneId: input.phoneId,
+      error,
+    });
+  }
 }
 
 export async function markConnectionRequiresReauthorization(
