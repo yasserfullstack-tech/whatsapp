@@ -41,6 +41,16 @@ const TOKEN_CACHE_MS = 5 * 60_000;
 const UNKNOWN_SEND_OUTCOME_ERROR = "Previous send attempt ended without a recorded Meta outcome; automatic resend suppressed to prevent duplicate delivery";
 const UNKNOWN_SEND_OUTCOME_CODE = "send_outcome_unknown";
 
+class CredentialUnavailableError extends Error {
+  constructor(
+    readonly code: "credential_missing" | "credential_unreadable",
+    readonly safeReason: string,
+  ) {
+    super(safeReason);
+    this.name = "CredentialUnavailableError";
+  }
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -148,12 +158,25 @@ export function startCampaignWorkers(input: {
       )
       .limit(1);
 
-    if (!secret) throw new Error(`Credential ${credentialKey} was not found for this organization`);
+    if (!secret) {
+      throw new CredentialUnavailableError(
+        "credential_missing",
+        "The Meta credential is missing. Reconnect WhatsApp to resume sending.",
+      );
+    }
     const credentialUpdatedAt = secret.updatedAt.getTime();
     const cached = tokenCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now() && cached.credentialUpdatedAt === credentialUpdatedAt) return cached.value;
 
-    const value = decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+    let value: string;
+    try {
+      value = decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+    } catch {
+      throw new CredentialUnavailableError(
+        "credential_unreadable",
+        "The Meta credential cannot be read. Reconnect WhatsApp to resume sending.",
+      );
+    }
     tokenCache.set(cacheKey, { value, expiresAt: Date.now() + TOKEN_CACHE_MS, credentialUpdatedAt });
     return value;
   };
@@ -219,6 +242,33 @@ export function startCampaignWorkers(input: {
       const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
       await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
 
+      // Unknown prior provider outcomes take precedence over connection state.
+      // Never replace this safety signal with a newer credential error because
+      // doing so could make a real prior send look safe to retry manually.
+      const [preflightRecipient] = await db
+        .select({
+          status: schema.campaignRecipients.status,
+          attemptCount: schema.campaignRecipients.attemptCount,
+          lastError: schema.campaignRecipients.lastError,
+          wamid: schema.campaignRecipients.wamid,
+        })
+        .from(schema.campaignRecipients)
+        .where(and(
+          eq(schema.campaignRecipients.id, job.data.recipientId),
+          eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+          eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+        ))
+        .limit(1);
+      if (
+        preflightRecipient?.status === "queued" &&
+        preflightRecipient.attemptCount > 0 &&
+        preflightRecipient.lastError === null &&
+        preflightRecipient.wamid === null
+      ) {
+        await markUnknownSendOutcome(job.data.recipientId, job.data.campaignId, job.data.organizationId);
+        return { failed: true, reason: "send-outcome-unknown" };
+      }
+
       const readiness = await prepareConnectionForSend(db, {
         organizationId: job.data.organizationId,
         phoneNumberId: job.data.phoneNumberId,
@@ -229,7 +279,21 @@ export function startCampaignWorkers(input: {
         return { failed: true, reason: "connection-unavailable" };
       }
 
-      const accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
+      let accessToken: string;
+      try {
+        accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
+      } catch (error) {
+        if (!(error instanceof CredentialUnavailableError)) throw error;
+        await markConnectionRequiresReauthorization(db, {
+          organizationId: job.data.organizationId,
+          phoneNumberId: job.data.phoneNumberId,
+          code: error.code,
+          reason: error.safeReason,
+        });
+        await failQueuedRecipientForConnection(job.data, { code: error.code, reason: error.safeReason });
+        return { failed: true, reason: "connection-unavailable" };
+      }
+
       const client = new WhatsAppCloudClient({
         accessToken,
         graphApiVersion: env.META_GRAPH_API_VERSION,
