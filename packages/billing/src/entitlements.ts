@@ -272,7 +272,11 @@ export class EntitlementService {
     if (!input.idempotencyKey.trim()) throw new Error("recordUsage idempotencyKey is required");
 
     const at = input.occurredAt ?? new Date();
-    const check = await this.assertUsage(input.organizationId, input.key, { requested: input.quantity, at });
+    // Validate that the subscription and entitlement are currently usable, but
+    // leave numeric enforcement to appendUsage. The repository checks an
+    // idempotency key before applying the quantity, so a retry remains safe
+    // even when the tenant has already reached the exact quota.
+    const check = await this.assertUsage(input.organizationId, input.key, { requested: 0, at });
     if (!check.periodStart || !check.periodEnd) {
       throw new BillingEntitlementError(check.reason, input.key);
     }
