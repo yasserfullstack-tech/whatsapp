@@ -20,6 +20,18 @@ export async function getAuthContext() {
   )[0];
   if (userControl?.disabled) redirect("/account-disabled");
 
+  if (shouldEnforceLegalAcceptance()) {
+    const acceptedDocuments = await db
+      .select({
+        documentType: schema.legalAcceptances.documentType,
+        documentVersion: schema.legalAcceptances.documentVersion,
+      })
+      .from(schema.legalAcceptances)
+      .where(eq(schema.legalAcceptances.authUserId, session.user.id));
+
+    if (missingRequiredLegalDocuments(acceptedDocuments).length > 0) redirect("/legal/accept");
+  }
+
   const cookieStore = await cookies();
   const workspace = await ensureWorkspace(
     {
@@ -38,18 +50,6 @@ export async function getAuthContext() {
       .limit(1)
   )[0];
   if (organizationControl?.status === "suspended") redirect("/workspace-suspended");
-
-  if (shouldEnforceLegalAcceptance()) {
-    const acceptedDocuments = await db
-      .select({
-        documentType: schema.legalAcceptances.documentType,
-        documentVersion: schema.legalAcceptances.documentVersion,
-      })
-      .from(schema.legalAcceptances)
-      .where(eq(schema.legalAcceptances.authUserId, session.user.id));
-
-    if (missingRequiredLegalDocuments(acceptedDocuments).length > 0) redirect("/legal/accept");
-  }
 
   return { session, workspace };
 }
