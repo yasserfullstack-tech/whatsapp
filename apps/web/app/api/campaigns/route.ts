@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { schema } from "@wa/db";
-import type { CampaignVariableBinding } from "@wa/queue";
+import { validateTemplateBindings, type TemplateParameterBinding } from "@wa/meta/templates";
 import { getAuthContext } from "@/lib/auth-context";
 import {
   audienceSelectionSchema,
@@ -17,16 +17,21 @@ import { can } from "@/lib/workspace-access";
 export const runtime = "nodejs";
 
 const bindingSchema = z.object({
+  key: z.string().trim().min(1).max(128).optional(),
   index: z.number().int().positive().max(20),
+  component: z.enum(["header", "body", "button"]).optional(),
+  parameterType: z.enum(["text", "image", "video", "document", "payload"]).optional(),
+  buttonIndex: z.number().int().min(0).max(9).optional(),
+  buttonSubType: z.enum(["url", "quick_reply"]).optional(),
   source: z.enum(["display_name", "phone_e164", "literal"]),
-  value: z.string().trim().max(500).optional(),
+  value: z.string().trim().max(2_000).optional(),
   fallback: z.string().trim().max(120).optional(),
 }).superRefine((binding, context) => {
   if (binding.source === "literal" && !binding.value?.trim()) {
-    context.addIssue({ code: "custom", message: "Literal template variables need a value" });
+    context.addIssue({ code: "custom", message: "Literal template parameters need a value" });
   }
   if (binding.source === "display_name" && !binding.fallback?.trim()) {
-    context.addIssue({ code: "custom", message: "Contact-name template variables need an explicit fallback" });
+    context.addIssue({ code: "custom", message: "Contact-name template parameters need an explicit fallback" });
   }
 });
 
@@ -35,25 +40,9 @@ const createCampaignSchema = z.object({
   whatsappPhoneNumberId: z.uuid(),
   templateId: z.uuid(),
   audience: audienceSelectionSchema,
-  bindings: z.array(bindingSchema).max(20).default([]),
+  bindings: z.array(bindingSchema).max(30).default([]),
   scheduledAt: z.string().trim().max(64).optional(),
 });
-
-function requiredVariableIndexes(body: string | null): number[] {
-  if (!body) return [];
-  return [...new Set([...body.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1])))]
-    .filter((value) => Number.isInteger(value) && value > 0)
-    .sort((a, b) => a - b);
-}
-
-function isTextOnlyTemplate(components: unknown): boolean {
-  if (!Array.isArray(components)) return true;
-  return components.every((component) => {
-    if (!component || typeof component !== "object") return false;
-    const type = String((component as Record<string, unknown>).type ?? "").toUpperCase();
-    return type === "BODY" || type === "FOOTER";
-  });
-}
 
 export async function POST(request: Request) {
   const context = await getAuthContext();
@@ -97,16 +86,12 @@ export async function POST(request: Request) {
   if (phone.wabaId !== template.wabaId) {
     return NextResponse.json({ error: "The selected template belongs to a different WhatsApp Business Account" }, { status: 400 });
   }
-  if (!isTextOnlyTemplate(template.components)) {
-    return NextResponse.json({ error: "This campaign engine currently supports text/body templates only." }, { status: 400 });
-  }
 
-  const required = requiredVariableIndexes(template.bodyPreview);
-  const bindings = parsed.data.bindings as CampaignVariableBinding[];
-  const supplied = [...new Set(bindings.map((binding) => binding.index))].sort((a, b) => a - b);
-  if (required.length !== supplied.length || required.some((value, index) => value !== supplied[index])) {
-    return NextResponse.json({ error: `Template variables must be mapped exactly: ${required.map((value) => `{{${value}}}`).join(", ") || "none"}` }, { status: 400 });
+  const validation = validateTemplateBindings(template.components, parsed.data.bindings as TemplateParameterBinding[]);
+  if (!validation.valid) {
+    return NextResponse.json({ error: validation.errors.join(". "), issues: validation.errors }, { status: 400 });
   }
+  const bindings = validation.normalizedBindings;
 
   let audience;
   try {

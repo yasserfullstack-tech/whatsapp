@@ -539,7 +539,7 @@ Build on `docs/stress-soak.md`.
 
 # Phase 7 — Inbound inbox
 
-## [ ] PR-014 — Build the inbound WhatsApp inbox
+## [x] PR-014 — Build the inbound WhatsApp inbox
 
 **Tracking issue:** [#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59)
 
@@ -569,12 +569,12 @@ Build on `docs/stress-soak.md`.
 
 ### Definition of done
 
-- [ ] Inbound messages appear reliably in a conversation.
-- [ ] Agent replies send through Meta and update state.
-- [ ] Assignment/status/notes work.
-- [ ] Media behavior is defined and tested.
-- [ ] Tenant-isolation tests pass.
-- [ ] Webhook replay does not duplicate messages.
+- [x] Inbound messages appear reliably in a conversation.
+- [x] Agent replies send through Meta and update state.
+- [x] Assignment/status/notes work.
+- [x] Media behavior is defined and tested.
+- [x] Tenant-isolation tests pass.
+- [x] Webhook replay does not duplicate messages.
 
 ---
 
@@ -870,7 +870,7 @@ Before checking the final release gate, attach or link evidence for:
 
 These do not necessarily block the first paid launch unless they are explicitly promised in the launch scope.
 
-- [ ] PR-014 Inbound inbox ([#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59))
+- [x] PR-014 Inbound inbox ([#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59))
 - [ ] PR-015 Rich WhatsApp templates ([#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60))
 - [ ] PR-016 Campaign scheduling/automation foundation ([#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61))
 - [ ] PR-017 Onboarding test mode ([#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62))
