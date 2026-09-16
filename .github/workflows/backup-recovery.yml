@@ -1,0 +1,65 @@
+name: Backup Recovery
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/backup-recovery.yml"
+      - "docs/backups.md"
+      - "docs/disaster-recovery.md"
+      - "infra/production/backup.env.example"
+      - "infra/production/scripts/backup-postgres.sh"
+      - "infra/production/scripts/verify-postgres-backup.sh"
+      - "infra/production/scripts/install-backup-schedule.sh"
+      - "infra/production/scripts/recovery-drill.sh"
+      - "infra/production/scripts/collect-backup-recovery-evidence.sh"
+      - "infra/production/systemd/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/backup-recovery.yml"
+      - "docs/backups.md"
+      - "docs/disaster-recovery.md"
+      - "infra/production/backup.env.example"
+      - "infra/production/scripts/backup-postgres.sh"
+      - "infra/production/scripts/verify-postgres-backup.sh"
+      - "infra/production/scripts/install-backup-schedule.sh"
+      - "infra/production/scripts/recovery-drill.sh"
+      - "infra/production/scripts/collect-backup-recovery-evidence.sh"
+      - "infra/production/systemd/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate backup and recovery shell scripts
+        run: |
+          sh -n infra/production/scripts/backup-postgres.sh
+          sh -n infra/production/scripts/verify-postgres-backup.sh
+          sh -n infra/production/scripts/install-backup-schedule.sh
+          sh -n infra/production/scripts/recovery-drill.sh
+          sh -n infra/production/scripts/collect-backup-recovery-evidence.sh
+
+      - name: Validate systemd backup units
+        run: systemd-analyze verify infra/production/systemd/whatsapp-backup.service infra/production/systemd/whatsapp-backup.timer
+
+      - name: Validate backup environment template is placeholder-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^BACKUP_AGE_RECIPIENT=age1replace-with-public-recipient$' infra/production/backup.env.example
+          grep -q '^BACKUP_RCLONE_REMOTE=encrypted-backups:whatsapp/postgres$' infra/production/backup.env.example
+          ! grep -Eq '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AGE-SECRET-KEY-|AKIA[0-9A-Z]{16})' infra/production/backup.env.example
+
+      - name: Verify recovery documentation keeps PR-010 evidence external
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'not considered business-accepted until the owner records acceptance in issue #55' docs/backups.md
+          grep -q 'clean-host' docs/backups.md
+          grep -q 'recovery-drill.sh' docs/backups.md
