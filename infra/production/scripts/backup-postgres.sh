@@ -42,7 +42,7 @@ trap 'exit 130' INT TERM
 : "${BACKUP_AGE_IDENTITY_FILE:?BACKUP_AGE_IDENTITY_FILE is required}"
 : "${BACKUP_RCLONE_REMOTE:?BACKUP_RCLONE_REMOTE is required, e.g. encrypted-backups:whatsapp/postgres}"
 
-for command in docker age rclone sha256sum; do
+for command in docker age rclone sha256sum awk; do
   command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
 done
 
@@ -53,9 +53,11 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup="$BACKUP_DIR/postgres-${timestamp}.dump.age"
+backup_name="postgres-${timestamp}.dump.age"
+backup="$BACKUP_DIR/$backup_name"
 partial="${backup}.partial"
-checksum="${backup}.sha256"
+checksum_name="${backup_name}.sha256"
+checksum="$BACKUP_DIR/$checksum_name"
 
 echo "Creating encrypted PostgreSQL backup: $backup"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres sh -c \
@@ -65,15 +67,20 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres sh -c 
 mv "$partial" "$backup"
 partial=""
 chmod 600 "$backup"
-sha256sum "$backup" > "$checksum"
+backup_sha256=$(sha256sum "$backup" | awk '{ print $1 }')
+printf '%s  %s\n' "$backup_sha256" "$backup_name" > "$checksum"
 chmod 600 "$checksum"
 
 echo "Verifying backup by restoring it into an isolated temporary PostgreSQL container"
 BACKUP_AGE_IDENTITY_FILE="$BACKUP_AGE_IDENTITY_FILE" "$VERIFY_SCRIPT" "$backup"
 
 echo "Copying verified backup off-server"
-rclone copyto "$backup" "${BACKUP_RCLONE_REMOTE}/$(basename "$backup")" --checksum
-rclone copyto "$checksum" "${BACKUP_RCLONE_REMOTE}/$(basename "$checksum")" --checksum
+rclone copyto "$backup" "${BACKUP_RCLONE_REMOTE}/${backup_name}" --checksum
+rclone copyto "$checksum" "${BACKUP_RCLONE_REMOTE}/${checksum_name}" --checksum
+
+# Require both expected objects to be visible remotely before recording success.
+rclone lsf "$BACKUP_RCLONE_REMOTE" --files-only --include "$backup_name" | grep -Fx "$backup_name" >/dev/null
+rclone lsf "$BACKUP_RCLONE_REMOTE" --files-only --include "$checksum_name" | grep -Fx "$checksum_name" >/dev/null
 
 find "$BACKUP_DIR" -type f -name 'postgres-*.dump.age' -mtime "+$LOCAL_RETENTION_DAYS" -delete
 find "$BACKUP_DIR" -type f -name 'postgres-*.dump.age.sha256' -mtime "+$LOCAL_RETENTION_DAYS" -delete
