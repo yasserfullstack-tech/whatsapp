@@ -7,6 +7,8 @@ on:
       - ".dockerignore"
       - ".env.production.example"
       - ".env.staging.example"
+      - "package.json"
+      - "bun.lock"
       - "apps/web/next.config.ts"
       - "apps/web/**"
       - "apps/api/**"
@@ -24,6 +26,8 @@ on:
       - ".dockerignore"
       - ".env.production.example"
       - ".env.staging.example"
+      - "package.json"
+      - "bun.lock"
       - "apps/web/next.config.ts"
       - "apps/web/**"
       - "apps/api/**"
@@ -41,7 +45,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -125,12 +129,183 @@ jobs:
             prom/alertmanager:v0.28.1 \
             check-config /etc/alertmanager/alertmanager.yml
 
-      - name: Build production images
+      - name: Build production images with immutable revision metadata
+        shell: bash
         run: |
-          docker build -f infra/docker/web.Dockerfile -t whatsapp-web:local .
-          docker build -f infra/docker/api.Dockerfile -t whatsapp-api:local .
-          docker build -f infra/docker/worker.Dockerfile -t whatsapp-worker:local .
-          docker build -f infra/docker/api.Dockerfile --target migrator -t whatsapp-migrator:local .
+          set -euo pipefail
+          build_args=(
+            --build-arg "IMAGE_SOURCE=https://github.com/${GITHUB_REPOSITORY}"
+            --build-arg "IMAGE_REVISION=${GITHUB_SHA}"
+            --build-arg "IMAGE_VERSION=${GITHUB_SHA}"
+          )
+          docker build -f infra/docker/web.Dockerfile "${build_args[@]}" -t whatsapp-web:local -t "whatsapp-web:${GITHUB_SHA}" .
+          docker build -f infra/docker/api.Dockerfile "${build_args[@]}" -t whatsapp-api:local -t "whatsapp-api:${GITHUB_SHA}" .
+          docker build -f infra/docker/worker.Dockerfile "${build_args[@]}" -t whatsapp-worker:local -t "whatsapp-worker:${GITHUB_SHA}" .
+          docker build -f infra/docker/api.Dockerfile --target migrator "${build_args[@]}" -t whatsapp-migrator:local -t "whatsapp-migrator:${GITHUB_SHA}" .
+
+      - name: Verify image revision and source labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_source="https://github.com/${GITHUB_REPOSITORY}"
+          for image in whatsapp-web whatsapp-api whatsapp-worker whatsapp-migrator; do
+            ref="${image}:${GITHUB_SHA}"
+            revision="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            source="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.source" }}')"
+            version="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')"
+            test "$revision" = "$GITHUB_SHA"
+            test "$version" = "$GITHUB_SHA"
+            test "$source" = "$expected_source"
+          done
+
+      - name: Record production dependency HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-dependencies.json
+          exit-code: "0"
+          vuln-type: library
+          severity: HIGH,CRITICAL
+
+      - name: Record web image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-web:${{ github.sha }}
+          format: json
+          output: trivy-web.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record API image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-api:${{ github.sha }}
+          format: json
+          output: trivy-api.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record worker image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-worker:${{ github.sha }}
+          format: json
+          output: trivy-worker.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record migrator image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-migrator:${{ github.sha }}
+          format: json
+          output: trivy-migrator.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Upload production vulnerability reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-production-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: trivy-*.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce production dependency vulnerability policy
+        id: policy_dependencies
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce web image vulnerability policy
+        id: policy_web
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-web:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce API image vulnerability policy
+        id: policy_api
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-api:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce worker image vulnerability policy
+        id: policy_worker
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-worker:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce migrator image vulnerability policy
+        id: policy_migrator
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-migrator:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Require production dependencies and images to pass the blocking vulnerability policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "dependencies:${{ steps.policy_dependencies.outcome }}" \
+            "web:${{ steps.policy_web.outcome }}" \
+            "api:${{ steps.policy_api.outcome }}" \
+            "worker:${{ steps.policy_worker.outcome }}" \
+            "migrator:${{ steps.policy_migrator.outcome }}"; do
+            target="${result%%:*}"
+            outcome="${result#*:}"
+            if [ "$outcome" != "success" ]; then
+              echo "${target} failed the blocking HIGH/CRITICAL vulnerability policy." >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Start production dependencies
         run: docker compose --env-file .env.production.ci -f docker-compose.production.yml up -d --no-build postgres valkey
