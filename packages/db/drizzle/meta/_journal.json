@@ -78,6 +78,13 @@
       "when": 1789557000000,
       "tag": "0010_legal-acceptances",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789582500000,
+      "tag": "0011_meta-asset-sync",
+      "breakpoints": true
     }
   ]
 }
