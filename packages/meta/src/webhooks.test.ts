@@ -66,6 +66,96 @@ describe("parseWhatsAppWebhook", () => {
     expect(isMarketingOptOutMessage(parsed.messages[1]!)).toBe(true);
   });
 
+  test("extracts Meta template, phone and account state events", () => {
+    const parsed = parseWhatsAppWebhook({
+      object: "whatsapp_business_account",
+      entry: [{
+        id: "waba-1",
+        time: 1700000100,
+        changes: [
+          {
+            field: "message_template_status_update",
+            value: {
+              event: "APPROVED",
+              message_template_id: "template-1",
+              message_template_name: "welcome",
+              message_template_language: "en_US",
+            },
+          },
+          {
+            field: "phone_number_name_update",
+            value: {
+              display_phone_number: "+1 650 555 1111",
+              decision: "APPROVED",
+              requested_verified_name: "Acme",
+            },
+          },
+          {
+            field: "phone_number_quality_update",
+            value: {
+              display_phone_number: "+1 650 555 1111",
+              event: "FLAGGED",
+              current_limit: "TIER_10K",
+            },
+          },
+          {
+            field: "account_update",
+            value: {
+              event: "DISABLED_UPDATE",
+              ban_info: { waba_ban_state: "FLAGGED", waba_ban_date: "January 31, 2021" },
+            },
+          },
+          {
+            field: "account_review_update",
+            value: { decision: "APPROVED" },
+          },
+        ],
+      }],
+    });
+
+    expect(parsed.assetEvents).toEqual([
+      {
+        kind: "template_status",
+        wabaId: "waba-1",
+        timestampSeconds: 1700000100,
+        templateId: "template-1",
+        templateName: "welcome",
+        language: "en_US",
+        event: "APPROVED",
+      },
+      {
+        kind: "phone_name",
+        wabaId: "waba-1",
+        timestampSeconds: 1700000100,
+        displayPhoneNumber: "+1 650 555 1111",
+        decision: "APPROVED",
+        requestedVerifiedName: "Acme",
+      },
+      {
+        kind: "phone_quality",
+        wabaId: "waba-1",
+        timestampSeconds: 1700000100,
+        displayPhoneNumber: "+1 650 555 1111",
+        event: "FLAGGED",
+        currentLimit: "TIER_10K",
+      },
+      {
+        kind: "account_update",
+        wabaId: "waba-1",
+        timestampSeconds: 1700000100,
+        event: "DISABLED_UPDATE",
+        banState: "FLAGGED",
+        banDate: "January 31, 2021",
+      },
+      {
+        kind: "account_review",
+        wabaId: "waba-1",
+        timestampSeconds: 1700000100,
+        decision: "APPROVED",
+      },
+    ]);
+  });
+
   test("does not interpret ordinary customer text as an opt-out", () => {
     expect(isMarketingOptOutMessage({ messageId: "in.3", from: "1", type: "text", text: "Please stop by tomorrow" })).toBe(false);
   });
