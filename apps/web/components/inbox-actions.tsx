@@ -1,9 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 type Member = { id: string; name: string };
+type AsyncInboxOperation = () =>
+  Promise<void>;
 
 type Props = {
   conversationId: string;
@@ -42,7 +44,7 @@ export function InboxActions(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.conversationId]);
 
-  async function run(name: string, operation: () => Promise<void>) {
+  async function run(name: string, operation: AsyncInboxOperation) {
     setBusy(name);
     setError(null);
     try {
