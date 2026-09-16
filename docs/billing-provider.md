@@ -14,6 +14,8 @@ Create recurring Stripe Prices for the Growth and Scale SaaS plans and configure
 
 The application intentionally does not hard-code subscription amounts. Stripe Price IDs are deployment configuration and Stripe remains the source of truth for the charged amount. On the first verified subscription webhook, the configured Price ID is also persisted to the existing `plan_versions.provider_price_ref` field for reconciliation.
 
+A plan version is an immutable billing snapshot. Once `provider_price_ref` is bound, do not repoint that version to a different Stripe Price. Create a new plan version first, then update the corresponding `STRIPE_PRICE_*` deployment value. The online billing action rejects a configured Price that conflicts with the latest plan version's persisted provider reference.
+
 Configure the Stripe webhook endpoint as:
 
 ```text
