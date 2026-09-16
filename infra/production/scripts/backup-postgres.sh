@@ -4,9 +4,39 @@ set -eu
 COMPOSE_FILE=${COMPOSE_FILE:-docker-compose.production.yml}
 ENV_FILE=${ENV_FILE:-.env.production}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/whatsapp/postgres}
+BACKUP_METRICS_DIR=${BACKUP_METRICS_DIR:-/var/lib/whatsapp/node-exporter}
 LOCAL_RETENTION_DAYS=${LOCAL_RETENTION_DAYS:-14}
 OFFSITE_RETENTION_DAYS=${OFFSITE_RETENTION_DAYS:-35}
 VERIFY_SCRIPT=${VERIFY_SCRIPT:-infra/production/scripts/verify-postgres-backup.sh}
+partial=""
+
+mkdir -p "$BACKUP_METRICS_DIR"
+chmod 755 "$BACKUP_METRICS_DIR"
+
+write_metric() {
+  name=$1
+  value=$2
+  target=$3
+  temporary="${target}.tmp.$$"
+  printf '# TYPE %s gauge\n%s %s\n' "$name" "$name" "$value" > "$temporary"
+  chmod 644 "$temporary"
+  mv "$temporary" "$target"
+}
+
+cleanup() {
+  status=$?
+  if [ -n "$partial" ]; then rm -f "$partial"; fi
+  if [ "$status" -ne 0 ]; then
+    write_metric \
+      whatsapp_backup_last_failure_timestamp_seconds \
+      "$(date -u +%s)" \
+      "$BACKUP_METRICS_DIR/whatsapp-backup-failure.prom"
+  fi
+  trap - EXIT
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 : "${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT is required}"
 : "${BACKUP_AGE_IDENTITY_FILE:?BACKUP_AGE_IDENTITY_FILE is required}"
@@ -27,17 +57,13 @@ backup="$BACKUP_DIR/postgres-${timestamp}.dump.age"
 partial="${backup}.partial"
 checksum="${backup}.sha256"
 
-cleanup() {
-  rm -f "$partial"
-}
-trap cleanup EXIT INT TERM
-
 echo "Creating encrypted PostgreSQL backup: $backup"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres sh -c \
   'exec pg_dump --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --format=custom --compress=6 --no-owner --no-privileges' \
   | age -r "$BACKUP_AGE_RECIPIENT" -o "$partial"
 
 mv "$partial" "$backup"
+partial=""
 chmod 600 "$backup"
 sha256sum "$backup" > "$checksum"
 chmod 600 "$checksum"
@@ -58,5 +84,10 @@ rclone delete "$BACKUP_RCLONE_REMOTE" \
   --include 'postgres-*.dump.age' \
   --include 'postgres-*.dump.age.sha256' \
   --exclude '*'
+
+write_metric \
+  whatsapp_backup_last_success_timestamp_seconds \
+  "$(date -u +%s)" \
+  "$BACKUP_METRICS_DIR/whatsapp-backup-success.prom"
 
 echo "Backup completed only after restore verification and off-server copy: $backup"
