@@ -1,9 +1,13 @@
 FROM oven/bun:1.4.2-slim AS build
 WORKDIR /app
-COPY package.json tsconfig.base.json ./
+COPY package.json bun.lock tsconfig.base.json ./
 COPY packages ./packages
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/load-test/package.json ./apps/load-test/package.json
+COPY apps/web/package.json ./apps/web/package.json
+COPY apps/worker/package.json ./apps/worker/package.json
+RUN bun install --frozen-lockfile --ignore-scripts
 COPY apps/web ./apps/web
-RUN bun install --ignore-scripts
 
 # Next evaluates server modules while producing the standalone bundle. These are
 # deliberately non-secret build placeholders; real values are injected at runtime.
@@ -29,6 +33,12 @@ RUN NODE_ENV=production \
 
 FROM node:22-alpine AS runtime
 WORKDIR /app/apps/web
+ARG IMAGE_SOURCE="https://github.com/yasserfullstack-tech/whatsapp"
+ARG IMAGE_REVISION="unknown"
+ARG IMAGE_VERSION="dev"
+LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
+      org.opencontainers.image.revision="$IMAGE_REVISION" \
+      org.opencontainers.image.version="$IMAGE_VERSION"
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
