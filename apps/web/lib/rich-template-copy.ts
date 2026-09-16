@@ -61,10 +61,11 @@ const copy = {
   },
 } as const;
 
-export type RichTemplateCopy = (typeof copy)["en"];
+type RichTemplateCopyKey = keyof typeof copy.en;
+export type RichTemplateCopy = { [Key in RichTemplateCopyKey]: string };
 
 export function getRichTemplateCopy(locale: Locale): RichTemplateCopy {
-  return copy[locale] as RichTemplateCopy;
+  return copy[locale];
 }
 
 export function formatRichTemplateCopy(template: string, values: Record<string, string | number>): string {
