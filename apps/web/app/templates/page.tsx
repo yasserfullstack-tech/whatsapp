@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TemplateManager } from "@/components/template-manager";
+import { TemplatePreview } from "@/components/template-preview";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
 import { listConnectedWabas } from "@/lib/meta-credentials";
@@ -34,7 +35,7 @@ export default async function TemplatesPage() {
       </section>
       <section className="panel" style={{ marginTop: 18 }}><TemplateManager wabas={wabas.map(({ wabaId, label }) => ({ wabaId, label }))} /></section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.library}</p><h2>{messages.ui.syncedTemplates}</h2></div></div>
-        {templates.length ? <div className="numberList" style={{ marginTop: 14 }}>{templates.map((template) => <div className="numberRow" key={template.id} style={{ alignItems: "start" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><strong>{template.name}</strong><span className="subtitle">{template.language}</span><span className="subtitle">{template.category}</span></div><p style={{ margin: "7px 0 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{template.bodyPreview ?? messages.ui.noBodyPreview}</p>{template.rejectionReason ? <p style={{ margin: "7px 0 0", color: "var(--danger)", fontSize: 12 }}>Meta: {template.rejectionReason}</p> : null}</div><div className="numberMeta"><span className={template.status === "approved" ? "status connected" : "status"}>{template.status}</span><span>WABA {template.wabaId}</span></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">T</div><h3>{messages.ui.noTemplatesSynced}</h3><p>{messages.ui.noTemplatesDescription}</p></div>}
+        {templates.length ? <div className="numberList" style={{ marginTop: 14 }}>{templates.map((template) => <div className="numberRow" key={template.id} style={{ alignItems: "start" }}><div style={{ minWidth: 0, flex: 1 }}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}><strong>{template.name}</strong><span className="subtitle">{template.language}</span><span className="subtitle">{template.category}</span></div><TemplatePreview components={template.components} />{template.rejectionReason ? <p style={{ margin: "7px 0 0", color: "var(--danger)", fontSize: 12 }}>Meta: {template.rejectionReason}</p> : null}</div><div className="numberMeta"><span className={template.status === "approved" ? "status connected" : "status"}>{template.status}</span><span>WABA {template.wabaId}</span></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">T</div><h3>{messages.ui.noTemplatesSynced}</h3><p>{messages.ui.noTemplatesDescription}</p></div>}
       </section>
     </section>
   </main>;
