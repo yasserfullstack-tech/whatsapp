@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/bun";
+import { MetricsRegistry } from "./metrics";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Record<string, unknown>;
@@ -10,6 +11,10 @@ const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+\/=:-]+/gi;
 const QUERY_SECRET = /([?&](?:access_token|token|secret|password|api_key|key)=)[^&\s]+/gi;
 const SAFE_SENTRY_HEADERS = new Set(["accept", "content-type", "host", "user-agent", "x-request-id", "x-forwarded-proto"]);
 let sentryInitialized = false;
+const loggerMetrics = new MetricsRegistry();
+
+loggerMetrics.defineCounter("whatsapp_application_errors_total", "Structured application error log events by service", ["service"]);
+loggerMetrics.defineCounter("whatsapp_sentry_capture_attempts_total", "Attempts to hand error events to the Sentry SDK", ["service", "outcome"]);
 
 function scrubString(value: string): string {
   return value
@@ -125,7 +130,9 @@ function reportError(service: string, event: string, fields: LogFields, context:
       if (fields.error instanceof Error) Sentry.captureException(safeError(fields.error));
       else Sentry.captureMessage(event, "error");
     });
+    loggerMetrics.incCounter("whatsapp_sentry_capture_attempts_total", { service, outcome: "queued" });
   } catch {
+    loggerMetrics.incCounter("whatsapp_sentry_capture_attempts_total", { service, outcome: "failed" });
     // Observability must never make the application fail.
   }
 }
@@ -157,7 +164,10 @@ export function createLogger(options: { service: string; base?: LogFields }): Lo
       const line = `${JSON.stringify(entry)}\n`;
       if (level === "error" || level === "warn") process.stderr.write(line);
       else process.stdout.write(line);
-      if (level === "error") reportError(options.service, event, fields, context);
+      if (level === "error") {
+        loggerMetrics.incCounter("whatsapp_application_errors_total", { service: options.service });
+        reportError(options.service, event, fields, context);
+      }
     };
 
     return {
