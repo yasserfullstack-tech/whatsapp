@@ -4,6 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./template-management": "./src/template-management.ts",
+    "./templates": "./src/templates.ts",
     "./webhooks": "./src/webhooks.ts",
     "./inbox": "./src/inbox.ts",
     "./messages": "./src/messages.ts"
