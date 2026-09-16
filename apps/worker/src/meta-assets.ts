@@ -73,10 +73,10 @@ export function stableFingerprint(value: unknown): string {
   });
 }
 
-export function webhookEventTime(timestampSeconds: number | undefined, fallback: Date): Date {
+export function webhookEventTime(timestampSeconds: number | undefined, receiptTime: Date): Date {
   if (timestampSeconds !== undefined) {
     const date = new Date(timestampSeconds * 1_000);
     if (!Number.isNaN(date.getTime())) return date;
   }
-  return fallback;
+  return receiptTime;
 }
