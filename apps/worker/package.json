@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@wa/billing": "workspace:*",
     "@wa/config": "workspace:*",
     "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",
