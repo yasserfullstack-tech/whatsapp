@@ -9,6 +9,7 @@
     "db:snapshots:materialize": "bun src/snapshot-artifacts.ts materialize",
     "db:snapshots:pack": "bun src/snapshot-artifacts.ts pack",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:runtime": "bun src/migrate-runtime.ts",
     "db:verify": "bun src/verify-migrations.ts",
     "db:push:dev": "drizzle-kit push"
   },
