@@ -82,7 +82,7 @@ test.describe("campaign scheduling", () => {
       expect((await fakeMessages.json() as { messages: unknown[] }).messages).toHaveLength(0);
 
       await page.goto(`/campaigns/${created.campaignId}`);
-      await expect(page.getByRole("heading", { name: "scheduled" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "scheduled", exact: true })).toBeVisible();
       await expect(page.getByText(/Asia\/Baghdad/)).toBeVisible();
 
       const secondInstant = new Date(Date.now() + 2 * 60 * 60_000);
