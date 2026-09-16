@@ -46,12 +46,6 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function idFrom(value: unknown): string | null {
-  const direct = asString(value);
-  if (direct) return direct;
-  return asString(asRecord(value)?.id);
-}
-
 function metadataValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
@@ -89,15 +83,6 @@ function parseSignatureHeader(value: string): { timestamp: number; signatures: s
 function signatureHeader(headers: Headers | Record<string, string>): string | null {
   if (headers instanceof Headers) return headers.get("stripe-signature");
   return Object.entries(headers).find(([key]) => key.toLowerCase() === "stripe-signature")?.[1] ?? null;
-}
-
-function subscriptionPeriod(subscription: StripeObject): { start?: Date; end?: Date } {
-  const start = asNumber(subscription.current_period_start);
-  const end = asNumber(subscription.current_period_end);
-  return {
-    ...(start === null ? {} : { currentPeriodStart: new Date(start * 1000) }),
-    ...(end === null ? {} : { currentPeriodEnd: new Date(end * 1000) }),
-  } as { start?: Date; end?: Date };
 }
 
 export class StripeBillingProvider extends BaseBillingProvider {
@@ -231,7 +216,7 @@ export class StripeBillingProvider extends BaseBillingProvider {
     const subscription = await this.request(`/v1/subscriptions/${encodeURIComponent(input.subscriptionExternalId)}`, {
       method: "POST",
       body,
-      idempotencyKey: `plan-change:${input.subscriptionExternalId}:${input.planExternalRef}`,
+      idempotencyKey: `plan-change:${input.subscriptionExternalId}:${input.planExternalRef}:${randomUUID()}`,
     });
     return this.subscriptionReference(subscription, input.subscriptionExternalId);
   }
