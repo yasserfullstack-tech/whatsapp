@@ -101,6 +101,12 @@ export function buildEligibleAudiencePredicate(definition: CampaignAudienceDefin
       WHERE sl.organization_id = ${organizationId}::uuid
         AND sl.phone_e164 = c.phone_e164
     )`,
+    sql`NOT EXISTS (
+      SELECT 1
+      FROM contact_merges cm
+      WHERE cm.organization_id = ${organizationId}::uuid
+        AND cm.source_contact_id = c.id
+    )`,
   ];
 
   let audiencePredicate: SQL | null = null;

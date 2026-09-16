@@ -86,6 +86,11 @@ const metricQueues = {
 
 type CsvRow = Record<string, string | undefined>;
 type ContactInsert = typeof schema.contacts.$inferInsert;
+type ContactImportMapping = {
+  phone_column: string;
+  display_name_column: string | null;
+  custom_fields: Record<string, string> | null;
+};
 
 const PHONE_COLUMNS = ["phone", "phone_number", "mobile", "mobile_number", "whatsapp", "whatsapp_number"];
 const NAME_COLUMNS = ["name", "full_name", "customer_name", "display_name"];
@@ -132,6 +137,14 @@ async function processContactImport(job: ContactImportJob) {
   if (!contactImport) throw new Error(`Contact import ${job.importId} was not found`);
   if (contactImport.status === "completed") return { alreadyCompleted: true };
 
+  const mappingRows = await database.client`
+    SELECT phone_column, display_name_column, custom_fields
+    FROM contact_import_mappings
+    WHERE import_id = ${contactImport.id}::uuid AND organization_id = ${contactImport.organizationId}::uuid
+    LIMIT 1
+  `;
+  const importMapping = mappingRows[0] as ContactImportMapping | undefined;
+
   const importEntitlement = await entitlements.assertUsage(contactImport.organizationId, "max_import_size", { requested: 0 });
   await entitlements.assertUsage(contactImport.organizationId, "max_contacts", { requested: 0, currentUsage: 0 });
   const planImportRowLimit = importEntitlement.limit;
@@ -176,13 +189,16 @@ async function processContactImport(job: ContactImportJob) {
     let duplicateRows = contactImport.duplicateRows;
     let phoneHeaderFound = resumeFrom > 0;
     let pending: ContactInsert[] = [];
+    let pendingCustomFields = new Map<string, Record<string, string>>();
 
     const flush = async (force = false) => {
       const progressDelta = seenRows - persistedRows;
       if (!force && pending.length < INSERT_BATCH_SIZE && progressDelta < PROGRESS_CHECKPOINT_ROWS) return;
 
       const batch = pending;
+      const batchCustomFields = pendingCustomFields;
       pending = [];
+      pendingCustomFields = new Map();
 
       await db.transaction(async (tx) => {
         let insertedCount = 0;
@@ -220,8 +236,35 @@ async function processContactImport(job: ContactImportJob) {
             .insert(schema.contacts)
             .values(batch)
             .onConflictDoNothing()
-            .returning({ id: schema.contacts.id });
+            .returning({ id: schema.contacts.id, phoneE164: schema.contacts.phoneE164 });
           insertedCount = inserted.length;
+
+          const customFieldRows = inserted.flatMap((contact) =>
+            Object.entries(batchCustomFields.get(contact.phoneE164) ?? {}).map(([fieldKey, fieldValue]) => ({
+              contact_id: contact.id,
+              field_key: fieldKey,
+              field_value: fieldValue,
+            })),
+          );
+          if (customFieldRows.length) {
+            await tx.execute(sql`
+              INSERT INTO contact_custom_fields (organization_id, contact_id, field_key, field_value)
+              SELECT ${contactImport.organizationId}::uuid, x.contact_id, x.field_key, x.field_value
+              FROM jsonb_to_recordset(${JSON.stringify(customFieldRows)}::jsonb)
+                AS x(contact_id uuid, field_key text, field_value text)
+              ON CONFLICT (organization_id, contact_id, field_key)
+              DO UPDATE SET field_value = excluded.field_value, updated_at = now()
+            `);
+          }
+          if (inserted.length) {
+            const activityRows = inserted.map((contact) => ({ contact_id: contact.id }));
+            await tx.execute(sql`
+              INSERT INTO contact_activity_events (organization_id, contact_id, event_type, metadata)
+              SELECT ${contactImport.organizationId}::uuid, x.contact_id, 'contact.imported',
+                jsonb_build_object('importId', ${contactImport.id}::text)
+              FROM jsonb_to_recordset(${JSON.stringify(activityRows)}::jsonb) AS x(contact_id uuid)
+            `);
+          }
 
           if (contactImport.listId) {
             const contacts = await tx
@@ -276,12 +319,15 @@ async function processContactImport(job: ContactImportJob) {
       if (seenRows <= resumeFrom) continue;
 
       const row = normalizeColumns(raw as CsvRow);
-      const rawPhone = firstValue(row, PHONE_COLUMNS);
+      const rawPhone = importMapping ? row[importMapping.phone_column] : firstValue(row, PHONE_COLUMNS);
 
       if (!phoneHeaderFound) {
-        phoneHeaderFound = PHONE_COLUMNS.some((column) => Object.hasOwn(row, column));
+        phoneHeaderFound = importMapping
+          ? Object.hasOwn(row, importMapping.phone_column)
+          : PHONE_COLUMNS.some((column) => Object.hasOwn(row, column));
         if (!phoneHeaderFound) {
-          throw new Error(`CSV needs a phone column. Supported headers: ${PHONE_COLUMNS.join(", ")}`);
+          const expected = importMapping ? importMapping.phone_column : PHONE_COLUMNS.join(", ");
+          throw new Error(`CSV needs the configured phone column. Expected: ${expected}`);
         }
       }
 
@@ -298,10 +344,18 @@ async function processContactImport(job: ContactImportJob) {
         continue;
       }
 
+      const customFields = importMapping
+        ? Object.fromEntries(Object.entries(importMapping.custom_fields ?? {})
+          .map(([key, column]) => [key, row[column]?.trim().slice(0, 500) ?? ""] as const)
+          .filter(([, value]) => value.length > 0))
+        : {};
+      pendingCustomFields.set(phoneE164, customFields);
       pending.push({
         organizationId: contactImport.organizationId,
         phoneE164,
-        displayName: firstValue(row, NAME_COLUMNS) ?? null,
+        displayName: importMapping?.display_name_column
+          ? row[importMapping.display_name_column]?.slice(0, 160) ?? null
+          : firstValue(row, NAME_COLUMNS)?.slice(0, 160) ?? null,
         optedIn: true,
         optInSource: contactImport.optInSource,
         optInAt: contactImport.confirmedOptInAt,
