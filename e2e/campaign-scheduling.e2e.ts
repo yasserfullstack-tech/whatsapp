@@ -27,9 +27,12 @@ test.describe("campaign scheduling", () => {
       await functionalDb.update(schema.templates)
         .set({ bodyPreview: "Hello from scheduled E2E" })
         .where(eq(schema.templates.id, seeded.templateId));
-      await functionalDb.update(schema.workspacePreferences)
-        .set({ timezone: "Asia/Baghdad", updatedAt: new Date() })
-        .where(eq(schema.workspacePreferences.organizationId, tenant.organizationId));
+      await functionalDb.insert(schema.workspacePreferences)
+        .values({ organizationId: tenant.organizationId, timezone: "Asia/Baghdad" })
+        .onConflictDoUpdate({
+          target: schema.workspacePreferences.organizationId,
+          set: { timezone: "Asia/Baghdad", updatedAt: new Date() },
+        });
 
       await useTenantSession(context, tenant);
       const health = await guardBrowser(page);
