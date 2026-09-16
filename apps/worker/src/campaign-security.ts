@@ -61,26 +61,32 @@ export async function claimCampaignRecipientForSend(
       },
     });
   } catch (error) {
-    if (error instanceof BillingEntitlementError || error instanceof BillingLimitExceededError) {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(schema.campaignRecipients)
-          .set({
-            status: "pending",
-            attemptCount: 0,
-            lastAttemptAt: null,
-            lastError: null,
-            errorCode: null,
-            updatedAt: new Date(),
-          })
-          .where(and(
-            eq(schema.campaignRecipients.id, claimed.id),
-            eq(schema.campaignRecipients.campaignId, input.campaignId),
-            eq(schema.campaignRecipients.organizationId, input.organizationId),
-            eq(schema.campaignRecipients.status, "queued"),
-            eq(schema.campaignRecipients.attemptCount, claimed.attemptCount),
-          ));
+    const entitlementDenied = error instanceof BillingEntitlementError || error instanceof BillingLimitExceededError;
 
+    await db.transaction(async (tx) => {
+      // Metering must succeed before the provider call. For a real plan/quota
+      // denial, return the recipient to pending and pause the campaign. For a
+      // transient metering failure, restore a clean queued claim so BullMQ can
+      // retry the same send job without treating the outcome as unknown.
+      await tx
+        .update(schema.campaignRecipients)
+        .set({
+          status: entitlementDenied ? "pending" : "queued",
+          attemptCount: 0,
+          lastAttemptAt: null,
+          lastError: null,
+          errorCode: null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(schema.campaignRecipients.id, claimed.id),
+          eq(schema.campaignRecipients.campaignId, input.campaignId),
+          eq(schema.campaignRecipients.organizationId, input.organizationId),
+          eq(schema.campaignRecipients.status, "queued"),
+          eq(schema.campaignRecipients.attemptCount, claimed.attemptCount),
+        ));
+
+      if (entitlementDenied) {
         await tx
           .update(schema.campaigns)
           .set({ status: "paused", updatedAt: new Date() })
@@ -88,8 +94,9 @@ export async function claimCampaignRecipientForSend(
             eq(schema.campaigns.id, input.campaignId),
             eq(schema.campaigns.organizationId, input.organizationId),
           ));
-      });
-    }
+      }
+    });
+
     throw error;
   }
 
