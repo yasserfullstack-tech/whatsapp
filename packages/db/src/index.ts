@@ -12,6 +12,7 @@ import * as notificationSchema from "./notification-schema";
 import * as dataLifecycleSchema from "./data-lifecycle-schema";
 import * as legalSchema from "./legal-schema";
 import * as metaAssetSchema from "./meta-asset-schema";
+import * as inboxSchema from "./inbox-schema";
 
 export const schema = {
   ...coreSchema,
@@ -26,6 +27,7 @@ export const schema = {
   ...dataLifecycleSchema,
   ...legalSchema,
   ...metaAssetSchema,
+  ...inboxSchema,
 };
 export * from "./schema";
 export * from "./contact-import-schema";
@@ -39,6 +41,7 @@ export * from "./notification-schema";
 export * from "./data-lifecycle-schema";
 export * from "./legal-schema";
 export * from "./meta-asset-schema";
+export * from "./inbox-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {
