@@ -34,8 +34,8 @@ describe("StripeBillingProvider", () => {
       metadata: { planCode: "growth" },
     });
 
-    expect(customer.externalId).toBe("cus_123");
-    expect(checkout.url).toBe("https://checkout.stripe.test/session");
+    expect(customer).toMatchObject({ providerKey: "stripe", externalId: "cus_123" });
+    expect(checkout).toMatchObject({ providerKey: "stripe", url: "https://checkout.stripe.test/session" });
     const checkoutBody = String(requests[1]?.init?.body);
     expect(checkoutBody).toContain("mode=subscription");
     expect(checkoutBody).toContain("line_items%5B0%5D%5Bprice%5D=price_growth");
@@ -53,7 +53,7 @@ describe("StripeBillingProvider", () => {
       }
       if (url.endsWith("/v1/subscriptions/sub_123")) return jsonResponse({ id: "sub_123", status: "active" });
       if (url.endsWith("/v1/billing_portal/sessions")) return jsonResponse({ id: "bps_123", url: "https://billing.stripe.test/session" });
-      if (url.endsWith("/v1/refunds")) return jsonResponse({ id: "re_123", status: "succeeded" });
+      if (url.endsWith("/v1/refunds")) return jsonResponse({ id: "re_123", status: "succeeded", amount: 500 });
       throw new Error(`Unexpected request ${url}`);
     }) as typeof fetch;
     const provider = new StripeBillingProvider({ secretKey: "sk_test_123", fetchImpl });
@@ -67,7 +67,7 @@ describe("StripeBillingProvider", () => {
     expect(String(requests[1]?.init?.body)).toContain("items%5B0%5D%5Bprice%5D=price_scale");
     expect(String(requests[2]?.init?.body)).toBe("cancel_at_period_end=true");
     expect(portal.url).toBe("https://billing.stripe.test/session");
-    expect(refund.externalId).toBe("re_123");
+    expect(refund).toMatchObject({ providerKey: "stripe", externalId: "re_123", paymentExternalId: "pi_123", amountMinor: 500 });
     expect(String(requests[4]?.init?.body)).toContain("payment_intent=pi_123");
   });
 
@@ -92,8 +92,12 @@ describe("StripeBillingProvider", () => {
       headers: { "stripe-signature": `t=${timestamp},v1=${signature}` },
       rawBody,
     });
-    expect(event.externalEventId).toBe("evt_123");
-    expect(event.type).toBe("customer.subscription.updated");
+    expect(event).toMatchObject({
+      providerKey: "stripe",
+      externalId: "evt_123",
+      eventType: "customer.subscription.updated",
+      verified: true,
+    });
 
     await expect(provider.verifyWebhook({
       headers: { "stripe-signature": `t=${timestamp},v1=${signature}` },
