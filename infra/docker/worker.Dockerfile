@@ -21,6 +21,9 @@ LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
       org.opencontainers.image.revision="$IMAGE_REVISION" \
       org.opencontainers.image.version="$IMAGE_VERSION"
 ENV NODE_ENV=production
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build --chown=bun:bun /out/worker.js ./worker.js
 USER bun
 EXPOSE 9464
