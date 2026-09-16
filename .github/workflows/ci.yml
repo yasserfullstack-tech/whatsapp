@@ -7,9 +7,6 @@ on:
       - main
       - "test/security-*"
 
-permissions:
-  contents: write
-
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -58,8 +55,6 @@ jobs:
       E2E_BLOCK_EXTERNAL: "1"
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -68,18 +63,6 @@ jobs:
         run: echo "CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
       - name: Install dependencies from frozen lockfile
         run: bun ci
-      - name: Generate rebased connection health migration
-        shell: bash
-        run: |
-          bun run db:generate -- --name=whatsapp-connection-health
-          test -f packages/db/drizzle/0012_whatsapp-connection-health.sql
-          test -f packages/db/drizzle/snapshot-artifacts/0012_snapshot.json.zlib.b64
-          grep -q '0012_whatsapp-connection-health' packages/db/drizzle/meta/_journal.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add packages/db/drizzle
-          git commit -m "fix(db): rebase connection health migration after meta asset sync"
-          git push origin HEAD:${{ github.head_ref }}
       - name: Check migration drift
         run: |
           bun run db:generate -- --name=ci-drift
