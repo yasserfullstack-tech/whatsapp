@@ -9,6 +9,8 @@ const links = [
   ["Overview", "/admin"],
   ["Organizations", "/admin/organizations"],
   ["Users", "/admin/users"],
+  ["Platform access", "/admin/access"],
+  ["Billing", "/admin/billing"],
   ["Campaigns", "/admin/campaigns"],
   ["Connections", "/admin/connections"],
   ["Imports", "/admin/imports"],
