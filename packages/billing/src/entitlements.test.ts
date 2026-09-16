@@ -121,14 +121,22 @@ describe("EntitlementService", () => {
       remaining: 1,
     });
 
-    const overLimit = service.assertUsage("org-a", "max_members", { currentUsage: 3, requested: 1 });
-    await expect(overLimit).rejects.toBeInstanceOf(BillingLimitExceededError);
-    await expect(overLimit).rejects.toMatchObject({ key: "max_members", limit: 3, attemptedTotal: 4 });
+    try {
+      await service.assertUsage("org-a", "max_members", { currentUsage: 3, requested: 1 });
+      throw new Error("expected max_members enforcement to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(BillingLimitExceededError);
+      expect(error).toMatchObject({ key: "max_members", limit: 3, attemptedTotal: 4 });
+    }
 
     repository.subscriptions.set("org-a", subscription("org-a", { status: "suspended" }));
-    const inactive = service.assertUsage("org-a", "max_members", { currentUsage: 1, requested: 1 });
-    await expect(inactive).rejects.toBeInstanceOf(BillingEntitlementError);
-    await expect(inactive).rejects.toMatchObject({ key: "max_members", reason: "subscription_inactive" });
+    try {
+      await service.assertUsage("org-a", "max_members", { currentUsage: 1, requested: 1 });
+      throw new Error("expected suspended subscription to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(BillingEntitlementError);
+      expect(error).toMatchObject({ key: "max_members", reason: "subscription_inactive" });
+    }
   });
 
   test("allows a live trial and stops it after the trial boundary", async () => {
@@ -190,6 +198,16 @@ describe("EntitlementService", () => {
       quantity: 60,
       idempotencyKey: "campaign-2",
     });
+
+    const duplicateAtQuota = await service.recordUsage({
+      organizationId: "org-a",
+      key: "monthly_campaign_recipients",
+      quantity: 60,
+      idempotencyKey: "campaign-2",
+    });
+    expect(duplicateAtQuota.recorded).toBe(false);
+    expect(duplicateAtQuota.used).toBe(100);
+
     await expect(service.recordUsage({
       organizationId: "org-a",
       key: "monthly_campaign_recipients",
