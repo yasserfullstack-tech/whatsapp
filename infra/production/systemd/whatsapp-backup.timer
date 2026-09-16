@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly WhatsApp production PostgreSQL backup
+Documentation=https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/backups.md
+
+[Timer]
+OnCalendar=*-*-* 02:17:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=whatsapp-backup.service
+
+[Install]
+WantedBy=timers.target
