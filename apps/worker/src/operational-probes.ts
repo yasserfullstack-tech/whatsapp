@@ -69,7 +69,7 @@ async function refreshOperationalProbes() {
   await Promise.all([refreshR2Probe(), refreshEmailDeliveryProbe()]);
 }
 
-await refreshOperationalProbes();
+void refreshOperationalProbes();
 const probeTimer = setInterval(() => {
   void refreshOperationalProbes();
 }, 60_000);
