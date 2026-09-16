@@ -71,6 +71,13 @@
       "when": 1789338286456,
       "tag": "0009_data-lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789557000000,
+      "tag": "0010_legal-acceptances",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ on:
       - ".github/workflows/production-infra.yml"
       - ".dockerignore"
       - ".env.production.example"
+      - ".env.staging.example"
       - "package.json"
       - "bun.lock"
       - "apps/web/next.config.ts"
@@ -14,6 +15,8 @@ on:
       - "apps/worker/**"
       - "packages/**"
       - "docker-compose.production.yml"
+      - "docs/deployment.md"
+      - "docs/production-infrastructure.md"
       - "infra/docker/**"
       - "infra/production/**"
   push:
@@ -22,6 +25,7 @@ on:
       - ".github/workflows/production-infra.yml"
       - ".dockerignore"
       - ".env.production.example"
+      - ".env.staging.example"
       - "package.json"
       - "bun.lock"
       - "apps/web/next.config.ts"
@@ -30,6 +34,8 @@ on:
       - "apps/worker/**"
       - "packages/**"
       - "docker-compose.production.yml"
+      - "docs/deployment.md"
+      - "docs/production-infrastructure.md"
       - "infra/docker/**"
       - "infra/production/**"
 
@@ -43,24 +49,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare placeholder production environment
+      - name: Prepare placeholder deployment environments
         run: |
           cp .env.production.example .env.production.ci
-          sed -i \
-            -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
-            -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
-            -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
-            -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
-            .env.production.ci
+          cp .env.staging.example .env.staging.ci
+
+          for file in .env.production.ci .env.staging.ci; do
+            sed -i \
+              -e "s|^RELEASE_SHA=.*|RELEASE_SHA=${GITHUB_SHA}|" \
+              -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
+              -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
+              -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
+              -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
+              "$file"
+          done
+
+          sh infra/production/scripts/render-monitoring-config.sh .env.production.ci
+          printf '%s\n' 'http://127.0.0.1:65535/alerts' > .runtime/monitoring/alertmanager-webhook-url
+          chmod 0600 .runtime/monitoring/alertmanager-webhook-url
 
       - name: Validate shell scripts
         run: |
           sh -n infra/production/scripts/backup-postgres.sh
           sh -n infra/production/scripts/verify-postgres-backup.sh
           sh -n infra/production/scripts/smoke-test.sh
+          sh -n infra/production/scripts/check-immutable-images.sh
+          sh -n infra/production/scripts/verify-environment-isolation.sh
+          sh -n infra/production/scripts/write-release-manifest.sh
+          sh -n infra/production/scripts/collect-infrastructure-evidence.sh
+          sh -n infra/production/scripts/rollback-release.sh
+          sh -n infra/production/scripts/render-monitoring-config.sh
+          sh -n infra/production/scripts/test-alert-delivery.sh
+
+      - name: Validate environment isolation examples
+        run: sh infra/production/scripts/verify-environment-isolation.sh .env.staging.example .env.production.example
+
+      - name: Validate immutable image guardrails
+        run: |
+          cp .env.production.example .env.production.release-ci
+          cp .env.staging.example .env.staging.release-ci
+          digest=1111111111111111111111111111111111111111111111111111111111111111
+          for file in .env.production.release-ci .env.staging.release-ci; do
+            sed -i "s|sha256:0000000000000000000000000000000000000000000000000000000000000000|sha256:${digest}|g" "$file"
+            sh infra/production/scripts/check-immutable-images.sh "$file"
+          done
 
       - name: Validate production Compose configuration
         run: docker compose --env-file .env.production.ci -f docker-compose.production.yml config --quiet
+
+      - name: Validate staging Compose configuration
+        run: docker compose --env-file .env.staging.ci -f docker-compose.production.yml config --quiet
 
       - name: Validate Caddy configuration
         run: |
@@ -71,12 +109,25 @@ jobs:
             -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-      - name: Validate Prometheus configuration
+      - name: Validate Prometheus configuration and alert rules
         run: |
           docker run --rm --entrypoint /bin/promtool \
             -v "$PWD/infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
+            -v "$PWD/.runtime/monitoring:/runtime/monitoring:ro" \
             prom/prometheus:v3.13.3 \
             check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint /bin/promtool \
+            -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
+            prom/prometheus:v3.13.3 \
+            check rules /etc/prometheus/alerts/whatsapp.rules.yml
+
+      - name: Validate Alertmanager configuration
+        run: |
+          docker run --rm --entrypoint /bin/amtool \
+            -v "$PWD/infra/production/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            prom/alertmanager:v0.28.1 \
+            check-config /etc/alertmanager/alertmanager.yml
 
       - name: Build production images with immutable revision metadata
         shell: bash
@@ -295,10 +346,10 @@ jobs:
             bun -e "fetch('http://127.0.0.1:9464/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
           docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T api \
-            bun -e "fetch('http://127.0.0.1:4000/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_http_requests_total')?0:1)).catch(()=>process.exit(1))"
+            bun -e "fetch('http://127.0.0.1:4000/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_http_requests_total')&&t.includes('whatsapp_application_errors_total')?0:1)).catch(()=>process.exit(1))"
 
           docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T worker \
-            bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')?0:1)).catch(()=>process.exit(1))"
+            bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')&&t.includes('whatsapp_r2_up')&&t.includes('whatsapp_email_delivery_backlog')?0:1)).catch(()=>process.exit(1))"
 
       - name: Show service logs on failure
         if: failure()

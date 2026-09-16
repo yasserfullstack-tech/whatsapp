@@ -10,6 +10,7 @@ import * as billingSchema from "./billing-schema";
 import * as onboardingSchema from "./onboarding-schema";
 import * as notificationSchema from "./notification-schema";
 import * as dataLifecycleSchema from "./data-lifecycle-schema";
+import * as legalSchema from "./legal-schema";
 
 export const schema = {
   ...coreSchema,
@@ -22,6 +23,7 @@ export const schema = {
   ...onboardingSchema,
   ...notificationSchema,
   ...dataLifecycleSchema,
+  ...legalSchema,
 };
 export * from "./schema";
 export * from "./contact-import-schema";
@@ -33,6 +35,7 @@ export * from "./billing-schema";
 export * from "./onboarding-schema";
 export * from "./notification-schema";
 export * from "./data-lifecycle-schema";
+export * from "./legal-schema";
 export * from "./audience-query";
 
 export function createDatabase(databaseUrl: string) {

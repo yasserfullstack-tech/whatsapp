@@ -1,0 +1,340 @@
+groups:
+  - name: whatsapp.availability
+    rules:
+      - alert: WhatsAppApiDown
+        expr: up{job="whatsapp-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "WhatsApp API metrics target is down"
+          description: "Prometheus has been unable to scrape the API for at least 2 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappapidown"
+
+      - alert: WhatsAppWorkerFleetDown
+        expr: sum(up{job="whatsapp-worker"}) < 1
+        for: 2m
+        labels:
+          severity: critical
+          service: worker
+        annotations:
+          summary: "No WhatsApp worker replica is scrapeable"
+          description: "All worker metrics targets have been unavailable for at least 2 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappworkerfleetdown"
+
+      - alert: WhatsAppReadinessFailed
+        expr: probe_success{job="whatsapp-readiness"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} readiness is failing"
+          description: "The internal /ready probe has failed for at least 2 minutes; PostgreSQL or Valkey may be unavailable."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappreadinessfailed"
+
+      - alert: WhatsAppPublicEndpointDown
+        expr: probe_success{job="public-https"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: public-web
+        annotations:
+          summary: "Public HTTPS endpoint is unavailable"
+          description: "The externally resolved production URL has failed the HTTPS probe for at least 3 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsapppublicendpointdown"
+
+  - name: whatsapp.dependencies
+    rules:
+      - alert: WhatsAppPostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "PostgreSQL exporter cannot reach PostgreSQL"
+          description: "The PostgreSQL exporter has reported pg_up=0 for at least 1 minute."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsapppostgresdown"
+
+      - alert: WhatsAppPostgresExporterDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "PostgreSQL exporter is unavailable"
+          description: "Prometheus cannot scrape postgres-exporter. Database health visibility is degraded."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsapppostgresdown"
+
+      - alert: WhatsAppValkeyDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: valkey
+        annotations:
+          summary: "Valkey exporter cannot reach Valkey"
+          description: "The Redis-compatible exporter has reported redis_up=0 for at least 1 minute."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappvalkeydown"
+
+      - alert: WhatsAppValkeyExporterDown
+        expr: up{job="valkey-exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: valkey
+        annotations:
+          summary: "Valkey exporter is unavailable"
+          description: "Prometheus cannot scrape the Valkey exporter. Cache/queue health visibility is degraded."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappvalkeydown"
+
+      - alert: WhatsAppDbQueryStatsUnavailable
+        expr: whatsapp_db_query_stats_available{database="primary"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "pg_stat_statements telemetry is unavailable"
+          description: "The API cannot read pg_stat_statements, so query execution telemetry is incomplete."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappdbquerystatsunavailable"
+
+  - name: whatsapp.queues
+    rules:
+      - alert: WhatsAppQueueBacklogHigh
+        expr: sum by (queue) (whatsapp_queue_depth{state="wait"}) > 5000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue {{ $labels.queue }} has a sustained backlog"
+          description: "More than 5,000 jobs have been waiting for at least 10 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappqueuebackloghigh"
+
+      - alert: WhatsAppFailedJobsGrowing
+        expr: sum by (queue) (increase(whatsapp_failed_jobs_total[10m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Failed jobs are growing in {{ $labels.queue }}"
+          description: "More than 10 BullMQ jobs failed in a 10-minute window."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappfailedjobsgrowing"
+
+      - alert: WhatsAppDeadLetterBacklog
+        expr: sum by (queue) (whatsapp_queue_depth{state="failed"}) > 100
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Queue {{ $labels.queue }} has a large failed-job backlog"
+          description: "More than 100 failed jobs remain in the queue for at least 10 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappdeadletterbacklog"
+
+  - name: whatsapp.meta
+    rules:
+      - alert: WhatsAppMetaAuthFailure
+        expr: sum(increase(whatsapp_meta_errors_total{status=~"401|403"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: meta
+        annotations:
+          summary: "Meta API authentication/authorization failures detected"
+          description: "At least one Meta Graph API 401/403 occurred in the last 5 minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappmetaauthfailure"
+
+      - alert: WhatsAppMetaRateLimited
+        expr: sum(increase(whatsapp_meta_429_total[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: meta
+        annotations:
+          summary: "Meta API rate limiting is sustained"
+          description: "More than five Meta HTTP 429 responses occurred in five minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappmetaratelimited"
+
+      - alert: WhatsAppMetaServerErrors
+        expr: sum(increase(whatsapp_meta_errors_total{status=~"5.."}[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: meta
+        annotations:
+          summary: "Meta API 5xx errors are elevated"
+          description: "More than five Meta Graph API 5xx responses occurred in ten minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappmetaservererrors"
+
+  - name: whatsapp.webhooks-campaigns
+    rules:
+      - alert: WhatsAppWebhookLagHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(whatsapp_webhook_processing_lag_seconds_bucket[10m]))) > 30
+        for: 10m
+        labels:
+          severity: warning
+          service: webhook
+        annotations:
+          summary: "Webhook processing lag p95 exceeds 30 seconds"
+          description: "Webhook queue-to-worker lag has remained above the initial SLO threshold."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappwebhooklaghigh"
+
+      - alert: WhatsAppWebhookFailureSpike
+        expr: sum(increase(whatsapp_webhook_errors_total[10m])) > 10 or sum(increase(whatsapp_failed_jobs_total{queue="webhook"}[10m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: webhook
+        annotations:
+          summary: "Webhook failures are elevated"
+          description: "Webhook ingress errors or webhook worker job failures exceeded ten in ten minutes."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappwebhookfailurespike"
+
+      - alert: WhatsAppCampaignSendFailureSpike
+        expr: ((sum(increase(whatsapp_failed_jobs_total{queue="send"}[10m])) / clamp_min(sum(increase(whatsapp_jobs_completed_total{queue="send"}[10m])) + sum(increase(whatsapp_failed_jobs_total{queue="send"}[10m])), 1)) > 0.05) and ((sum(increase(whatsapp_jobs_completed_total{queue="send"}[10m])) + sum(increase(whatsapp_failed_jobs_total{queue="send"}[10m]))) > 20)
+        for: 5m
+        labels:
+          severity: critical
+          service: campaigns
+        annotations:
+          summary: "Campaign send failure ratio exceeds 5%"
+          description: "At least 20 send jobs ran in ten minutes and more than 5% failed."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappcampaignsendfailurespike"
+
+  - name: whatsapp.backups-host
+    rules:
+      - alert: WhatsAppBackupMetricsMissing
+        expr: absent(whatsapp_backup_last_success_timestamp_seconds) == 1
+        for: 30m
+        labels:
+          severity: critical
+          service: backups
+        annotations:
+          summary: "PostgreSQL backup success metric is missing"
+          description: "node-exporter has not exposed a successful backup timestamp."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappbackupmetricsmissing"
+
+      - alert: WhatsAppBackupTooOld
+        expr: time() - whatsapp_backup_last_success_timestamp_seconds > 93600
+        for: 15m
+        labels:
+          severity: critical
+          service: backups
+        annotations:
+          summary: "Latest verified PostgreSQL backup is older than 26 hours"
+          description: "The backup RPO objective is at risk or already breached."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappbackuptooold"
+
+      - alert: WhatsAppBackupFailedRecently
+        expr: time() - whatsapp_backup_last_failure_timestamp_seconds < 3600
+        for: 1m
+        labels:
+          severity: warning
+          service: backups
+        annotations:
+          summary: "A PostgreSQL backup failed in the last hour"
+          description: "The backup script recorded a non-zero exit in the node-exporter textfile collector."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappbackupfailedrecently"
+
+      - alert: WhatsAppDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) < 0.15
+        for: 15m
+        labels:
+          severity: warning
+          service: host
+        annotations:
+          summary: "Disk free space below 15% on {{ $labels.mountpoint }}"
+          description: "Host filesystem capacity is getting low."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappdiskspacelow"
+
+      - alert: WhatsAppDiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) < 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: host
+        annotations:
+          summary: "Disk free space below 5% on {{ $labels.mountpoint }}"
+          description: "Host filesystem capacity is critically low."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappdiskspacecritical"
+
+      - alert: WhatsAppTlsCertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="public-https"} - time()) < 1209600
+        for: 15m
+        labels:
+          severity: warning
+          service: tls
+        annotations:
+          summary: "Production TLS certificate expires in less than 14 days"
+          description: "The public HTTPS probe reports a certificate inside the 14-day warning window."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsapptlscertificateexpiringsoon"
+
+      - alert: WhatsAppTlsCertificateExpiringCritical
+        expr: (probe_ssl_earliest_cert_expiry{job="public-https"} - time()) < 259200
+        for: 5m
+        labels:
+          severity: critical
+          service: tls
+        annotations:
+          summary: "Production TLS certificate expires in less than 3 days"
+          description: "Immediate certificate-renewal investigation is required."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsapptlscertificateexpiringcritical"
+
+  - name: whatsapp.external-services
+    rules:
+      - alert: WhatsAppR2Unavailable
+        expr: whatsapp_r2_up == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: r2
+        annotations:
+          summary: "Cloudflare R2 bucket probe is failing"
+          description: "The worker cannot list the configured R2 bucket with production credentials."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappr2unavailable"
+
+      - alert: WhatsAppEmailFailureBacklog
+        expr: whatsapp_email_delivery_backlog{state="failed"} > 25
+        for: 10m
+        labels:
+          severity: warning
+          service: email
+        annotations:
+          summary: "Email delivery failure backlog is elevated"
+          description: "More than 25 notification email deliveries are in failed/retry state."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappemailfailurebacklog"
+
+      - alert: WhatsAppEmailDeadLetters
+        expr: whatsapp_email_delivery_backlog{state="dead_letter"} > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: email
+        annotations:
+          summary: "Notification email dead letters exist"
+          description: "At least one email delivery exhausted all retry attempts."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappemaildeadletters"
+
+  - name: whatsapp.errors
+    rules:
+      - alert: WhatsAppSentryErrorSpike
+        expr: sum by (service) (increase(whatsapp_application_errors_total[5m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Application error stream sent to Sentry is elevated for {{ $labels.service }}"
+          description: "More than 20 logger error events occurred in five minutes. When Sentry is configured these events are captured there as well."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappsentryerrorspike"
+
+      - alert: WhatsAppSentryCaptureFailure
+        expr: sum by (service) (increase(whatsapp_sentry_capture_attempts_total{outcome="failed"}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sentry capture attempts are failing for {{ $labels.service }}"
+          description: "The application caught an exception while handing an error event to the Sentry SDK."
+          runbook_url: "https://github.com/yasserfullstack-tech/whatsapp/blob/main/docs/production-alerting.md#whatsappsentrycapturefailure"

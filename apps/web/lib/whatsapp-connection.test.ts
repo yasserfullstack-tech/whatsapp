@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
+import { ensureDefaultBilling } from "@wa/billing";
 import { createDatabase, schema } from "@wa/db";
 import {
   WhatsAppConnectionConflictError,
@@ -43,6 +44,11 @@ describe("verified WhatsApp connection persistence", () => {
     });
 
     try {
+      await Promise.all([
+        ensureDefaultBilling(db, orgA.id),
+        ensureDefaultBilling(db, orgB.id),
+      ]);
+
       const results = await Promise.allSettled([
         attempt(orgA.id, "A"),
         attempt(orgB.id, "B"),

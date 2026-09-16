@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
+import { DrizzleBillingRepository, EntitlementService } from "@wa/billing";
 import { createDatabase, schema } from "@wa/db";
 
 type Database = ReturnType<typeof createDatabase>["db"];
@@ -36,40 +37,78 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
     throw new Error("Invalid tenant credential key");
   }
 
-  return database.transaction(async (tx) => {
-    const now = new Date();
-    const [claimed] = await tx
-      .insert(schema.whatsappPhoneNumbers)
-      .values({
-        organizationId: input.organizationId,
-        metaBusinessId: input.businessId ?? null,
-        wabaId: input.wabaId,
-        phoneNumberId: input.phone.id,
-        displayPhoneNumber: input.phone.displayPhoneNumber ?? null,
-        verifiedName: input.phone.verifiedName ?? null,
-        status: "connected",
-        qualityRating: input.phone.qualityRating ?? null,
-        throughputMps: input.phone.throughputMps,
-        credentialKey: input.credential.key,
-      })
-      .onConflictDoNothing({ target: schema.whatsappPhoneNumbers.phoneNumberId })
-      .returning({
-        id: schema.whatsappPhoneNumbers.id,
-        organizationId: schema.whatsappPhoneNumbers.organizationId,
-      });
+  const entitlements = new EntitlementService(new DrizzleBillingRepository(database));
 
-    let connection = claimed;
+  return database.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`entitlement:max_phone_numbers:${input.organizationId}`})::bigint)`);
+
+    const now = new Date();
+    let connection = (
+      await tx
+        .select({
+          id: schema.whatsappPhoneNumbers.id,
+          organizationId: schema.whatsappPhoneNumbers.organizationId,
+          status: schema.whatsappPhoneNumbers.status,
+        })
+        .from(schema.whatsappPhoneNumbers)
+        .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, input.phone.id))
+        .limit(1)
+    )[0];
+
+    if (connection && connection.organizationId !== input.organizationId) {
+      throw new WhatsAppConnectionConflictError();
+    }
+
+    if (!connection || connection.status !== "connected") {
+      const [connectedCount] = await tx
+        .select({ total: count() })
+        .from(schema.whatsappPhoneNumbers)
+        .where(and(
+          eq(schema.whatsappPhoneNumbers.organizationId, input.organizationId),
+          eq(schema.whatsappPhoneNumbers.status, "connected"),
+        ));
+      await entitlements.assertUsage(input.organizationId, "max_phone_numbers", {
+        currentUsage: connectedCount?.total ?? 0,
+        requested: 1,
+      });
+    }
+
     if (!connection) {
-      connection = (
-        await tx
-          .select({
-            id: schema.whatsappPhoneNumbers.id,
-            organizationId: schema.whatsappPhoneNumbers.organizationId,
-          })
-          .from(schema.whatsappPhoneNumbers)
-          .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, input.phone.id))
-          .limit(1)
-      )[0];
+      const [claimed] = await tx
+        .insert(schema.whatsappPhoneNumbers)
+        .values({
+          organizationId: input.organizationId,
+          metaBusinessId: input.businessId ?? null,
+          wabaId: input.wabaId,
+          phoneNumberId: input.phone.id,
+          displayPhoneNumber: input.phone.displayPhoneNumber ?? null,
+          verifiedName: input.phone.verifiedName ?? null,
+          status: "connected",
+          qualityRating: input.phone.qualityRating ?? null,
+          throughputMps: input.phone.throughputMps,
+          credentialKey: input.credential.key,
+        })
+        .onConflictDoNothing({ target: schema.whatsappPhoneNumbers.phoneNumberId })
+        .returning({
+          id: schema.whatsappPhoneNumbers.id,
+          organizationId: schema.whatsappPhoneNumbers.organizationId,
+          status: schema.whatsappPhoneNumbers.status,
+        });
+      connection = claimed;
+
+      if (!connection) {
+        connection = (
+          await tx
+            .select({
+              id: schema.whatsappPhoneNumbers.id,
+              organizationId: schema.whatsappPhoneNumbers.organizationId,
+              status: schema.whatsappPhoneNumbers.status,
+            })
+            .from(schema.whatsappPhoneNumbers)
+            .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, input.phone.id))
+            .limit(1)
+        )[0];
+      }
     }
 
     if (!connection || connection.organizationId !== input.organizationId) {

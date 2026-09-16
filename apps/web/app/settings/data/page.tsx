@@ -3,6 +3,7 @@ import { schema } from "@wa/db";
 import { DataLifecyclePanel } from "@/components/data-lifecycle-panel";
 import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
+import { entitlements } from "@/lib/entitlements-server";
 import { getI18n } from "@/lib/i18n/server";
 import { db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
@@ -12,7 +13,7 @@ const defaults = { rawWebhookDays: 30, importFileDays: 7, exportFileHours: 24, a
 export default async function DataSettingsPage() {
   const [{ workspace }, i18n] = await Promise.all([requireAuthContext(), getI18n()]);
   const organizationId = workspace.organizationId;
-  const [contactRows, campaignRows, templateRows, policyRow, deletionRow, jobs] = await Promise.all([
+  const [contactRows, campaignRows, templateRows, policyRow, deletionRow, jobs, auditLimit, analyticsLimit] = await Promise.all([
     db.select({ total: count() }).from(schema.contacts).where(eq(schema.contacts.organizationId, organizationId)),
     db.select({ total: count() }).from(schema.campaigns).where(eq(schema.campaigns.organizationId, organizationId)),
     db.select({ total: count() }).from(schema.templates).where(eq(schema.templates.organizationId, organizationId)),
@@ -29,9 +30,20 @@ export default async function DataSettingsPage() {
       errorMessage: schema.dataExportJobs.errorMessage,
       createdAt: schema.dataExportJobs.createdAt,
     }).from(schema.dataExportJobs).where(eq(schema.dataExportJobs.organizationId, organizationId)).orderBy(desc(schema.dataExportJobs.createdAt)).limit(25),
+    entitlements.getLimit(organizationId, "audit_retention_days"),
+    entitlements.getLimit(organizationId, "analytics_retention_days"),
   ]);
   const ar = i18n.locale === "ar";
-  const policy = policyRow[0] ?? defaults;
+  const storedPolicy = policyRow[0] ?? defaults;
+  const policy = {
+    ...storedPolicy,
+    auditLogDays: auditLimit === null
+      ? storedPolicy.auditLogDays
+      : Math.min(storedPolicy.auditLogDays, auditLimit ?? 30),
+    campaignRecipientDays: analyticsLimit === null
+      ? storedPolicy.campaignRecipientDays
+      : Math.min(storedPolicy.campaignRecipientDays, analyticsLimit ?? 30),
+  };
   const deletion = deletionRow[0] && deletionRow[0].status !== "cancelled" && deletionRow[0].status !== "completed" ? deletionRow[0] : null;
 
   return <>

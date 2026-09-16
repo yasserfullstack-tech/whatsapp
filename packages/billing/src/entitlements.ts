@@ -240,6 +240,21 @@ export class EntitlementService {
     };
   }
 
+  async assertUsage(
+    organizationId: string,
+    key: EntitlementKey,
+    options: { requested?: number; currentUsage?: number; at?: Date } = {},
+  ): Promise<UsageCheck> {
+    const check = await this.checkUsage(organizationId, key, options);
+    if (check.allowed) return check;
+
+    if (check.reason === "limit_exceeded" && check.limit !== null) {
+      throw new BillingLimitExceededError(key, check.limit, check.used + check.requested);
+    }
+
+    throw new BillingEntitlementError(check.reason, key);
+  }
+
   async recordUsage(input: {
     organizationId: string;
     key: EntitlementKey;
@@ -257,8 +272,15 @@ export class EntitlementService {
     if (!input.idempotencyKey.trim()) throw new Error("recordUsage idempotencyKey is required");
 
     const at = input.occurredAt ?? new Date();
-    const check = await this.checkUsage(input.organizationId, input.key, { requested: input.quantity, at });
-    if (!check.allowed || !check.periodStart || !check.periodEnd) {
+    // Validate subscription/entitlement availability only. appendUsage is the
+    // authority for numeric enforcement because it checks idempotency first;
+    // this keeps retries safe even when usage is at or above a downgraded limit.
+    const check = await this.assertUsage(input.organizationId, input.key, {
+      requested: 0,
+      currentUsage: 0,
+      at,
+    });
+    if (!check.periodStart || !check.periodEnd) {
       throw new BillingEntitlementError(check.reason, input.key);
     }
 

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
+import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
@@ -43,6 +44,14 @@ export async function POST(request: Request, routeContext: RouteContext) {
   if (parsed.data.action === "resume") {
     if (campaign.status !== "paused") {
       return NextResponse.json({ error: `Campaign cannot be resumed from ${campaign.status}` }, { status: 409 });
+    }
+
+    try {
+      await entitlements.assertUsage(organizationId, "monthly_campaign_recipients", { requested: 1 });
+    } catch (error) {
+      const payload = entitlementErrorPayload(error);
+      if (payload) return NextResponse.json(payload, { status: 409 });
+      throw error;
     }
 
     await db.update(schema.campaigns)

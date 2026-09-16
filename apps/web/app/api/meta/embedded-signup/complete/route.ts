@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
 import { encryptSecret } from "@wa/credentials";
 import { schema } from "@wa/db";
@@ -16,6 +16,7 @@ import {
   EmbeddedSignupPhoneMismatchError,
   verifyEmbeddedSignupPhone,
 } from "@/lib/embedded-signup-security";
+import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
 import { db, getCredentialEncryptionKey, getMetaServerConfig } from "@/lib/server";
 import {
   saveVerifiedWhatsAppConnectionAtomic,
@@ -71,6 +72,29 @@ export async function POST(request: Request) {
       )[0]?.organizationId ?? null,
     });
 
+    const [existingPhone] = await db
+      .select({ status: schema.whatsappPhoneNumbers.status })
+      .from(schema.whatsappPhoneNumbers)
+      .where(and(
+        eq(schema.whatsappPhoneNumbers.organizationId, context.workspace.organizationId),
+        eq(schema.whatsappPhoneNumbers.phoneNumberId, phone.id),
+      ))
+      .limit(1);
+
+    if (!existingPhone || existingPhone.status !== "connected") {
+      const [connectedCount] = await db
+        .select({ total: count() })
+        .from(schema.whatsappPhoneNumbers)
+        .where(and(
+          eq(schema.whatsappPhoneNumbers.organizationId, context.workspace.organizationId),
+          eq(schema.whatsappPhoneNumbers.status, "connected"),
+        ));
+      await entitlements.assertUsage(context.workspace.organizationId, "max_phone_numbers", {
+        currentUsage: connectedCount?.total ?? 0,
+        requested: 1,
+      });
+    }
+
     await subscribeAppToWaba({
       wabaId: parsed.data.wabaId,
       accessToken: token.accessToken,
@@ -109,6 +133,11 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    const entitlementError = entitlementErrorPayload(error);
+    if (entitlementError) {
+      return NextResponse.json(entitlementError, { status: 409 });
+    }
+
     if (error instanceof EmbeddedSignupConflictError || error instanceof WhatsAppConnectionConflictError) {
       return NextResponse.json({ error: "Could not connect this WhatsApp number" }, { status: 409 });
     }

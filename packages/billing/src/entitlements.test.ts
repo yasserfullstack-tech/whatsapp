@@ -108,6 +108,37 @@ describe("EntitlementService", () => {
     expect((await service.checkUsage("org-a", "max_import_size", { requested: 5001 })).allowed).toBe(false);
   });
 
+  test("throws structured errors from server-side assertions", async () => {
+    const repository = new FakeBillingRepository();
+    repository.subscriptions.set("org-a", subscription("org-a"));
+    repository.entitlement("plan-v1", "max_members", 3);
+    const service = new EntitlementService(repository);
+
+    await expect(service.assertUsage("org-a", "max_members", { currentUsage: 2, requested: 1 })).resolves.toMatchObject({
+      allowed: true,
+      limit: 3,
+      used: 2,
+      remaining: 1,
+    });
+
+    try {
+      await service.assertUsage("org-a", "max_members", { currentUsage: 3, requested: 1 });
+      throw new Error("expected max_members enforcement to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(BillingLimitExceededError);
+      expect(error).toMatchObject({ key: "max_members", limit: 3, attemptedTotal: 4 });
+    }
+
+    repository.subscriptions.set("org-a", subscription("org-a", { status: "suspended" }));
+    try {
+      await service.assertUsage("org-a", "max_members", { currentUsage: 1, requested: 1 });
+      throw new Error("expected suspended subscription to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(BillingEntitlementError);
+      expect(error).toMatchObject({ key: "max_members", reason: "subscription_inactive" });
+    }
+  });
+
   test("allows a live trial and stops it after the trial boundary", async () => {
     const repository = new FakeBillingRepository();
     repository.subscriptions.set("org-a", subscription("org-a", {
@@ -167,12 +198,22 @@ describe("EntitlementService", () => {
       quantity: 60,
       idempotencyKey: "campaign-2",
     });
+
+    const duplicateAtQuota = await service.recordUsage({
+      organizationId: "org-a",
+      key: "monthly_campaign_recipients",
+      quantity: 60,
+      idempotencyKey: "campaign-2",
+    });
+    expect(duplicateAtQuota.recorded).toBe(false);
+    expect(duplicateAtQuota.used).toBe(100);
+
     await expect(service.recordUsage({
       organizationId: "org-a",
       key: "monthly_campaign_recipients",
       quantity: 1,
       idempotencyKey: "campaign-3",
-    })).rejects.toBeInstanceOf(BillingEntitlementError);
+    })).rejects.toBeInstanceOf(BillingLimitExceededError);
   });
 
   test("rolls metered usage with the subscription billing period", async () => {
@@ -217,6 +258,37 @@ describe("EntitlementService", () => {
     const orgB = await service.checkUsage("org-b", "monthly_campaign_recipients", { requested: 100 });
     expect(orgB.allowed).toBe(true);
     expect(orgB.used).toBe(0);
+  });
+
+  test("uses live plan versions for immediate upgrades and non-destructive downgrades", async () => {
+    const repository = new FakeBillingRepository();
+    repository.entitlement("starter-v1", "max_contacts", 10);
+    repository.entitlement("growth-v1", "max_contacts", 100);
+    repository.subscriptions.set("org-a", subscription("org-a", {
+      planVersionId: "starter-v1",
+      planCode: "starter",
+      planName: "Starter",
+    }));
+    const service = new EntitlementService(repository);
+
+    expect((await service.checkUsage("org-a", "max_contacts", { currentUsage: 10, requested: 1 })).allowed).toBe(false);
+
+    repository.subscriptions.set("org-a", subscription("org-a", {
+      planVersionId: "growth-v1",
+      planCode: "growth",
+      planName: "Growth",
+    }));
+    expect((await service.checkUsage("org-a", "max_contacts", { currentUsage: 10, requested: 1 })).allowed).toBe(true);
+
+    repository.subscriptions.set("org-a", subscription("org-a", {
+      planVersionId: "starter-v1",
+      planCode: "starter",
+      planName: "Starter",
+    }));
+    const downgraded = await service.checkUsage("org-a", "max_contacts", { currentUsage: 12, requested: 0 });
+    expect(downgraded.allowed).toBe(false);
+    expect(downgraded.used).toBe(12);
+    expect(downgraded.limit).toBe(10);
   });
 
   test("manual subscriptions and custom plans use the same entitlement path", async () => {
