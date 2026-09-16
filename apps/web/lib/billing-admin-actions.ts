@@ -43,14 +43,15 @@ export async function changeBillingPlanAction(formData: FormData) {
 
   const [targetPlan] = await db.select({
     id: schema.billingPlanVersions.id,
-    name: schema.billingPlans.name,
     code: schema.billingPlans.code,
     active: schema.billingPlans.isActive,
+    planOrganizationId: schema.billingPlans.organizationId,
   }).from(schema.billingPlanVersions)
     .innerJoin(schema.billingPlans, eq(schema.billingPlans.id, schema.billingPlanVersions.planId))
     .where(eq(schema.billingPlanVersions.id, planVersionId))
     .limit(1);
   if (!targetPlan || !targetPlan.active) throw new Error("Active plan version not found");
+  if (targetPlan.planOrganizationId && targetPlan.planOrganizationId !== organizationId) throw new Error("Custom plan belongs to another organization");
   if (subscription.currentPlanVersionId === targetPlan.id) return;
 
   const billing = createBillingAdminService(db);
