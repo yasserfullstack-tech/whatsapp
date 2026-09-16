@@ -4,7 +4,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./webhooks": "./src/webhooks.ts"
+    "./webhooks": "./src/webhooks.ts",
+    "./inbox": "./src/inbox.ts",
+    "./messages": "./src/messages.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
