@@ -1,11 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   BaseBillingProvider,
-  BillingProviderCapabilityError,
   type BillingProviderCapabilities,
   type BillingProviderCheckout,
   type BillingProviderCustomer,
-  type BillingProviderPortalSession,
+  type BillingProviderPortal,
   type BillingProviderRefund,
   type BillingProviderSubscription,
   type BillingProviderWebhookEvent,
@@ -43,15 +42,26 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function idFrom(value: unknown): string | null {
   const direct = asString(value);
   if (direct) return direct;
   return asString(asRecord(value)?.id);
 }
 
-function appendMetadata(body: URLSearchParams, prefix: string, metadata?: Record<string, string>): void {
+function metadataValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  return JSON.stringify(value);
+}
+
+function appendMetadata(body: URLSearchParams, prefix: string, metadata?: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(metadata ?? {})) {
-    body.append(`${prefix}[${key}]`, value);
+    if (value === undefined || value === null) continue;
+    body.append(`${prefix}[${key}]`, metadataValue(value));
   }
 }
 
@@ -76,9 +86,23 @@ function parseSignatureHeader(value: string): { timestamp: number; signatures: s
   return { timestamp, signatures };
 }
 
+function signatureHeader(headers: Headers | Record<string, string>): string | null {
+  if (headers instanceof Headers) return headers.get("stripe-signature");
+  return Object.entries(headers).find(([key]) => key.toLowerCase() === "stripe-signature")?.[1] ?? null;
+}
+
+function subscriptionPeriod(subscription: StripeObject): { start?: Date; end?: Date } {
+  const start = asNumber(subscription.current_period_start);
+  const end = asNumber(subscription.current_period_end);
+  return {
+    ...(start === null ? {} : { currentPeriodStart: new Date(start * 1000) }),
+    ...(end === null ? {} : { currentPeriodEnd: new Date(end * 1000) }),
+  } as { start?: Date; end?: Date };
+}
+
 export class StripeBillingProvider extends BaseBillingProvider {
-  readonly key = "stripe";
-  readonly capabilities = capabilities;
+  override readonly key = "stripe";
+  override readonly capabilities = capabilities;
 
   private readonly apiBaseUrl: string;
   private readonly fetchImpl: FetchLike;
@@ -99,15 +123,16 @@ export class StripeBillingProvider extends BaseBillingProvider {
     body?: URLSearchParams;
     idempotencyKey?: string;
   }): Promise<StripeObject> {
-    const response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, {
+    const init: RequestInit = {
       method: input?.method ?? "GET",
       headers: {
         Authorization: `Bearer ${this.config.secretKey}`,
         ...(input?.body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
         ...(input?.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
       },
-      body: input?.body?.toString(),
-    });
+      ...(input?.body ? { body: input.body.toString() } : {}),
+    };
+    const response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, init);
     const payload = asRecord(await response.json().catch(() => null));
     if (!response.ok) {
       const error = asRecord(payload?.error);
@@ -118,12 +143,7 @@ export class StripeBillingProvider extends BaseBillingProvider {
     return payload;
   }
 
-  async createCustomer(input: {
-    organizationId: string;
-    email?: string;
-    name?: string;
-    metadata?: Record<string, string>;
-  }): Promise<BillingProviderCustomer> {
+  override async createCustomer(input: Parameters<BaseBillingProvider["createCustomer"]>[0]): Promise<BillingProviderCustomer> {
     const body = new URLSearchParams();
     if (input.email) body.set("email", input.email);
     if (input.name) body.set("name", input.name);
@@ -136,17 +156,14 @@ export class StripeBillingProvider extends BaseBillingProvider {
     });
     const externalId = asString(customer.id);
     if (!externalId) throw new Error("Stripe customer response is missing id");
-    return { externalId, raw: customer };
+    return {
+      providerKey: this.key,
+      externalId,
+      ...(input.email ? { email: input.email } : {}),
+    };
   }
 
-  async createCheckout(input: {
-    organizationId: string;
-    customerExternalId?: string;
-    planExternalRef?: string;
-    successUrl: string;
-    cancelUrl: string;
-    metadata?: Record<string, string>;
-  }): Promise<BillingProviderCheckout> {
+  override async createCheckout(input: Parameters<BaseBillingProvider["createCheckout"]>[0]): Promise<BillingProviderCheckout> {
     if (!input.planExternalRef) throw new Error("Stripe Checkout requires a Price ID");
     const body = new URLSearchParams({
       mode: "subscription",
@@ -164,20 +181,21 @@ export class StripeBillingProvider extends BaseBillingProvider {
     const session = await this.request("/v1/checkout/sessions", {
       method: "POST",
       body,
-      idempotencyKey: `checkout:${input.organizationId}:${input.planExternalRef}`,
+      idempotencyKey: `checkout:${input.organizationId}:${input.planExternalRef}:${randomUUID()}`,
     });
     const externalId = asString(session.id);
     const url = asString(session.url);
     if (!externalId || !url) throw new Error("Stripe Checkout response is missing id or url");
-    return { externalId, url, raw: session };
+    const expiresAtSeconds = asNumber(session.expires_at);
+    return {
+      providerKey: this.key,
+      externalId,
+      url,
+      ...(expiresAtSeconds === null ? {} : { expiresAt: new Date(expiresAtSeconds * 1000) }),
+    };
   }
 
-  async createSubscription(input: {
-    organizationId: string;
-    customerExternalId: string;
-    planExternalRef: string;
-    metadata?: Record<string, string>;
-  }): Promise<BillingProviderSubscription> {
+  override async createSubscription(input: Parameters<BaseBillingProvider["createSubscription"]>[0]): Promise<BillingProviderSubscription> {
     const body = new URLSearchParams({
       customer: input.customerExternalId,
       "items[0][price]": input.planExternalRef,
@@ -188,20 +206,16 @@ export class StripeBillingProvider extends BaseBillingProvider {
     const subscription = await this.request("/v1/subscriptions", {
       method: "POST",
       body,
-      idempotencyKey: `subscription:${input.organizationId}:${input.planExternalRef}`,
+      idempotencyKey: `subscription:${input.organizationId}:${input.planExternalRef}:${randomUUID()}`,
     });
     const externalId = asString(subscription.id);
     if (!externalId) throw new Error("Stripe subscription response is missing id");
-    return { externalId, status: asString(subscription.status) ?? "unknown", raw: subscription };
+    return this.subscriptionReference(subscription, externalId);
   }
 
-  async changePlan(input: {
-    subscriptionExternalId: string;
-    planExternalRef: string;
-    effectiveAt?: Date;
-  }): Promise<BillingProviderSubscription> {
+  override async changePlan(input: Parameters<BaseBillingProvider["changePlan"]>[0]): Promise<BillingProviderSubscription> {
     if (input.effectiveAt && input.effectiveAt.getTime() > this.now().getTime() + 60_000) {
-      throw new BillingProviderCapabilityError(this.key, "scheduled plan changes");
+      throw new Error("Stripe billing adapter does not support scheduled future plan changes");
     }
     const current = await this.request(`/v1/subscriptions/${encodeURIComponent(input.subscriptionExternalId)}`);
     const items = asRecord(current.items)?.data;
@@ -219,17 +233,10 @@ export class StripeBillingProvider extends BaseBillingProvider {
       body,
       idempotencyKey: `plan-change:${input.subscriptionExternalId}:${input.planExternalRef}`,
     });
-    return {
-      externalId: asString(subscription.id) ?? input.subscriptionExternalId,
-      status: asString(subscription.status) ?? "unknown",
-      raw: subscription,
-    };
+    return this.subscriptionReference(subscription, input.subscriptionExternalId);
   }
 
-  async cancelSubscription(input: {
-    subscriptionExternalId: string;
-    atPeriodEnd?: boolean;
-  }): Promise<BillingProviderSubscription> {
+  override async cancelSubscription(input: Parameters<BaseBillingProvider["cancelSubscription"]>[0]): Promise<BillingProviderSubscription> {
     const path = `/v1/subscriptions/${encodeURIComponent(input.subscriptionExternalId)}`;
     const subscription = input.atPeriodEnd === false
       ? await this.request(path, { method: "DELETE" })
@@ -238,66 +245,49 @@ export class StripeBillingProvider extends BaseBillingProvider {
           body: new URLSearchParams({ cancel_at_period_end: "true" }),
           idempotencyKey: `cancel:${input.subscriptionExternalId}:period-end`,
         });
-    return {
-      externalId: asString(subscription.id) ?? input.subscriptionExternalId,
-      status: asString(subscription.status) ?? "unknown",
-      raw: subscription,
-    };
+    return this.subscriptionReference(subscription, input.subscriptionExternalId);
   }
 
-  async createBillingPortal(input: {
-    customerExternalId: string;
-    returnUrl: string;
-  }): Promise<BillingProviderPortalSession> {
+  override async createBillingPortal(input: Parameters<BaseBillingProvider["createBillingPortal"]>[0]): Promise<BillingProviderPortal> {
     const body = new URLSearchParams({ customer: input.customerExternalId, return_url: input.returnUrl });
     const session = await this.request("/v1/billing_portal/sessions", { method: "POST", body });
-    const externalId = asString(session.id);
     const url = asString(session.url);
-    if (!externalId || !url) throw new Error("Stripe portal response is missing id or url");
-    return { externalId, url, raw: session };
+    if (!url) throw new Error("Stripe portal response is missing url");
+    return { url };
   }
 
-  async verifyWebhook(input: {
-    headers: Record<string, string | undefined>;
-    rawBody: string;
-  }): Promise<BillingProviderWebhookEvent> {
+  override async verifyWebhook(input: Parameters<BaseBillingProvider["verifyWebhook"]>[0]): Promise<BillingProviderWebhookEvent> {
     if (!this.config.webhookSecret) throw new Error("Stripe webhook secret is required");
-    const signatureHeader = input.headers["stripe-signature"]
-      ?? input.headers["Stripe-Signature"]
-      ?? Object.entries(input.headers).find(([key]) => key.toLowerCase() === "stripe-signature")?.[1];
-    if (!signatureHeader) throw new Error("Stripe-Signature header is required");
+    const signature = signatureHeader(input.headers);
+    if (!signature) throw new Error("Stripe-Signature header is required");
 
-    const { timestamp, signatures } = parseSignatureHeader(signatureHeader);
+    const { timestamp, signatures } = parseSignatureHeader(signature);
     const ageSeconds = Math.abs(Math.floor(this.now().getTime() / 1000) - timestamp);
     if (ageSeconds > this.webhookToleranceSeconds) throw new Error("Stripe webhook timestamp is outside tolerance");
 
     const expected = createHmac("sha256", this.config.webhookSecret)
       .update(`${timestamp}.${input.rawBody}`, "utf8")
       .digest("hex");
-    if (!signatures.some((signature) => safeEqualHex(signature, expected))) {
+    if (!signatures.some((candidate) => safeEqualHex(candidate, expected))) {
       throw new Error("Invalid Stripe webhook signature");
     }
 
-    const raw = asRecord(JSON.parse(input.rawBody));
-    const externalEventId = asString(raw?.id);
-    const type = asString(raw?.type);
-    const data = asRecord(asRecord(raw?.data)?.object);
-    if (!raw || !externalEventId || !type || !data) throw new Error("Stripe webhook payload is invalid");
-    const created = typeof raw.created === "number" ? raw.created : Math.floor(this.now().getTime() / 1000);
+    const payload = asRecord(JSON.parse(input.rawBody));
+    const externalId = asString(payload?.id);
+    const eventType = asString(payload?.type);
+    if (!payload || !externalId || !eventType || !asRecord(asRecord(payload.data)?.object)) {
+      throw new Error("Stripe webhook payload is invalid");
+    }
     return {
-      externalEventId,
-      type,
-      occurredAt: new Date(created * 1000),
-      data,
-      raw,
+      providerKey: this.key,
+      externalId,
+      eventType,
+      verified: true,
+      payload,
     };
   }
 
-  async refundPayment(input: {
-    paymentExternalId: string;
-    amountMinor?: number;
-    reason?: string;
-  }): Promise<BillingProviderRefund> {
+  override async refundPayment(input: Parameters<BaseBillingProvider["refundPayment"]>[0]): Promise<BillingProviderRefund> {
     const body = new URLSearchParams();
     if (input.paymentExternalId.startsWith("ch_")) body.set("charge", input.paymentExternalId);
     else body.set("payment_intent", input.paymentExternalId);
@@ -312,6 +302,26 @@ export class StripeBillingProvider extends BaseBillingProvider {
     });
     const externalId = asString(refund.id);
     if (!externalId) throw new Error("Stripe refund response is missing id");
-    return { externalId, status: asString(refund.status) ?? "unknown", raw: refund };
+    const amountMinor = asNumber(refund.amount) ?? input.amountMinor;
+    if (amountMinor === undefined) throw new Error("Stripe refund response is missing amount");
+    return {
+      providerKey: this.key,
+      externalId,
+      paymentExternalId: input.paymentExternalId,
+      amountMinor,
+      status: asString(refund.status) ?? "unknown",
+    };
+  }
+
+  private subscriptionReference(subscription: StripeObject, fallbackId: string): BillingProviderSubscription {
+    const currentPeriodStart = asNumber(subscription.current_period_start);
+    const currentPeriodEnd = asNumber(subscription.current_period_end);
+    return {
+      providerKey: this.key,
+      externalId: asString(subscription.id) ?? fallbackId,
+      status: asString(subscription.status) ?? "unknown",
+      ...(currentPeriodStart === null ? {} : { currentPeriodStart: new Date(currentPeriodStart * 1000) }),
+      ...(currentPeriodEnd === null ? {} : { currentPeriodEnd: new Date(currentPeriodEnd * 1000) }),
+    };
   }
 }
