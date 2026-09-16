@@ -27,7 +27,7 @@ export default async function WhatsAppSettingsPage() {
     <>
       <header className="topbar settingsHeader">
         <div><p className="eyebrow">{m.common.eyebrow}</p><h1>{m.whatsapp.title}</h1><p className="subtitle">{m.whatsapp.subtitle}</p></div>
-        {canManage ? <ConnectWhatsApp appId={meta.appId} configId={meta.configId} graphApiVersion={meta.graphApiVersion} buttonLabel={reconnectRequired ? m.whatsapp.reconnect : undefined} /> : null}
+        {canManage ? <ConnectWhatsApp appId={meta.appId} configId={meta.configId} graphApiVersion={meta.graphApiVersion} {...(reconnectRequired ? { buttonLabel: m.whatsapp.reconnect } : {})} /> : null}
       </header>
       <SettingsNav active="/settings/whatsapp" />
       <section className="panel settingsPanel">
@@ -42,7 +42,7 @@ export default async function WhatsAppSettingsPage() {
             </div>
             <div className="settingsMetrics">
               <span><small>{m.whatsapp.status}</small><strong>{phone.status}</strong></span>
-              <span><small>{m.whatsapp.health}</small><strong>{m.whatsapp.healthStates[phone.healthStatus]}</strong></span>
+              <span><small>{m.whatsapp.health}</small><strong>{phone.status === "disconnected" ? m.whatsapp.healthStates.unknown : m.whatsapp.healthStates[phone.healthStatus]}</strong></span>
               <span><small>{m.whatsapp.lastValidated}</small><strong>{phone.lastValidatedAt ? dateTime.format(phone.lastValidatedAt) : m.whatsapp.notValidated}</strong></span>
               <span><small>{m.whatsapp.quality}</small><strong>{phone.qualityRating ?? "—"}</strong></span>
               <span><small>{m.whatsapp.throughput}</small><strong>{integer.format(phone.throughputMps)} {m.whatsapp.messagesPerSecond}</strong></span>
