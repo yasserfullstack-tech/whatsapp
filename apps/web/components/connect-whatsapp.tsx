@@ -3,12 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/components/i18n-provider";
+import {
+  createEmbeddedSignupLoginOptions,
+  parseEmbeddedSignupMessage,
+  type EmbeddedSignupData,
+  type EmbeddedSignupLoginOptions,
+} from "@/lib/embedded-signup-client";
 
-type EmbeddedSignupData = { wabaId: string; phoneNumberId: string; businessId?: string };
 type FacebookLoginResponse = { authResponse?: { code?: string }; status?: string };
 type FacebookSdk = {
   init(options: { appId: string; cookie: boolean; xfbml: boolean; version: string }): void;
-  login(callback: (response: FacebookLoginResponse) => void, options: { config_id: string; response_type: "code"; override_default_response_type: boolean; extras: { setup: Record<string, never>; sessionInfoVersion: string } }): void;
+  login(callback: (response: FacebookLoginResponse) => void, options: EmbeddedSignupLoginOptions): void;
 };
 declare global { interface Window { FB?: FacebookSdk; fbAsyncInit?: () => void } }
 type ConnectWhatsAppProps = { appId: string; configId: string; graphApiVersion: string };
@@ -50,32 +55,49 @@ export function ConnectWhatsApp({ appId, configId, graphApiVersion }: ConnectWha
       const script = document.createElement("script"); script.id = "facebook-jssdk"; script.async = true; script.defer = true; script.crossOrigin = "anonymous"; script.src = "https://connect.facebook.net/en_US/sdk.js"; document.body.appendChild(script);
     }
     function onMessage(event: MessageEvent) {
-      if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") return;
-      let payload: unknown = event.data;
-      if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch { return; } }
-      if (!payload || typeof payload !== "object") return;
-      const record = payload as Record<string, unknown>;
-      if (record.type !== "WA_EMBEDDED_SIGNUP") return;
-      if (record.event === "CANCEL") { setStatus(null); setError(messages.connect.cancelled); return; }
-      if (record.event !== "FINISH" || !record.data || typeof record.data !== "object") return;
-      const data = record.data as Record<string, unknown>;
-      const wabaId = data.waba_id; const phoneNumberId = data.phone_number_id; const businessId = data.business_id;
-      if (typeof wabaId !== "string" || typeof phoneNumberId !== "string") return;
-      signupRef.current = { wabaId, phoneNumberId, ...(typeof businessId === "string" ? { businessId } : {}) };
+      const message = parseEmbeddedSignupMessage(event.origin, event.data);
+      if (message.kind === "ignore") return;
+      if (message.kind === "cancel") {
+        codeRef.current = null;
+        signupRef.current = null;
+        setStatus(null);
+        setError(messages.connect.cancelled);
+        return;
+      }
+      if (message.kind === "error" || message.kind === "invalid") {
+        codeRef.current = null;
+        signupRef.current = null;
+        setStatus(null);
+        setError(messages.connect.failed);
+        return;
+      }
+
+      signupRef.current = message.data;
       void complete();
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [appId, complete, graphApiVersion, messages.connect.cancelled]);
+  }, [appId, complete, graphApiVersion, messages.connect.cancelled, messages.connect.failed]);
 
   function connect() {
-    setError(null); setStatus(messages.connect.openingMeta);
+    codeRef.current = null;
+    signupRef.current = null;
+    setError(null);
+    setStatus(messages.connect.openingMeta);
     if (!window.FB) { setError(messages.connect.metaLoading); setStatus(null); return; }
     window.FB.login((response) => {
-      const code = response.authResponse?.code;
-      if (!code) { setStatus(null); setError(messages.connect.noCode); return; }
-      codeRef.current = code; setStatus(messages.connect.authorized); void complete();
-    }, { config_id: configId, response_type: "code", override_default_response_type: true, extras: { setup: {}, sessionInfoVersion: "3" } });
+      const code = response.authResponse?.code?.trim();
+      if (!code) {
+        codeRef.current = null;
+        signupRef.current = null;
+        setStatus(null);
+        setError(messages.connect.noCode);
+        return;
+      }
+      codeRef.current = code;
+      setStatus(messages.connect.authorized);
+      void complete();
+    }, createEmbeddedSignupLoginOptions(configId));
   }
 
   return <div className="connectActions"><button className="secondary" disabled={!sdkReady || Boolean(status)} onClick={connect} type="button">{status ?? (sdkReady ? messages.connect.button : messages.connect.loadingMeta)}</button>{error ? <span className="inlineError">{error}</span> : null}</div>;
