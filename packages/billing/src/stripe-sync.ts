@@ -540,13 +540,20 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
 
   return {
     async process(event: BillingProviderWebhookEvent): Promise<StripeWebhookProcessResult> {
+      if (event.providerKey !== "stripe" || !event.verified) {
+        throw new Error("Unverified or non-Stripe billing provider event");
+      }
+      const payload = asRecord(event.payload);
+      const object = asRecord(asRecord(payload?.data)?.object);
+      if (!payload || !object) throw new Error("Stripe webhook payload is invalid");
+
       await db
         .insert(schema.billingProviderEvents)
         .values({
           providerKey: "stripe",
-          externalEventId: event.externalEventId,
-          eventType: event.type,
-          payload: event.raw,
+          externalEventId: event.externalId,
+          eventType: event.eventType,
+          payload: event.payload,
           verifiedAt: normalized.now(),
         })
         .onConflictDoNothing({
@@ -558,7 +565,7 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
           SELECT ${schema.billingProviderEvents.id}
           FROM ${schema.billingProviderEvents}
           WHERE ${schema.billingProviderEvents.providerKey} = 'stripe'
-            AND ${schema.billingProviderEvents.externalEventId} = ${event.externalEventId}
+            AND ${schema.billingProviderEvents.externalEventId} = ${event.externalId}
           FOR UPDATE
         `);
         const ledger = (
@@ -567,21 +574,20 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
             .from(schema.billingProviderEvents)
             .where(and(
               eq(schema.billingProviderEvents.providerKey, "stripe"),
-              eq(schema.billingProviderEvents.externalEventId, event.externalEventId),
+              eq(schema.billingProviderEvents.externalEventId, event.externalId),
             ))
             .limit(1)
         )[0];
         if (!ledger) throw new Error("Stripe provider event ledger row is missing");
         if (ledger.processedAt) return { processed: false, replay: true };
 
-        const object = event.data;
-        if (event.type === "checkout.session.completed") {
+        if (event.eventType === "checkout.session.completed") {
           await syncCheckoutSession(tx, object);
-        } else if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
+        } else if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.eventType)) {
           await syncSubscription(tx, object, normalized);
-        } else if (event.type.startsWith("invoice.")) {
-          await syncInvoice(tx, object, event.type, normalized);
-        } else if (["charge.refunded", "refund.created", "refund.updated"].includes(event.type)) {
+        } else if (event.eventType.startsWith("invoice.")) {
+          await syncInvoice(tx, object, event.eventType, normalized);
+        } else if (["charge.refunded", "refund.created", "refund.updated"].includes(event.eventType)) {
           await syncRefund(tx, object);
         }
 
