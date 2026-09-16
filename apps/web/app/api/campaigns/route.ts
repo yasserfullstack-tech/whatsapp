@@ -9,6 +9,7 @@ import {
   countEligibleAudience,
   resolveAudienceSelection,
 } from "@/lib/audience-server";
+import { parseCampaignScheduledAt } from "@/lib/campaign-scheduling";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
@@ -40,6 +41,7 @@ const createCampaignSchema = z.object({
   templateId: z.uuid(),
   audience: audienceSelectionSchema,
   bindings: z.array(bindingSchema).max(30).default([]),
+  scheduledAt: z.string().trim().max(64).optional(),
 });
 
 export async function POST(request: Request) {
@@ -50,6 +52,13 @@ export async function POST(request: Request) {
   const parsed = createCampaignSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid campaign request", issues: parsed.error.issues }, { status: 400 });
+  }
+
+  let scheduledAt: Date | null;
+  try {
+    scheduledAt = parseCampaignScheduledAt(parsed.data.scheduledAt);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid campaign schedule" }, { status: 400 });
   }
 
   const organizationId = context.workspace.organizationId;
@@ -108,6 +117,7 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  const initialStatus = scheduledAt ? "scheduled" : "dispatching";
   const campaignId = await db.transaction(async (tx) => {
     const [campaign] = await tx
       .insert(schema.campaigns)
@@ -116,7 +126,8 @@ export async function POST(request: Request) {
         whatsappPhoneNumberId: phone.id,
         templateId: template.id,
         name: parsed.data.name,
-        status: "dispatching",
+        status: initialStatus,
+        scheduledAt,
         templateBindings: bindings,
       })
       .returning({ id: schema.campaigns.id });
@@ -135,23 +146,27 @@ export async function POST(request: Request) {
     return campaign.id;
   });
 
-  try {
-    await campaignDispatchQueue.add(
-      "dispatch-campaign",
-      { organizationId, campaignId },
-      { jobId: `campaign-${campaignId}` },
-    );
-  } catch (error) {
-    await db.update(schema.campaigns)
-      .set({ status: "failed", updatedAt: new Date() })
-      .where(eq(schema.campaigns.id, campaignId));
-    console.error("Could not queue campaign dispatcher", error);
-    return NextResponse.json({ error: "Campaign was created but could not be queued" }, { status: 503 });
+  if (!scheduledAt) {
+    try {
+      await campaignDispatchQueue.add(
+        "dispatch-campaign",
+        { organizationId, campaignId },
+        { jobId: `campaign-${campaignId}` },
+      );
+    } catch (error) {
+      await db.update(schema.campaigns)
+        .set({ status: "failed", updatedAt: new Date() })
+        .where(eq(schema.campaigns.id, campaignId));
+      console.error("Could not queue campaign dispatcher", error);
+      return NextResponse.json({ error: "Campaign was created but could not be queued" }, { status: 503 });
+    }
   }
 
   return NextResponse.json({
     campaignId,
-    status: "dispatching",
+    status: initialStatus,
+    scheduledAt: scheduledAt?.toISOString() ?? null,
+    snapshotTiming: "dispatch",
     audienceName: audience.sourceName,
     eligibleContacts,
     throughputMps: phone.throughputMps,

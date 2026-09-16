@@ -32,6 +32,7 @@ export async function GET(_request: Request, routeContext: RouteContext) {
       name: schema.campaigns.name,
       status: schema.campaigns.status,
       recipientCount: schema.campaigns.recipientCount,
+      scheduledAt: schema.campaigns.scheduledAt,
       snapshotCreatedAt: schema.campaigns.snapshotCreatedAt,
       startedAt: schema.campaigns.startedAt,
       dispatchCompletedAt: schema.campaigns.dispatchCompletedAt,

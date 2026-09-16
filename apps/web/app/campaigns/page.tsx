@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { CampaignBuilder } from "@/components/campaign-builder";
 import { requireAuthContext } from "@/lib/auth-context";
 import { countEligibleAudience } from "@/lib/audience-server";
+import { campaignSchedulingMessages } from "@/lib/i18n/campaign-scheduling";
 import { getI18n } from "@/lib/i18n/server";
 import { db } from "@/lib/server";
 
@@ -13,17 +14,20 @@ export const dynamic = "force-dynamic";
 
 export default async function CampaignsPage() {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, localeTag, locale } = await getI18n();
+  const scheduling = campaignSchedulingMessages[locale];
   const number = new Intl.NumberFormat(localeTag);
-  const dateTime = new Intl.DateTimeFormat(localeTag, { dateStyle: "medium", timeStyle: "short" });
   const organizationId = workspace.organizationId;
-  const [phones, templateRows, campaigns, lists, segments] = await Promise.all([
+  const [phones, templateRows, campaigns, lists, segments, preferences] = await Promise.all([
     db.select().from(schema.whatsappPhoneNumbers).where(and(eq(schema.whatsappPhoneNumbers.organizationId, organizationId), eq(schema.whatsappPhoneNumbers.status, "connected"))).orderBy(desc(schema.whatsappPhoneNumbers.createdAt)),
     db.select().from(schema.templates).where(and(eq(schema.templates.organizationId, organizationId), eq(schema.templates.status, "approved"))).orderBy(desc(schema.templates.updatedAt)),
     db.select().from(schema.campaigns).where(eq(schema.campaigns.organizationId, organizationId)).orderBy(desc(schema.campaigns.createdAt)).limit(20),
     db.select().from(schema.contactLists).where(eq(schema.contactLists.organizationId, organizationId)).orderBy(desc(schema.contactLists.updatedAt)),
     db.select().from(schema.audienceSegments).where(eq(schema.audienceSegments.organizationId, organizationId)).orderBy(desc(schema.audienceSegments.updatedAt)),
+    db.select({ timezone: schema.workspacePreferences.timezone }).from(schema.workspacePreferences).where(eq(schema.workspacePreferences.organizationId, organizationId)).limit(1),
   ]);
+  const timeZone = preferences[0]?.timezone ?? "UTC";
+  const dateTime = new Intl.DateTimeFormat(localeTag, { dateStyle: "medium", timeStyle: "short", timeZone });
   const allEligible = await countEligibleAudience(organizationId, { type: "all" });
   const [listCounts, segmentCounts] = await Promise.all([
     Promise.all(lists.map((list) => countEligibleAudience(organizationId, { type: "list", listId: list.id }))),
@@ -60,9 +64,9 @@ export default async function CampaignsPage() {
         <article className="statCard"><span>{messages.ui.active}</span><strong>{number.format(active)}</strong><p>{messages.ui.dispatchingOrSending}</p></article>
         <article className="statCard"><span>{messages.ui.completed}</span><strong>{number.format(completed)}</strong><p>{messages.ui.submissionCompleted}</p></article>
       </section>
-      <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates} /></section>
+      <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder timeZone={timeZone} audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates} /></section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.history}</p><h2>{messages.ui.recentCampaigns}</h2><p className="subtitle">{messages.ui.campaignHistoryDescription}</p></div></div>
-        {campaigns.length ? <div className="numberList" style={{ marginTop: 14 }}>{campaigns.map((campaign) => <div className="numberRow" key={campaign.id}><div><Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link><p>{campaign.recipientCount ? messages.ui.snapshottedRecipients.replace("{count}", number.format(campaign.recipientCount)) : messages.ui.preparingSnapshot}</p></div><div className="numberMeta"><span>{dateTime.format(campaign.createdAt)}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span><Link href={`/campaigns/${campaign.id}`}>{messages.ui.viewAnalytics} →</Link></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">C</div><h3>{messages.ui.noCampaigns}</h3><p>{messages.ui.noCampaignsDescription}</p></div>}
+        {campaigns.length ? <div className="numberList" style={{ marginTop: 14 }}>{campaigns.map((campaign) => <div className="numberRow" key={campaign.id}><div><Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link><p>{campaign.status === "scheduled" && campaign.scheduledAt ? scheduling.scheduledHistory.replace("{date}", dateTime.format(campaign.scheduledAt)).replace("{timeZone}", timeZone) : campaign.recipientCount ? messages.ui.snapshottedRecipients.replace("{count}", number.format(campaign.recipientCount)) : messages.ui.preparingSnapshot}</p></div><div className="numberMeta"><span>{dateTime.format(campaign.status === "scheduled" && campaign.scheduledAt ? campaign.scheduledAt : campaign.createdAt)}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span><Link href={`/campaigns/${campaign.id}`}>{messages.ui.viewAnalytics} →</Link></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">C</div><h3>{messages.ui.noCampaigns}</h3><p>{messages.ui.noCampaignsDescription}</p></div>}
       </section>
     </section>
   </main>;

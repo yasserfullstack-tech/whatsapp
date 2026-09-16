@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import type { TemplateParameterBinding, TemplateParameterSlot } from "@wa/meta/templates";
 import { TemplatePreview } from "@/components/template-preview";
 import { useI18n } from "@/components/i18n-provider";
+import { zonedLocalDateTimeToInstant } from "@/lib/campaign-scheduling";
+import { localeTag } from "@/lib/i18n";
+import { campaignSchedulingMessages } from "@/lib/i18n/campaign-scheduling";
 
 type PhoneOption = { id: string; wabaId: string; label: string; throughputMps: number };
 type TemplateOption = { id: string; wabaId: string; name: string; language: string; components: unknown; slots: TemplateParameterSlot[] };
@@ -37,9 +40,11 @@ function bindingValid(slot: TemplateParameterSlot, binding: TemplateParameterBin
   return true;
 }
 
-export function CampaignBuilder({ phones, templates, audiences }: { phones: PhoneOption[]; templates: TemplateOption[]; audiences: AudienceOption[] }) {
+export function CampaignBuilder({ phones, templates, audiences, timeZone }: { phones: PhoneOption[]; templates: TemplateOption[]; audiences: AudienceOption[]; timeZone: string }) {
   const router = useRouter();
-  const { messages, number, format } = useI18n();
+  const { messages, number, format, locale } = useI18n();
+  const scheduling = campaignSchedulingMessages[locale];
+  const scheduleDateTime = new Intl.DateTimeFormat(localeTag(locale), { dateStyle: "medium", timeStyle: "short", timeZone });
   const [name, setName] = useState("");
   const [audienceKey, setAudienceKey] = useState(audiences[0]?.key ?? "all");
   const selectedAudience = audiences.find((audience) => audience.key === audienceKey) ?? audiences[0];
@@ -53,6 +58,8 @@ export function CampaignBuilder({ phones, templates, audiences }: { phones: Phon
   const [message, setMessage] = useState<string | null>(null);
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [deliveryMode, setDeliveryMode] = useState<"now" | "scheduled">("now");
+  const [scheduledLocal, setScheduledLocal] = useState("");
 
   useEffect(() => {
     if (!selectedTemplate && availableTemplates[0]) setTemplateId(availableTemplates[0].id);
@@ -90,18 +97,33 @@ export function CampaignBuilder({ phones, templates, audiences }: { phones: Phon
     setBusy(true);
     setMessage(null);
     try {
+      let scheduledAt: string | undefined;
+      if (deliveryMode === "scheduled") {
+        if (!scheduledLocal) throw new Error(scheduling.chooseScheduleTime);
+        const instant = zonedLocalDateTimeToInstant(scheduledLocal, timeZone);
+        if (instant.getTime() <= Date.now()) throw new Error(scheduling.futureScheduleRequired);
+        scheduledAt = instant.toISOString();
+      }
       const payloadBindings = selectedTemplate.slots.map((slot) => bindings[slot.key]).filter(Boolean);
       const audience = selectedAudience.type === "all" ? { type: "all" as const } : { type: selectedAudience.type, id: selectedAudience.id as string };
       const response = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, whatsappPhoneNumberId: phoneId, templateId: selectedTemplate.id, audience, bindings: payloadBindings }),
+        body: JSON.stringify({ name, whatsappPhoneNumberId: phoneId, templateId: selectedTemplate.id, audience, bindings: payloadBindings, scheduledAt }),
       });
-      const result = (await response.json()) as { campaignId?: string; estimatedSeconds?: number; audienceName?: string; error?: string };
+      const result = (await response.json()) as { campaignId?: string; status?: string; scheduledAt?: string | null; estimatedSeconds?: number; audienceName?: string; error?: string };
       if (!response.ok || !result.campaignId) throw new Error(result.error ?? messages.ui.launchFailed);
-      setActiveCampaignId(result.campaignId);
-      setMessage(format(messages.ui.campaignAccepted, { audience: result.audienceName ?? selectedAudience.name, minutes: Math.max(1, Math.ceil((result.estimatedSeconds ?? 0) / 60)) }));
+      if (result.status === "scheduled" && result.scheduledAt) {
+        setActiveCampaignId(null);
+        setProgress(null);
+        setMessage(format(scheduling.campaignScheduled, { date: scheduleDateTime.format(new Date(result.scheduledAt)), timeZone }));
+      } else {
+        setActiveCampaignId(result.campaignId);
+        setMessage(format(messages.ui.campaignAccepted, { audience: result.audienceName ?? selectedAudience.name, minutes: Math.max(1, Math.ceil((result.estimatedSeconds ?? 0) / 60)) }));
+      }
       setName("");
+      setScheduledLocal("");
+      setDeliveryMode("now");
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : messages.ui.launchFailed);
@@ -113,6 +135,7 @@ export function CampaignBuilder({ phones, templates, audiences }: { phones: Phon
   const throughput = selectedPhone?.throughputMps ?? 0;
   const eligibleContacts = selectedAudience?.count ?? 0;
   const estimatedSeconds = throughput > 0 ? Math.ceil(eligibleContacts / Math.max(1, Math.floor(throughput * 0.95))) : 0;
+  const scheduleReady = deliveryMode === "now" || Boolean(scheduledLocal);
   if (!phones.length || !templates.length) return <p className="subtitle">{messages.ui.campaignPrerequisite}</p>;
 
   return <div style={{ display: "grid", gap: 18 }}>
@@ -138,13 +161,20 @@ export function CampaignBuilder({ phones, templates, audiences }: { phones: Phon
       })}
     </div> : null}
 
+    <div className="panelInset" style={{ display: "grid", gap: 10 }}>
+      <strong>{scheduling.sendTiming}</strong>
+      <label className="formLabel">{scheduling.delivery}<select aria-label={scheduling.delivery} value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "now" | "scheduled")}><option value="now">{scheduling.sendNow}</option><option value="scheduled">{scheduling.scheduleLater}</option></select></label>
+      {deliveryMode === "scheduled" ? <label className="formLabel">{scheduling.scheduleTime}<input aria-label={scheduling.scheduleTime} type="datetime-local" value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></label> : null}
+      <p className="subtitle" style={{ margin: 0 }}>{format(scheduling.workspaceTimezoneHint, { timeZone })}</p>
+    </div>
+
     <div className="statsGrid" style={{ marginTop: 0 }}>
       <article className="statCard"><span>{messages.ui.eligibleAudience}</span><strong>{number(eligibleContacts)}</strong><p>{selectedAudience?.name ?? messages.ui.selectedAudience}</p></article>
       <article className="statCard"><span>{messages.ui.throughput}</span><strong>{throughput ? `${number(throughput)} msg/s` : "—"}</strong><p>{messages.ui.currentNumberSetting}</p></article>
       <article className="statCard"><span>{messages.ui.estimatedSend}</span><strong>{estimatedSeconds ? `${number(Math.max(1, Math.ceil(estimatedSeconds / 60)))} min` : "—"}</strong><p>{messages.ui.safetyTarget}</p></article>
       <article className="statCard"><span>{messages.ui.queueRunway}</span><strong>{throughput ? number(Math.min(20_000, Math.max(1_000, throughput * 15))) : "—"}</strong><p>{messages.ui.bufferedJobsHint}</p></article>
     </div>
-    <div className="actionRow"><button className="primary" disabled={busy || !name.trim() || !selectedTemplate || eligibleContacts === 0 || !bindingsValid} onClick={launch} type="button">{busy ? messages.ui.launching : format(messages.ui.launchToContacts, { count: number(eligibleContacts) })}</button>{message ? <span className="subtitle">{message}</span> : null}</div>
+    <div className="actionRow"><button className="primary" disabled={busy || !name.trim() || !selectedTemplate || eligibleContacts === 0 || !bindingsValid || !scheduleReady} onClick={launch} type="button">{busy ? messages.ui.launching : deliveryMode === "scheduled" ? format(scheduling.scheduleForContacts, { count: number(eligibleContacts) }) : format(messages.ui.launchToContacts, { count: number(eligibleContacts) })}</button>{message ? <span className="subtitle">{message}</span> : null}</div>
     {progress ? <div className="numberRow"><div style={{ flex: 1 }}><strong>{progress.name}</strong><p>{progress.status} · {format(messages.ui.processedProgress, { processed: number(progress.processed), total: number(progress.recipientCount) })}</p><div className="progressTrack"><div style={{ width: `${Math.round(progress.progress * 100)}%` }} /></div></div><div className="numberMeta"><span>{number(progress.counts.queued ?? 0)} {messages.ui.queued}</span><span>{number(progress.counts.submitted ?? 0)} {messages.ui.submitted}</span><span>{number(progress.counts.failed ?? 0)} {messages.ui.failed}</span></div></div> : null}
   </div>;
 }
