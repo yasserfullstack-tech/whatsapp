@@ -38,7 +38,9 @@ Organization suspension/reactivation, user disable/re-enable, workspace membersh
 
 Platform mutations write `platform_audit_events`. Billing mutations additionally flow through the billing admin domain service, which writes billing/workspace audit records. Provider-managed subscriptions are intentionally read-only in the platform UI so local changes cannot drift from the external billing provider.
 
-Queue retry is intentionally allowlisted. Message-send, campaign-dispatch, and contact-import failed jobs may be retried after verifying the BullMQ job is still in `failed` state. Webhook jobs are not retried generically: operators use `/admin/webhooks`, which resets the durable webhook event state under a compare-and-update guard before requeueing it.
+Queue retry is intentionally allowlisted. Campaign-dispatch and contact-import failed jobs may be retried after verifying the BullMQ job is still in `failed` state. Message-send jobs are not retried generically because the worker also persists recipient delivery state; a raw BullMQ retry can otherwise consume the job without restoring the recipient to a claimable state. Webhook jobs are also not retried generically: operators use `/admin/webhooks`, which resets the durable webhook event state under a compare-and-update guard before requeueing it.
+
+Owner membership changes are serialized per organization before checking the owner count and applying a demotion or removal. This prevents concurrent platform-admin actions from independently passing a stale last-owner check and leaving a workspace without an owner.
 
 Suspended organizations are blocked from normal workspace-authenticated application paths. Disabled users are also blocked from those paths. The `/admin` authorization check uses the authenticated identity directly instead of workspace context so platform administration does not depend on workspace membership or workspace status.
 
