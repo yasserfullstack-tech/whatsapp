@@ -100,7 +100,7 @@ export async function GET(request: Request) {
 
   const activities = cursor ? [] : Array.from(await db.execute(sql`
     SELECT cae.id, cae.contact_id AS "contactId", cae.event_type AS "eventType",
-      cae.metadata, cae.occurred_at AS "occurredAt", c.phone_e164 AS "phoneE164", c.display_name AS "displayName"
+      cae.metadata, cae.occurred_at AS "occurredAt", c.phone_e164 AS "phoneE164", NULL::text AS "displayName"
     FROM contact_activity_events cae
     LEFT JOIN contacts c ON c.id = cae.contact_id AND c.organization_id = cae.organization_id
     WHERE cae.organization_id = ${organizationId}::uuid
