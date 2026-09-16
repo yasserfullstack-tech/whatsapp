@@ -96,7 +96,7 @@ test.describe("platform admin mutations", () => {
       await expect(row).toContainText("active");
 
       await page.goto("/admin/audit");
-      await expect(page.getByText(/platform_admin\.granted|membership\.role_changed|organization\.suspended/).first()).toBeVisible();
+      await expect(page.getByRole("cell", { name: /platform_admin\.granted|membership\.role_changed|organization\.suspended/ }).first()).toBeVisible();
       await health.expectHealthy();
     } finally {
       await destroyTenant(target);
