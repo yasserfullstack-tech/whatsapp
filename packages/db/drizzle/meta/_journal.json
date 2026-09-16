@@ -99,6 +99,13 @@
       "when": 1789595700000,
       "tag": "0013_inbound-inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789599300000,
+      "tag": "0014_contact-management",
+      "breakpoints": true
     }
   ]
 }

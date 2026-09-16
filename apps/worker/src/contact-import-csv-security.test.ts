@@ -27,7 +27,7 @@ describe("contact import CSV security policy", () => {
     expect(workerSource).toContain("max_record_size: 1024 * 1024");
     expect(workerSource).toContain("const MAX_IMPORT_ROWS = 2_000_000");
     expect(workerSource).toContain("if (seenRows > MAX_IMPORT_ROWS)");
-    expect(workerSource).toContain("CSV needs a phone column");
+    expect(workerSource).toContain("CSV needs the configured phone column");
     expect(workerSource).toContain("parsePhoneNumberFromString(cleaned, country)");
   });
 
