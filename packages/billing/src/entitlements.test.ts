@@ -260,6 +260,37 @@ describe("EntitlementService", () => {
     expect(orgB.used).toBe(0);
   });
 
+  test("uses live plan versions for immediate upgrades and non-destructive downgrades", async () => {
+    const repository = new FakeBillingRepository();
+    repository.entitlement("starter-v1", "max_contacts", 10);
+    repository.entitlement("growth-v1", "max_contacts", 100);
+    repository.subscriptions.set("org-a", subscription("org-a", {
+      planVersionId: "starter-v1",
+      planCode: "starter",
+      planName: "Starter",
+    }));
+    const service = new EntitlementService(repository);
+
+    expect((await service.checkUsage("org-a", "max_contacts", { currentUsage: 10, requested: 1 })).allowed).toBe(false);
+
+    repository.subscriptions.set("org-a", subscription("org-a", {
+      planVersionId: "growth-v1",
+      planCode: "growth",
+      planName: "Growth",
+    }));
+    expect((await service.checkUsage("org-a", "max_contacts", { currentUsage: 10, requested: 1 })).allowed).toBe(true);
+
+    repository.subscriptions.set("org-a", subscription("org-a", {
+      planVersionId: "starter-v1",
+      planCode: "starter",
+      planName: "Starter",
+    }));
+    const downgraded = await service.checkUsage("org-a", "max_contacts", { currentUsage: 12, requested: 0 });
+    expect(downgraded.allowed).toBe(false);
+    expect(downgraded.used).toBe(12);
+    expect(downgraded.limit).toBe(10);
+  });
+
   test("manual subscriptions and custom plans use the same entitlement path", async () => {
     const repository = new FakeBillingRepository();
     repository.subscriptions.set("enterprise", subscription("enterprise", {
