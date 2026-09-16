@@ -10,6 +10,11 @@ import {
 } from "@wa/db";
 import { MetaApiError, WhatsAppCloudClient, type TemplateComponent } from "@wa/meta";
 import {
+  renderTemplateComponents,
+  validateTemplateBindings,
+  type TemplateParameterBinding,
+} from "@wa/meta/templates";
+import {
   CAMPAIGN_DISPATCH_QUEUE_NAME,
   PerNumberRateLimiter,
   SEND_QUEUE_NAME,
@@ -18,7 +23,6 @@ import {
   createRedisClient,
   createSendQueue,
   type CampaignDispatchJob,
-  type CampaignVariableBinding,
   type SendMessageJob,
 } from "@wa/queue";
 import { claimCampaignRecipientForSend } from "./campaign-security";
@@ -55,54 +59,37 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function normalizeBindings(value: unknown): CampaignVariableBinding[] {
+function normalizeBindings(value: unknown): TemplateParameterBinding[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((item): item is CampaignVariableBinding => {
+    .filter((item): item is TemplateParameterBinding => {
       if (!item || typeof item !== "object") return false;
-      const candidate = item as Partial<CampaignVariableBinding>;
+      const candidate = item as Partial<TemplateParameterBinding>;
       return typeof candidate.index === "number" &&
         (candidate.source === "display_name" || candidate.source === "phone_e164" || candidate.source === "literal");
     })
     .sort((a, b) => a.index - b.index);
 }
 
-function bindingConfigurationError(bindings: CampaignVariableBinding[]): string | null {
+function richBindingConfigurationError(bindings: TemplateParameterBinding[]): string | null {
   for (const binding of bindings) {
     if (binding.source === "display_name" && !binding.fallback?.trim()) {
-      return `Template variable {{${binding.index}}} needs an explicit contact-name fallback`;
+      return `${binding.key ?? `Template variable {{${binding.index}}}`} needs an explicit contact-name fallback`;
     }
     if (binding.source === "literal" && !binding.value?.trim()) {
-      return `Template variable {{${binding.index}}} needs a literal value`;
+      return `${binding.key ?? `Template variable {{${binding.index}}}`} needs a literal value`;
+    }
+    if (binding.parameterType === "image" || binding.parameterType === "video" || binding.parameterType === "document") {
+      const value = binding.value?.trim();
+      if (!value) return `${binding.key ?? "Media header"} needs a media URL`;
+      try {
+        if (new URL(value).protocol !== "https:") return `${binding.key ?? "Media header"} needs an HTTPS media URL`;
+      } catch {
+        return `${binding.key ?? "Media header"} needs a valid HTTPS media URL`;
+      }
     }
   }
   return null;
-}
-
-function resolveComponents(
-  bindings: CampaignVariableBinding[],
-  recipient: { displayName: string | null; phoneE164: string },
-): TemplateComponent[] | undefined {
-  if (!bindings.length) return undefined;
-
-  const parameters = bindings.map((binding) => {
-    let text: string;
-    if (binding.source === "display_name") {
-      const displayName = recipient.displayName?.trim();
-      const fallback = binding.fallback?.trim();
-      if (!displayName && !fallback) throw new Error(`Template variable {{${binding.index}}} has no contact-name value`);
-      text = displayName || fallback!;
-    } else if (binding.source === "phone_e164") {
-      text = recipient.phoneE164;
-    } else {
-      const value = binding.value?.trim();
-      if (!value) throw new Error(`Template variable {{${binding.index}}} has no literal value`);
-      text = value;
-    }
-    return { type: "text" as const, text };
-  });
-
-  return [{ type: "body", parameters }];
 }
 
 function errorText(error: unknown): string {
@@ -480,6 +467,7 @@ export function startCampaignWorkers(input: {
         templateLanguage: schema.templates.language,
         templateStatus: schema.templates.status,
         templateWabaId: schema.templates.wabaId,
+        templateComponents: schema.templates.components,
       })
       .from(schema.campaigns)
       .innerJoin(
@@ -515,8 +503,9 @@ export function startCampaignWorkers(input: {
       return { terminal: "failed", reason: "phone-or-template-not-sendable" };
     }
 
-    const bindings = normalizeBindings(record.templateBindings);
-    const bindingError = bindingConfigurationError(bindings);
+    const rawBindings = normalizeBindings(record.templateBindings);
+    const validation = validateTemplateBindings(record.templateComponents, rawBindings);
+    const bindingError = validation.valid ? richBindingConfigurationError(validation.normalizedBindings) : validation.errors.join("; ");
     if (bindingError) {
       await db
         .update(schema.campaigns)
@@ -527,6 +516,7 @@ export function startCampaignWorkers(input: {
         ));
       return { terminal: "failed", reason: "invalid-template-bindings", error: bindingError };
     }
+    const bindings = validation.normalizedBindings;
 
     if (!record.snapshotCreatedAt) {
       const audienceDefinition = normalizeAudienceDefinition(record.audienceDefinition ?? { type: "all" });
@@ -716,7 +706,7 @@ export function startCampaignWorkers(input: {
           to: recipient.phoneE164.replace(/^\+/, ""),
           templateName: record.templateName,
           languageCode: record.templateLanguage,
-          components: resolveComponents(bindings, recipient),
+          components: renderTemplateComponents(record.templateComponents, bindings, recipient) as TemplateComponent[] | undefined,
           maxMessagesPerSecond: record.throughputMps,
         } satisfies SendMessageJob,
         opts: { jobId: `send-${recipient.id}` },
