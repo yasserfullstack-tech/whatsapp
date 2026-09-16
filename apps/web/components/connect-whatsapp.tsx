@@ -16,9 +16,9 @@ type FacebookSdk = {
   login(callback: (response: FacebookLoginResponse) => void, options: EmbeddedSignupLoginOptions): void;
 };
 declare global { interface Window { FB?: FacebookSdk; fbAsyncInit?: () => void } }
-type ConnectWhatsAppProps = { appId: string; configId: string; graphApiVersion: string };
+type ConnectWhatsAppProps = { appId: string; configId: string; graphApiVersion: string; buttonLabel?: string };
 
-export function ConnectWhatsApp({ appId, configId, graphApiVersion }: ConnectWhatsAppProps) {
+export function ConnectWhatsApp({ appId, configId, graphApiVersion, buttonLabel }: ConnectWhatsAppProps) {
   const router = useRouter();
   const { messages } = useI18n();
   const codeRef = useRef<string | null>(null);
@@ -100,5 +100,5 @@ export function ConnectWhatsApp({ appId, configId, graphApiVersion }: ConnectWha
     }, createEmbeddedSignupLoginOptions(configId));
   }
 
-  return <div className="connectActions"><button className="secondary" disabled={!sdkReady || Boolean(status)} onClick={connect} type="button">{status ?? (sdkReady ? messages.connect.button : messages.connect.loadingMeta)}</button>{error ? <span className="inlineError">{error}</span> : null}</div>;
+  return <div className="connectActions"><button className="secondary" disabled={!sdkReady || Boolean(status)} onClick={connect} type="button">{status ?? (sdkReady ? (buttonLabel ?? messages.connect.button) : messages.connect.loadingMeta)}</button>{error ? <span className="inlineError">{error}</span> : null}</div>;
 }
