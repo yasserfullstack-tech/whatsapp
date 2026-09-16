@@ -69,10 +69,6 @@ jobs:
           if [ -n "$(git status --porcelain -- packages/db/drizzle)" ]; then
             echo "Schema and committed Drizzle migrations are out of sync."
             git status --short -- packages/db/drizzle
-            echo "--- generated SQL ---"
-            cat packages/db/drizzle/0012_ci-drift.sql 2>/dev/null || true
-            echo "--- generated snapshot artifact ---"
-            cat packages/db/drizzle/snapshot-artifacts/0012_snapshot.json.zlib.b64 2>/dev/null || true
             exit 1
           fi
       - name: Apply migrations to clean PostgreSQL
