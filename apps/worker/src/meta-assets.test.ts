@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   accountConnectionStatus,
+  accountPhoneStatusAfter,
+  matchingPhonesByDisplayNumber,
+  missingSynchronizedTemplateIds,
   normalizeMetaTemplateStatus,
   normalizedPhoneDigits,
   shouldApplyMetaAssetState,
@@ -58,8 +61,32 @@ describe("Meta asset normalization", () => {
     expect(accountConnectionStatus({ event: "VERIFIED_ACCOUNT" })).toBeNull();
   });
 
+  test("never revives pending or manually disconnected phones from WABA events", () => {
+    expect(accountPhoneStatusAfter("connected", "restricted")).toBe("restricted");
+    expect(accountPhoneStatusAfter("restricted", "connected")).toBe("connected");
+    expect(accountPhoneStatusAfter("disconnected", "connected")).toBe("disconnected");
+    expect(accountPhoneStatusAfter("disconnected", "restricted")).toBe("disconnected");
+    expect(accountPhoneStatusAfter("pending", "connected")).toBe("pending");
+    expect(accountPhoneStatusAfter("pending", "restricted")).toBe("pending");
+  });
+
   test("normalizes display numbers for webhook-to-phone matching", () => {
     expect(normalizedPhoneDigits("+1 (650) 555-1111")).toBe("16505551111");
+  });
+
+  test("only falls back to a sole local phone when the webhook omits its display number", () => {
+    const phones = [{ id: "phone-1", displayPhoneNumber: "+1 650 555 1111" }];
+    expect(matchingPhonesByDisplayNumber(phones, undefined).map((phone) => phone.id)).toEqual(["phone-1"]);
+    expect(matchingPhonesByDisplayNumber(phones, "+1 650 555 2222")).toEqual([]);
+    expect(matchingPhonesByDisplayNumber(phones, "+1 (650) 555-1111").map((phone) => phone.id)).toEqual(["phone-1"]);
+  });
+
+  test("identifies synchronized templates absent from a complete provider listing", () => {
+    expect(missingSynchronizedTemplateIds([
+      { id: "local-1", metaTemplateId: "meta-1" },
+      { id: "local-2", metaTemplateId: "meta-2" },
+      { id: "draft-local", metaTemplateId: null },
+    ], new Set(["meta-2"]))).toEqual(["local-1"]);
   });
 
   test("uses webhook provider time when present and durable receipt time as fallback", () => {
