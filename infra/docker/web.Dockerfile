@@ -42,7 +42,13 @@ LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
-RUN addgroup -S nextjs -g 1001 && adduser -S nextjs -u 1001 -G nextjs
+# Keep the runtime OS patched and remove package-manager tooling that the standalone
+# server never executes. This reduces both image surface area and scanner findings.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && addgroup -S nextjs -g 1001 \
+    && adduser -S nextjs -u 1001 -G nextjs
 COPY --from=build --chown=nextjs:nextjs /app/apps/web/.next/standalone /app
 COPY --from=build --chown=nextjs:nextjs /app/apps/web/.next/static /app/apps/web/.next/static
 USER nextjs
