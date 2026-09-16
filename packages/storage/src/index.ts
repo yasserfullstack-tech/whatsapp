@@ -91,6 +91,10 @@ export async function deleteStoredPrefix(input: { client: S3Client; bucket: stri
   return deleted;
 }
 
+export async function checkStoredBucket(input: { client: S3Client; bucket: string }): Promise<void> {
+  await input.client.send(new ListObjectsV2Command({ Bucket: input.bucket, MaxKeys: 1 }));
+}
+
 export async function headStoredObject(input: { client: S3Client; bucket: string; key: string }) {
   return input.client.send(new HeadObjectCommand({ Bucket: input.bucket, Key: input.key }));
 }
