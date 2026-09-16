@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { CampaignBuilder } from "@/components/campaign-builder";
 import { requireAuthContext } from "@/lib/auth-context";
 import { countEligibleAudience } from "@/lib/audience-server";
+import { campaignSchedulingMessages } from "@/lib/i18n/campaign-scheduling";
 import { getI18n } from "@/lib/i18n/server";
 import { db } from "@/lib/server";
 
@@ -14,7 +15,8 @@ function isTextOnly(components: unknown): boolean { if (!Array.isArray(component
 
 export default async function CampaignsPage() {
   const { session, workspace } = await requireAuthContext();
-  const { messages, localeTag } = await getI18n();
+  const { messages, localeTag, locale } = await getI18n();
+  const scheduling = campaignSchedulingMessages[locale];
   const number = new Intl.NumberFormat(localeTag);
   const organizationId = workspace.organizationId;
   const [phones, templateRows, campaigns, lists, segments, preferences] = await Promise.all([
@@ -51,7 +53,7 @@ export default async function CampaignsPage() {
       </section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder timeZone={timeZone} audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates.map((template) => ({ id: template.id, wabaId: template.wabaId, name: template.name, language: template.language, bodyPreview: template.bodyPreview ?? "", variableIndexes: variableIndexes(template.bodyPreview ?? "") }))} /></section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.history}</p><h2>{messages.ui.recentCampaigns}</h2><p className="subtitle">{messages.ui.campaignHistoryDescription}</p></div></div>
-        {campaigns.length ? <div className="numberList" style={{ marginTop: 14 }}>{campaigns.map((campaign) => <div className="numberRow" key={campaign.id}><div><Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link><p>{campaign.status === "scheduled" && campaign.scheduledAt ? `Scheduled for ${dateTime.format(campaign.scheduledAt)} (${timeZone}) · audience snapshots at dispatch` : campaign.recipientCount ? messages.ui.snapshottedRecipients.replace("{count}", number.format(campaign.recipientCount)) : messages.ui.preparingSnapshot}</p></div><div className="numberMeta"><span>{dateTime.format(campaign.status === "scheduled" && campaign.scheduledAt ? campaign.scheduledAt : campaign.createdAt)}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span><Link href={`/campaigns/${campaign.id}`}>{messages.ui.viewAnalytics} →</Link></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">C</div><h3>{messages.ui.noCampaigns}</h3><p>{messages.ui.noCampaignsDescription}</p></div>}
+        {campaigns.length ? <div className="numberList" style={{ marginTop: 14 }}>{campaigns.map((campaign) => <div className="numberRow" key={campaign.id}><div><Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link><p>{campaign.status === "scheduled" && campaign.scheduledAt ? scheduling.scheduledHistory.replace("{date}", dateTime.format(campaign.scheduledAt)).replace("{timeZone}", timeZone) : campaign.recipientCount ? messages.ui.snapshottedRecipients.replace("{count}", number.format(campaign.recipientCount)) : messages.ui.preparingSnapshot}</p></div><div className="numberMeta"><span>{dateTime.format(campaign.status === "scheduled" && campaign.scheduledAt ? campaign.scheduledAt : campaign.createdAt)}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span><Link href={`/campaigns/${campaign.id}`}>{messages.ui.viewAnalytics} →</Link></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">C</div><h3>{messages.ui.noCampaigns}</h3><p>{messages.ui.noCampaignsDescription}</p></div>}
       </section>
     </section>
   </main>;
