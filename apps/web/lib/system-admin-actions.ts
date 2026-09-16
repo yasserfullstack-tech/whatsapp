@@ -3,10 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
 import { requirePlatformAdmin } from "./platform-admin";
-import { campaignDispatchQueue, contactImportQueue, db, sendQueue } from "./server";
+import { campaignDispatchQueue, contactImportQueue, db } from "./server";
 
 const retryableQueues = {
-  send: sendQueue,
   "campaign-dispatch": campaignDispatchQueue,
   "contact-import": contactImportQueue,
 } as const;
