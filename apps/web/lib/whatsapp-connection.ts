@@ -29,6 +29,7 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
       ciphertext: string;
       iv: string;
       authTag: string;
+      expiresAt?: Date;
     };
   },
 ) {
@@ -84,6 +85,12 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
           displayPhoneNumber: input.phone.displayPhoneNumber ?? null,
           verifiedName: input.phone.verifiedName ?? null,
           status: "connected",
+          healthStatus: "healthy",
+          lastValidatedAt: now,
+          reauthorizationRequired: false,
+          failureCode: null,
+          failureReason: null,
+          credentialExpiresAt: input.credential.expiresAt ?? null,
           qualityRating: input.phone.qualityRating ?? null,
           throughputMps: input.phone.throughputMps,
           credentialKey: input.credential.key,
@@ -123,6 +130,12 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
         displayPhoneNumber: input.phone.displayPhoneNumber ?? null,
         verifiedName: input.phone.verifiedName ?? null,
         status: "connected",
+        healthStatus: "healthy",
+        lastValidatedAt: now,
+        reauthorizationRequired: false,
+        failureCode: null,
+        failureReason: null,
+        credentialExpiresAt: input.credential.expiresAt ?? null,
         qualityRating: input.phone.qualityRating ?? null,
         throughputMps: input.phone.throughputMps,
         credentialKey: input.credential.key,

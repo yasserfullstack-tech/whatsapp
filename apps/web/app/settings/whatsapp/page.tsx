@@ -20,12 +20,14 @@ export default async function WhatsAppSettingsPage() {
   const canManage = can(workspace.role, "whatsapp.manage");
   const m = workspaceSettingsMessages[i18n.locale];
   const integer = new Intl.NumberFormat(i18n.localeTag, { maximumFractionDigits: 0 });
+  const dateTime = new Intl.DateTimeFormat(i18n.localeTag, { dateStyle: "medium", timeStyle: "short" });
+  const reconnectRequired = phoneNumbers.some((phone) => phone.reauthorizationRequired || phone.status === "disconnected");
 
   return (
     <>
       <header className="topbar settingsHeader">
         <div><p className="eyebrow">{m.common.eyebrow}</p><h1>{m.whatsapp.title}</h1><p className="subtitle">{m.whatsapp.subtitle}</p></div>
-        {canManage ? <ConnectWhatsApp appId={meta.appId} configId={meta.configId} graphApiVersion={meta.graphApiVersion} /> : null}
+        {canManage ? <ConnectWhatsApp appId={meta.appId} configId={meta.configId} graphApiVersion={meta.graphApiVersion} {...(reconnectRequired ? { buttonLabel: m.whatsapp.reconnect } : {})} /> : null}
       </header>
       <SettingsNav active="/settings/whatsapp" />
       <section className="panel settingsPanel">
@@ -35,10 +37,13 @@ export default async function WhatsAppSettingsPage() {
             <div>
               <strong>{phone.verifiedName ?? m.whatsapp.businessFallback}</strong>
               <p>{phone.displayPhoneNumber ?? phone.phoneNumberId}</p>
-              {phone.status === "disconnected" && canManage ? <small>{m.whatsapp.reconnectHint}</small> : null}
+              {(phone.reauthorizationRequired || phone.status === "disconnected") && canManage ? <small>{phone.failureReason ?? m.whatsapp.reconnectHint}</small> : null}
+              {phone.healthStatus === "degraded" && phone.failureReason ? <small>{phone.failureReason}</small> : null}
             </div>
             <div className="settingsMetrics">
               <span><small>{m.whatsapp.status}</small><strong>{phone.status}</strong></span>
+              <span><small>{m.whatsapp.health}</small><strong>{phone.status === "disconnected" ? m.whatsapp.healthStates.unknown : m.whatsapp.healthStates[phone.healthStatus]}</strong></span>
+              <span><small>{m.whatsapp.lastValidated}</small><strong>{phone.lastValidatedAt ? dateTime.format(phone.lastValidatedAt) : m.whatsapp.notValidated}</strong></span>
               <span><small>{m.whatsapp.quality}</small><strong>{phone.qualityRating ?? "—"}</strong></span>
               <span><small>{m.whatsapp.throughput}</small><strong>{integer.format(phone.throughputMps)} {m.whatsapp.messagesPerSecond}</strong></span>
               {canManage && phone.status !== "disconnected" ? (

@@ -22,6 +22,12 @@ import {
   type SendMessageJob,
 } from "@wa/queue";
 import { claimCampaignRecipientForSend } from "./campaign-security";
+import {
+  classifyMetaConnectionError,
+  markConnectionRequiresReauthorization,
+  prepareConnectionForSend,
+  startConnectionHealthMonitor,
+} from "./connection-health";
 
 type Database = ReturnType<typeof createDatabase>["db"];
 type RedisClient = ReturnType<typeof createRedisClient>;
@@ -34,6 +40,16 @@ const RECONCILE_EVERY_MS = 30_000;
 const TOKEN_CACHE_MS = 5 * 60_000;
 const UNKNOWN_SEND_OUTCOME_ERROR = "Previous send attempt ended without a recorded Meta outcome; automatic resend suppressed to prevent duplicate delivery";
 const UNKNOWN_SEND_OUTCOME_CODE = "send_outcome_unknown";
+
+class CredentialUnavailableError extends Error {
+  constructor(
+    readonly code: "credential_missing" | "credential_unreadable",
+    readonly safeReason: string,
+  ) {
+    super(safeReason);
+    this.name = "CredentialUnavailableError";
+  }
+}
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -121,18 +137,17 @@ export function startCampaignWorkers(input: {
   const limiter = new PerNumberRateLimiter(redis);
   const sendQueue = createSendQueue(env.REDIS_URL);
   const dispatchQueue = createCampaignDispatchQueue(env.REDIS_URL);
-  const tokenCache = new Map<string, { value: string; expiresAt: number }>();
+  const tokenCache = new Map<string, { value: string; expiresAt: number; credentialUpdatedAt: number }>();
+  const connectionHealthMonitor = startConnectionHealthMonitor({ db, env });
 
   const getAccessToken = async (organizationId: string, credentialKey: string): Promise<string> => {
     const cacheKey = `${organizationId}:${credentialKey}`;
-    const cached = tokenCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
-
     const [secret] = await db
       .select({
         ciphertext: schema.credentialSecrets.ciphertext,
         iv: schema.credentialSecrets.iv,
         authTag: schema.credentialSecrets.authTag,
+        updatedAt: schema.credentialSecrets.updatedAt,
       })
       .from(schema.credentialSecrets)
       .where(
@@ -143,9 +158,26 @@ export function startCampaignWorkers(input: {
       )
       .limit(1);
 
-    if (!secret) throw new Error(`Credential ${credentialKey} was not found for this organization`);
-    const value = decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
-    tokenCache.set(cacheKey, { value, expiresAt: Date.now() + TOKEN_CACHE_MS });
+    if (!secret) {
+      throw new CredentialUnavailableError(
+        "credential_missing",
+        "The Meta credential is missing. Reconnect WhatsApp to resume sending.",
+      );
+    }
+    const credentialUpdatedAt = secret.updatedAt.getTime();
+    const cached = tokenCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now() && cached.credentialUpdatedAt === credentialUpdatedAt) return cached.value;
+
+    let value: string;
+    try {
+      value = decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+    } catch {
+      throw new CredentialUnavailableError(
+        "credential_unreadable",
+        "The Meta credential cannot be read. Reconnect WhatsApp to resume sending.",
+      );
+    }
+    tokenCache.set(cacheKey, { value, expiresAt: Date.now() + TOKEN_CACHE_MS, credentialUpdatedAt });
     return value;
   };
 
@@ -181,13 +213,87 @@ export function startCampaignWorkers(input: {
     return Boolean(failed);
   };
 
+  const failQueuedRecipientForConnection = async (
+    job: SendMessageJob,
+    failure: { code: string; reason: string },
+  ) => {
+    const failedAt = new Date();
+    await db
+      .update(schema.campaignRecipients)
+      .set({
+        status: "failed",
+        lastError: failure.reason.slice(0, 2_000),
+        errorCode: failure.code,
+        failedAt,
+        updatedAt: failedAt,
+      })
+      .where(and(
+        eq(schema.campaignRecipients.id, job.recipientId),
+        eq(schema.campaignRecipients.campaignId, job.campaignId),
+        eq(schema.campaignRecipients.organizationId, job.organizationId),
+        eq(schema.campaignRecipients.status, "queued"),
+        isNull(schema.campaignRecipients.wamid),
+      ));
+  };
+
   const sendWorker = new Worker<SendMessageJob>(
     SEND_QUEUE_NAME,
     async (job: Job<SendMessageJob>) => {
       const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
       await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
 
-      const accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
+      // Unknown prior provider outcomes take precedence over connection state.
+      // Never replace this safety signal with a newer credential error because
+      // doing so could make a real prior send look safe to retry manually.
+      const [preflightRecipient] = await db
+        .select({
+          status: schema.campaignRecipients.status,
+          attemptCount: schema.campaignRecipients.attemptCount,
+          lastError: schema.campaignRecipients.lastError,
+          wamid: schema.campaignRecipients.wamid,
+        })
+        .from(schema.campaignRecipients)
+        .where(and(
+          eq(schema.campaignRecipients.id, job.data.recipientId),
+          eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+          eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+        ))
+        .limit(1);
+      if (
+        preflightRecipient?.status === "queued" &&
+        preflightRecipient.attemptCount > 0 &&
+        preflightRecipient.lastError === null &&
+        preflightRecipient.wamid === null
+      ) {
+        await markUnknownSendOutcome(job.data.recipientId, job.data.campaignId, job.data.organizationId);
+        return { failed: true, reason: "send-outcome-unknown" };
+      }
+
+      const readiness = await prepareConnectionForSend(db, {
+        organizationId: job.data.organizationId,
+        phoneNumberId: job.data.phoneNumberId,
+        credentialKey: job.data.credentialKey,
+      });
+      if (!readiness.sendable) {
+        await failQueuedRecipientForConnection(job.data, readiness);
+        return { failed: true, reason: "connection-unavailable" };
+      }
+
+      let accessToken: string;
+      try {
+        accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
+      } catch (error) {
+        if (!(error instanceof CredentialUnavailableError)) throw error;
+        await markConnectionRequiresReauthorization(db, {
+          organizationId: job.data.organizationId,
+          phoneNumberId: job.data.phoneNumberId,
+          code: error.code,
+          reason: error.safeReason,
+        });
+        await failQueuedRecipientForConnection(job.data, { code: error.code, reason: error.safeReason });
+        return { failed: true, reason: "connection-unavailable" };
+      }
+
       const client = new WhatsAppCloudClient({
         accessToken,
         graphApiVersion: env.META_GRAPH_API_VERSION,
@@ -257,6 +363,36 @@ export function startCampaignWorkers(input: {
             errorText(error),
           );
           return { failed: true, reason: "send-outcome-unknown" };
+        }
+
+        const connectionFailure = classifyMetaConnectionError(error);
+        if (connectionFailure.kind === "reauthorize") {
+          const failedAt = new Date();
+          await markConnectionRequiresReauthorization(db, {
+            organizationId: job.data.organizationId,
+            phoneNumberId: job.data.phoneNumberId,
+            code: connectionFailure.code,
+            reason: connectionFailure.reason,
+            validatedAt: failedAt,
+          });
+          await db
+            .update(schema.campaignRecipients)
+            .set({
+              status: "failed",
+              lastError: connectionFailure.reason,
+              errorCode: connectionFailure.code,
+              failedAt,
+              updatedAt: failedAt,
+            })
+            .where(and(
+              eq(schema.campaignRecipients.id, job.data.recipientId),
+              eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+              eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+              eq(schema.campaignRecipients.status, "queued"),
+              eq(schema.campaignRecipients.attemptCount, claimed.attemptCount),
+              isNull(schema.campaignRecipients.wamid),
+            ));
+          return { failed: true, reason: "connection-reauthorization-required" };
         }
 
         const attempts = Number(job.opts.attempts ?? 1);
@@ -363,7 +499,12 @@ export function startCampaignWorkers(input: {
     if (!record) throw new Error(`Campaign ${job.campaignId} was not found`);
     if (["completed", "cancelled", "failed"].includes(record.campaignStatus)) return { terminal: record.campaignStatus };
 
-    if (record.phoneStatus !== "connected" || record.templateStatus !== "approved" || record.phoneWabaId !== record.templateWabaId) {
+    const connection = await prepareConnectionForSend(db, {
+      organizationId: record.organizationId,
+      phoneNumberId: record.phoneNumberId,
+      credentialKey: record.credentialKey,
+    });
+    if (!connection.sendable || record.phoneStatus !== "connected" || record.templateStatus !== "approved" || record.phoneWabaId !== record.templateWabaId) {
       await db
         .update(schema.campaigns)
         .set({ status: "failed", updatedAt: new Date() })
@@ -673,6 +814,7 @@ export function startCampaignWorkers(input: {
     campaignDispatchWorker,
     async close() {
       clearInterval(reconciliationTimer);
+      connectionHealthMonitor.close();
       await Promise.all([
         sendWorker.close(true),
         campaignDispatchWorker.close(true),
