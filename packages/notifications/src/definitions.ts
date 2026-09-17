@@ -13,8 +13,9 @@ export const NOTIFICATION_DEFINITIONS: NotificationDefinition[] = [
   { type: "usage_limit_approaching", category: "usage", label: { en: "Usage limit approaching", ar: "الاقتراب من حد الاستخدام" }, mandatory: false },
   { type: "billing_payment_failed", category: "billing", label: { en: "Payment failed", ar: "فشل الدفع" }, mandatory: true },
   { type: "subscription_past_due", category: "billing", label: { en: "Subscription past due", ar: "تأخر استحقاق الاشتراك" }, mandatory: true },
+  { type: "subscription_changed", category: "billing", label: { en: "Subscription changed", ar: "تغيير الاشتراك" }, mandatory: false },
   { type: "security_event", category: "security", label: { en: "Security event", ar: "حدث أمني" }, mandatory: true },
-  { type: "team_invitation", category: "team", label: { en: "Team invitation", ar: "دعوة إلى الفريق" }, mandatory: true },
+  { type: "inbound_message", category: "inbox", label: { en: "New inbound message", ar: "رسالة واردة جديدة" }, mandatory: false, defaultEnabled: false },
 ];
 
 const definitionByType = new Map(NOTIFICATION_DEFINITIONS.map((definition) => [definition.type, definition]));
@@ -27,9 +28,11 @@ export function resolveNotificationChannels(
   type: NotificationType,
   preference?: { inAppEnabled: boolean; emailEnabled: boolean } | null,
 ): { inApp: boolean; email: boolean } {
-  if (isNotificationMandatory(type)) return { inApp: true, email: true };
+  const definition = definitionByType.get(type);
+  if (definition?.mandatory) return { inApp: true, email: true };
+  const defaultEnabled = definition?.defaultEnabled ?? true;
   return {
-    inApp: preference?.inAppEnabled ?? true,
-    email: preference?.emailEnabled ?? true,
+    inApp: preference?.inAppEnabled ?? defaultEnabled,
+    email: preference?.emailEnabled ?? defaultEnabled,
   };
 }
