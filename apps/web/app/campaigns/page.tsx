@@ -8,13 +8,19 @@ import { requireAuthContext } from "@/lib/auth-context";
 import { countEligibleAudience } from "@/lib/audience-server";
 import { campaignSchedulingMessages } from "@/lib/i18n/campaign-scheduling";
 import { getI18n } from "@/lib/i18n/server";
+import { getOnboardingCopy } from "@/lib/onboarding-copy";
 import { db } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function CampaignsPage() {
+type PageProps = { searchParams: Promise<{ onboarding?: string }> };
+
+export default async function CampaignsPage({ searchParams }: PageProps) {
   const { session, workspace } = await requireAuthContext();
   const { messages, localeTag, locale } = await getI18n();
+  const params = await searchParams;
+  const onboardingTestMode = params.onboarding === "test";
+  const onboardingCopy = getOnboardingCopy(locale);
   const scheduling = campaignSchedulingMessages[locale];
   const number = new Intl.NumberFormat(localeTag);
   const organizationId = workspace.organizationId;
@@ -58,13 +64,14 @@ export default async function CampaignsPage() {
     <AppSidebar active="campaigns" workspaceName={workspace.organizationName} email={session.user.email} initials={initials} />
     <section className="content">
       <header className="topbar"><div><p className="eyebrow">{messages.nav.campaigns}</p><h1>{messages.ui.campaignsTitle}</h1><p className="subtitle">{messages.ui.campaignsSubtitle}</p></div><Link className="secondary" href="/audiences">{messages.ui.manageAudiences}</Link></header>
+      {onboardingTestMode ? <section className="panel" data-testid="onboarding-test-mode" style={{ marginBottom: 18 }}><div className="panelHeader"><div><p className="eyebrow">{onboardingCopy.yourSetup}</p><h2>{onboardingCopy.testModeTitle}</h2><p className="subtitle">{onboardingCopy.testModeDescription}</p></div><Link className="secondary" href="/onboarding">{onboardingCopy.openGuide}</Link></div><p className="subtitle" style={{ marginBottom: 0 }}><strong>{onboardingCopy.testModeLimit}</strong> {onboardingCopy.testModeImmediate}</p></section> : null}
       <section className="statsGrid" aria-label={messages.ui.campaignStats}>
         <article className="statCard"><span>{messages.ui.eligibleContacts}</span><strong>{number.format(allEligible)}</strong><p>{messages.ui.eligibilityApplied}</p></article>
         <article className="statCard"><span>{messages.ui.audiences}</span><strong>{number.format(lists.length + segments.length)}</strong><p>{messages.ui.audienceBreakdown.replace("{lists}", number.format(lists.length)).replace("{segments}", number.format(segments.length))}</p></article>
         <article className="statCard"><span>{messages.ui.active}</span><strong>{number.format(active)}</strong><p>{messages.ui.dispatchingOrSending}</p></article>
         <article className="statCard"><span>{messages.ui.completed}</span><strong>{number.format(completed)}</strong><p>{messages.ui.submissionCompleted}</p></article>
       </section>
-      <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder timeZone={timeZone} audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates} /></section>
+      <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{onboardingTestMode ? onboardingCopy.testModeTitle : messages.ui.newCampaign}</p><h2>{messages.ui.chooseAudience}</h2><p className="subtitle">{onboardingTestMode ? onboardingCopy.testModeLimit : messages.ui.audienceCountDescription}</p></div></div><CampaignBuilder timeZone={timeZone} audiences={audiences} phones={phones.map((phone) => ({ id: phone.id, wabaId: phone.wabaId, label: `${phone.verifiedName ?? messages.common.whatsappBusiness} · ${phone.displayPhoneNumber ?? phone.phoneNumberId}`, throughputMps: phone.throughputMps }))} templates={templates} testMode={onboardingTestMode} testModeCopy={{ audienceTooLarge: onboardingCopy.testModeAudienceTooLarge, immediate: onboardingCopy.testModeImmediate, send: onboardingCopy.testModeSend, success: onboardingCopy.testModeSuccess, failure: onboardingCopy.testModeFailure }} /></section>
       <section className="panel" style={{ marginTop: 18 }}><div className="panelHeader"><div><p className="eyebrow">{messages.ui.history}</p><h2>{messages.ui.recentCampaigns}</h2><p className="subtitle">{messages.ui.campaignHistoryDescription}</p></div></div>
         {campaigns.length ? <div className="numberList" style={{ marginTop: 14 }}>{campaigns.map((campaign) => <div className="numberRow" key={campaign.id}><div><Link href={`/campaigns/${campaign.id}`} style={{ fontWeight: 700 }}>{campaign.name}</Link><p>{campaign.status === "scheduled" && campaign.scheduledAt ? scheduling.scheduledHistory.replace("{date}", dateTime.format(campaign.scheduledAt)).replace("{timeZone}", timeZone) : campaign.recipientCount ? messages.ui.snapshottedRecipients.replace("{count}", number.format(campaign.recipientCount)) : messages.ui.preparingSnapshot}</p></div><div className="numberMeta"><span>{dateTime.format(campaign.status === "scheduled" && campaign.scheduledAt ? campaign.scheduledAt : campaign.createdAt)}</span><span className={campaign.status === "completed" ? "status connected" : "status"}>{campaign.status}</span><Link href={`/campaigns/${campaign.id}`}>{messages.ui.viewAnalytics} →</Link></div></div>)}</div> : <div className="emptyState" style={{ marginTop: 14 }}><div className="emptyIcon">C</div><h3>{messages.ui.noCampaigns}</h3><p>{messages.ui.noCampaignsDescription}</p></div>}
       </section>
