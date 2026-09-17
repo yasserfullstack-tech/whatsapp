@@ -17,6 +17,7 @@ on:
           - soak
           - recovery
           - webhook-status
+          - certify
       recipients:
         description: Recipients for chaos/recovery/webhook-status modes
         required: false
@@ -29,6 +30,47 @@ on:
         description: Soak target messages per second
         required: false
         default: "80"
+      evidence_level:
+        description: Evidence classification; representative requires a matching immutable release manifest
+        required: true
+        default: regression
+        type: choice
+        options:
+          - regression
+          - representative
+      representative_environment:
+        description: Environment class for representative evidence
+        required: false
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production-like
+      release_manifest_path:
+        description: Absolute/path-on-runner PR-009 release manifest (required for representative evidence)
+        required: false
+        default: ""
+      storage_profile:
+        description: Storage/media and IOPS class for the representative runner (for example local NVMe, provisioned 3000 IOPS)
+        required: false
+        default: ""
+      worker_count:
+        description: Primary capacity-workload worker process count recorded in the representative summary
+        required: false
+        default: "1"
+      worker_concurrency:
+        description: Primary capacity-workload per-worker concurrency; exact per-scenario values remain in benchmark JSON
+        required: false
+        default: "1200"
+      capacity_claim:
+        description: Optional application-side capacity statement this evidence is intended to support
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - 100k
+          - 500k
   schedule:
     - cron: "17 3 * * 0"
 
@@ -99,6 +141,8 @@ jobs:
         run: bun run build
       - name: Verify load-test safety gates
         run: bun apps/load-test/src/safety-gates.ts
+      - name: Verify representative evidence collector syntax
+        run: sh -n infra/production/scripts/collect-representative-load-evidence.sh
       - name: Progressive load smoke with thresholds
         run: bun run load:stress -- --profile=pr --webhook-events=1000 --webhook-concurrency=50
       - name: Duplicate and out-of-order webhook smoke
@@ -129,7 +173,7 @@ jobs:
   dedicated-benchmark:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: [self-hosted, linux, x64, stress]
-    timeout-minutes: 300
+    timeout-minutes: 360
     env:
       LOAD_ALLOW_REMOTE: "0"
       LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
@@ -142,7 +186,36 @@ jobs:
       - run: bun install
       - name: Verify load-test safety gates
         run: bun apps/load-test/src/safety-gates.ts
+      - name: Validate representative evidence inputs
+        if: github.event_name == 'workflow_dispatch' && inputs.evidence_level == 'representative'
+        shell: bash
+        env:
+          RELEASE_MANIFEST_PATH: ${{ inputs.release_manifest_path }}
+          STORAGE_PROFILE: ${{ inputs.storage_profile }}
+          CAPACITY_CLAIM: ${{ inputs.capacity_claim }}
+          MODE: ${{ inputs.mode }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_MANIFEST_PATH" || { echo "release_manifest_path is required for representative evidence" >&2; exit 1; }
+          test -f "$RELEASE_MANIFEST_PATH" || { echo "release manifest not found on runner: $RELEASE_MANIFEST_PATH" >&2; exit 1; }
+          test -n "$STORAGE_PROFILE" || { echo "storage_profile is required for representative evidence" >&2; exit 1; }
+          sh infra/production/scripts/check-immutable-images.sh "$RELEASE_MANIFEST_PATH"
+          release_sha=$(awk -F= '$1 == "RELEASE_SHA" {print $2; exit}' "$RELEASE_MANIFEST_PATH")
+          test "$release_sha" = "$EXPECTED_SHA" || {
+            echo "release manifest SHA ($release_sha) does not match workflow SHA ($EXPECTED_SHA)" >&2
+            exit 1
+          }
+          if [[ "$CAPACITY_CLAIM" == "500k" && "$MODE" != "certify" ]]; then
+            echo "A 500k evidence run must use certify mode." >&2
+            exit 1
+          fi
+          if [[ "$CAPACITY_CLAIM" == "100k" && "$MODE" != "full" && "$MODE" != "certify" ]]; then
+            echo "A 100k evidence run must use full or certify mode." >&2
+            exit 1
+          fi
       - name: Execute selected dedicated benchmark
+        id: benchmark
         shell: bash
         env:
           MODE: ${{ github.event_name == 'schedule' && 'full' || inputs.mode }}
@@ -151,6 +224,8 @@ jobs:
           SOAK_MPS: ${{ inputs.soak_mps || '80' }}
         run: |
           set -euo pipefail
+          rm -rf load-results
+          mkdir -p load-results
           case "$MODE" in
             full)
               bun run load:stress -- --profile=full --webhook-events=100000 --webhook-concurrency=500
@@ -180,11 +255,45 @@ jobs:
               bun run load:webhooks -- --events=100000 --concurrency=500 --timeout-ms=600000
               bun run load:webhook-status -- --recipients="$RECIPIENTS" --concurrency=300 --timeout-ms=600000
               ;;
+            certify)
+              bun run load:stress -- --profile=full --webhook-events=100000 --webhook-concurrency=500
+              bun run load:recovery -- --mode=429 --recipients="$RECIPIENTS"
+              bun run load:recovery -- --mode=500 --recipients="$RECIPIENTS"
+              bun run load:recovery -- --mode=mixed --recipients="$RECIPIENTS"
+              bun run load:chaos -- --chaos=redis-restart --scenario=baseline-1000 --recipients="$RECIPIENTS" --timeout-ms=600000
+              bun run load:chaos -- --chaos=worker-restart --scenario=baseline-1000 --recipients="$RECIPIENTS" --timeout-ms=600000
+              bun run load:chaos -- --chaos=postgres-pressure --scenario=baseline-1000 --recipients="$RECIPIENTS" --timeout-ms=600000
+              bun run load:chaos -- --chaos=multi-worker --scenario=multi-org --recipients="$RECIPIENTS" --extra-workers=2 --fault-after-ms=1000 --timeout-ms=600000
+              bun run load:soak -- --duration-minutes="$SOAK_MINUTES" --mps="$SOAK_MPS"
+              bun run load:webhook-status -- --recipients="$RECIPIENTS" --concurrency=300 --timeout-ms=600000
+              ;;
             *)
               echo "Unknown mode: $MODE" >&2
               exit 2
               ;;
           esac
+      - name: Start isolated topology for configuration capture
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.evidence_level == 'representative'
+        run: bun run load:infra:up
+      - name: Collect representative benchmark evidence
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.evidence_level == 'representative'
+        shell: bash
+        env:
+          BENCHMARK_CODE_SHA: ${{ github.sha }}
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+          REPRESENTATIVE_ENVIRONMENT: ${{ inputs.representative_environment }}
+          REPRESENTATIVE_STORAGE_PROFILE: ${{ inputs.storage_profile }}
+          REPRESENTATIVE_WORKER_COUNT: ${{ inputs.worker_count }}
+          REPRESENTATIVE_WORKER_CONCURRENCY: ${{ inputs.worker_concurrency }}
+          CAPACITY_CLAIM: ${{ inputs.capacity_claim }}
+          MODE: ${{ inputs.mode }}
+          RELEASE_MANIFEST_PATH: ${{ inputs.release_manifest_path }}
+        run: |
+          set -euo pipefail
+          sh infra/production/scripts/collect-representative-load-evidence.sh \
+            "$MODE" \
+            "$RELEASE_MANIFEST_PATH" \
+            load-results/representative-evidence
       - name: Upload benchmark reports
         if: always()
         uses: actions/upload-artifact@v4
