@@ -8,11 +8,13 @@ import { useI18n } from "@/components/i18n-provider";
 import { zonedLocalDateTimeToInstant } from "@/lib/campaign-scheduling";
 import { localeTag } from "@/lib/i18n";
 import { campaignSchedulingMessages } from "@/lib/i18n/campaign-scheduling";
+import { ONBOARDING_TEST_RECIPIENT_LIMIT } from "@/lib/onboarding-test-mode";
 
 type PhoneOption = { id: string; wabaId: string; label: string; throughputMps: number };
 type TemplateOption = { id: string; wabaId: string; name: string; language: string; components: unknown; slots: TemplateParameterSlot[] };
 type AudienceOption = { key: string; type: "all" | "list" | "segment"; id?: string; name: string; count: number };
 type Progress = { id: string; name: string; status: string; recipientCount: number; processed: number; progress: number; counts: Record<string, number> };
+type TestModeCopy = { audienceTooLarge: string; immediate: string; send: string; success: string; failure: string };
 
 function defaultBinding(slot: TemplateParameterSlot): TemplateParameterBinding {
   const literalOnly = slot.parameterType === "image" || slot.parameterType === "video" || slot.parameterType === "document" || slot.parameterType === "payload";
@@ -40,7 +42,39 @@ function bindingValid(slot: TemplateParameterSlot, binding: TemplateParameterBin
   return true;
 }
 
-export function CampaignBuilder({ phones, templates, audiences, timeZone }: { phones: PhoneOption[]; templates: TemplateOption[]; audiences: AudienceOption[]; timeZone: string }) {
+function successfulTestProgress(progress: Progress): boolean {
+  const accepted =
+    (progress.counts.submitted ?? 0) +
+    (progress.counts.sent ?? 0) +
+    (progress.counts.delivered ?? 0) +
+    (progress.counts.read ?? 0);
+  const unsuccessful =
+    (progress.counts.failed ?? 0) +
+    (progress.counts.skipped ?? 0) +
+    (progress.counts.pending ?? 0) +
+    (progress.counts.queued ?? 0);
+  return progress.status === "completed" &&
+    progress.recipientCount > 0 &&
+    progress.recipientCount <= ONBOARDING_TEST_RECIPIENT_LIMIT &&
+    accepted === progress.recipientCount &&
+    unsuccessful === 0;
+}
+
+export function CampaignBuilder({
+  phones,
+  templates,
+  audiences,
+  timeZone,
+  testMode = false,
+  testModeCopy,
+}: {
+  phones: PhoneOption[];
+  templates: TemplateOption[];
+  audiences: AudienceOption[];
+  timeZone: string;
+  testMode?: boolean;
+  testModeCopy?: TestModeCopy;
+}) {
   const router = useRouter();
   const { messages, number, format, locale } = useI18n();
   const scheduling = campaignSchedulingMessages[locale];
@@ -79,12 +113,16 @@ export function CampaignBuilder({ phones, templates, audiences, timeZone }: { ph
       if (!response.ok || stopped) return;
       const next = (await response.json()) as Progress;
       setProgress(next);
-      if (["completed", "failed", "cancelled"].includes(next.status)) { router.refresh(); return; }
+      if (["completed", "failed", "cancelled"].includes(next.status)) {
+        if (testMode && testModeCopy) setMessage(successfulTestProgress(next) ? testModeCopy.success : testModeCopy.failure);
+        router.refresh();
+        return;
+      }
       window.setTimeout(poll, 1_500);
     };
     void poll();
     return () => { stopped = true; };
-  }, [activeCampaignId, router]);
+  }, [activeCampaignId, router, testMode, testModeCopy?.failure, testModeCopy?.success]);
 
   const updateBinding = (slot: TemplateParameterSlot, patch: Partial<TemplateParameterBinding>) => setBindings((current) => ({
     ...current,
@@ -98,7 +136,7 @@ export function CampaignBuilder({ phones, templates, audiences, timeZone }: { ph
     setMessage(null);
     try {
       let scheduledAt: string | undefined;
-      if (deliveryMode === "scheduled") {
+      if (!testMode && deliveryMode === "scheduled") {
         if (!scheduledLocal) throw new Error(scheduling.chooseScheduleTime);
         const instant = zonedLocalDateTimeToInstant(scheduledLocal, timeZone);
         if (instant.getTime() <= Date.now()) throw new Error(scheduling.futureScheduleRequired);
@@ -109,7 +147,7 @@ export function CampaignBuilder({ phones, templates, audiences, timeZone }: { ph
       const response = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, whatsappPhoneNumberId: phoneId, templateId: selectedTemplate.id, audience, bindings: payloadBindings, scheduledAt }),
+        body: JSON.stringify({ name, whatsappPhoneNumberId: phoneId, templateId: selectedTemplate.id, audience, bindings: payloadBindings, scheduledAt, mode: testMode ? "onboarding_test" : "standard" }),
       });
       const result = (await response.json()) as { campaignId?: string; status?: string; scheduledAt?: string | null; estimatedSeconds?: number; audienceName?: string; error?: string };
       if (!response.ok || !result.campaignId) throw new Error(result.error ?? messages.ui.launchFailed);
@@ -135,13 +173,14 @@ export function CampaignBuilder({ phones, templates, audiences, timeZone }: { ph
   const throughput = selectedPhone?.throughputMps ?? 0;
   const eligibleContacts = selectedAudience?.count ?? 0;
   const estimatedSeconds = throughput > 0 ? Math.ceil(eligibleContacts / Math.max(1, Math.floor(throughput * 0.95))) : 0;
-  const scheduleReady = deliveryMode === "now" || Boolean(scheduledLocal);
+  const testAudienceTooLarge = testMode && eligibleContacts > ONBOARDING_TEST_RECIPIENT_LIMIT;
+  const scheduleReady = testMode || deliveryMode === "now" || Boolean(scheduledLocal);
   if (!phones.length || !templates.length) return <p className="subtitle">{messages.ui.campaignPrerequisite}</p>;
 
   return <div style={{ display: "grid", gap: 18 }}>
     <div className="formGrid4">
       <label className="formLabel">{messages.ui.campaignName}<input value={name} onChange={(event) => setName(event.target.value)} placeholder={messages.ui.campaignNamePlaceholder} maxLength={120} /></label>
-      <label className="formLabel">{messages.ui.audience}<select value={selectedAudience?.key ?? ""} onChange={(event) => setAudienceKey(event.target.value)}>{audiences.map((audience) => <option key={audience.key} value={audience.key}>{audience.name} · {number(audience.count)}</option>)}</select></label>
+      <label className="formLabel">{messages.ui.audience}<select value={selectedAudience?.key ?? ""} onChange={(event) => setAudienceKey(event.target.value)}>{audiences.map((audience) => <option key={audience.key} value={audience.key}>{audience.name} · {number(audience.count)}</option>)}</select>{testAudienceTooLarge && testModeCopy ? <span className="subtitle" role="alert">{testModeCopy.audienceTooLarge}</span> : null}</label>
       <label className="formLabel">{messages.ui.sendFrom}<select value={phoneId} onChange={(event) => setPhoneId(event.target.value)}>{phones.map((phone) => <option key={phone.id} value={phone.id}>{phone.label} · {number(phone.throughputMps)} msg/s</option>)}</select></label>
       <label className="formLabel">{messages.ui.approvedTemplate}<select value={selectedTemplate?.id ?? ""} onChange={(event) => setTemplateId(event.target.value)}>{availableTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.language}</option>)}</select></label>
     </div>
@@ -161,12 +200,12 @@ export function CampaignBuilder({ phones, templates, audiences, timeZone }: { ph
       })}
     </div> : null}
 
-    <div className="panelInset" style={{ display: "grid", gap: 10 }}>
+    {testMode && testModeCopy ? <div className="panelInset" style={{ display: "grid", gap: 10 }}><strong>{testModeCopy.immediate}</strong></div> : <div className="panelInset" style={{ display: "grid", gap: 10 }}>
       <strong>{scheduling.sendTiming}</strong>
       <label className="formLabel">{scheduling.delivery}<select aria-label={scheduling.delivery} value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "now" | "scheduled")}><option value="now">{scheduling.sendNow}</option><option value="scheduled">{scheduling.scheduleLater}</option></select></label>
       {deliveryMode === "scheduled" ? <label className="formLabel">{scheduling.scheduleTime}<input aria-label={scheduling.scheduleTime} type="datetime-local" value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></label> : null}
       <p className="subtitle" style={{ margin: 0 }}>{format(scheduling.workspaceTimezoneHint, { timeZone })}</p>
-    </div>
+    </div>}
 
     <div className="statsGrid" style={{ marginTop: 0 }}>
       <article className="statCard"><span>{messages.ui.eligibleAudience}</span><strong>{number(eligibleContacts)}</strong><p>{selectedAudience?.name ?? messages.ui.selectedAudience}</p></article>
@@ -174,7 +213,7 @@ export function CampaignBuilder({ phones, templates, audiences, timeZone }: { ph
       <article className="statCard"><span>{messages.ui.estimatedSend}</span><strong>{estimatedSeconds ? `${number(Math.max(1, Math.ceil(estimatedSeconds / 60)))} min` : "—"}</strong><p>{messages.ui.safetyTarget}</p></article>
       <article className="statCard"><span>{messages.ui.queueRunway}</span><strong>{throughput ? number(Math.min(20_000, Math.max(1_000, throughput * 15))) : "—"}</strong><p>{messages.ui.bufferedJobsHint}</p></article>
     </div>
-    <div className="actionRow"><button className="primary" disabled={busy || !name.trim() || !selectedTemplate || eligibleContacts === 0 || !bindingsValid || !scheduleReady} onClick={launch} type="button">{busy ? messages.ui.launching : deliveryMode === "scheduled" ? format(scheduling.scheduleForContacts, { count: number(eligibleContacts) }) : format(messages.ui.launchToContacts, { count: number(eligibleContacts) })}</button>{message ? <span className="subtitle">{message}</span> : null}</div>
+    <div className="actionRow"><button className="primary" disabled={busy || !name.trim() || !selectedTemplate || eligibleContacts === 0 || testAudienceTooLarge || !bindingsValid || !scheduleReady} onClick={launch} type="button">{busy ? messages.ui.launching : testMode && testModeCopy ? format(testModeCopy.send, { count: number(eligibleContacts) }) : deliveryMode === "scheduled" ? format(scheduling.scheduleForContacts, { count: number(eligibleContacts) }) : format(messages.ui.launchToContacts, { count: number(eligibleContacts) })}</button>{message ? <span className="subtitle">{message}</span> : null}</div>
     {progress ? <div className="numberRow"><div style={{ flex: 1 }}><strong>{progress.name}</strong><p>{progress.status} · {format(messages.ui.processedProgress, { processed: number(progress.processed), total: number(progress.recipientCount) })}</p><div className="progressTrack"><div style={{ width: `${Math.round(progress.progress * 100)}%` }} /></div></div><div className="numberMeta"><span>{number(progress.counts.queued ?? 0)} {messages.ui.queued}</span><span>{number(progress.counts.submitted ?? 0)} {messages.ui.submitted}</span><span>{number(progress.counts.failed ?? 0)} {messages.ui.failed}</span></div></div> : null}
   </div>;
 }
