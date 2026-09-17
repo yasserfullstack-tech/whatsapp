@@ -11,6 +11,7 @@ import {
 } from "@/lib/audience-server";
 import { parseCampaignScheduledAt } from "@/lib/campaign-scheduling";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
+import { validateOnboardingTestRequest } from "@/lib/onboarding-test-mode";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
@@ -42,6 +43,7 @@ const createCampaignSchema = z.object({
   audience: audienceSelectionSchema,
   bindings: z.array(bindingSchema).max(30).default([]),
   scheduledAt: z.string().trim().max(64).optional(),
+  mode: z.enum(["standard", "onboarding_test"]).default("standard"),
 });
 
 export async function POST(request: Request) {
@@ -105,6 +107,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "The selected audience has no currently eligible, non-suppressed contacts" }, { status: 400 });
   }
 
+  const isOnboardingTest = parsed.data.mode === "onboarding_test";
+  if (isOnboardingTest) {
+    const testModeError = validateOnboardingTestRequest({ eligibleContacts, scheduledAt });
+    if (testModeError) return NextResponse.json({ error: testModeError }, { status: 400 });
+  }
+
   try {
     // This is an early UX check only. The worker records the authoritative
     // billable event immediately before the provider send boundary.
@@ -142,6 +150,16 @@ export async function POST(request: Request) {
       sourceName: audience.sourceName,
       definition: audience.definition,
     });
+
+    if (isOnboardingTest) {
+      const now = new Date();
+      await tx.insert(schema.organizationOnboarding)
+        .values({ organizationId, testCampaignId: campaign.id, updatedAt: now })
+        .onConflictDoUpdate({
+          target: schema.organizationOnboarding.organizationId,
+          set: { testCampaignId: campaign.id, updatedAt: now },
+        });
+    }
 
     return campaign.id;
   });
