@@ -37,6 +37,48 @@ is_sha256_image() {
   printf '%s\n' "$value" | grep -Eq '@sha256:[0-9a-fA-F]{64}$'
 }
 
+find_report() {
+  pattern=$1
+  find "$results_dir" -maxdepth 1 -type f -name "$pattern" -print 2>/dev/null | sort | tail -n 1
+}
+
+require_report() {
+  label=$1
+  pattern=$2
+  path=$(find_report "$pattern")
+  if [ -z "$path" ]; then
+    missing_reports="${missing_reports}${missing_reports:+, }$label"
+    return
+  fi
+  present_reports="${present_reports}${present_reports:+
+}$label|${path#$repo_root/}"
+}
+
+find_primary_campaign_report() {
+  for recipients in 500000 100000 50000 10000 1000; do
+    path=$(find_report "*-baseline-1000-${recipients}.json")
+    if [ -n "$path" ]; then
+      printf '%s\n' "$path"
+      return
+    fi
+  done
+
+  path=$(find_report "*-baseline-80-*.json")
+  [ -n "$path" ] && printf '%s\n' "$path"
+}
+
+json_number_field() {
+  file=$1
+  field=$2
+  awk -F: -v field="$field" '
+    $0 ~ "\"" field "\"[[:space:]]*:" {
+      value=$2
+      gsub(/[^0-9.]/, "", value)
+      if (value != "") { print value; exit }
+    }
+  ' "$file"
+}
+
 release_sha=$(read_manifest RELEASE_SHA)
 [ "${#release_sha}" -eq 40 ] || { echo "RELEASE_SHA must be a 40-character Git SHA" >&2; exit 1; }
 printf '%s\n' "$release_sha" | grep -Eq '^[0-9a-fA-F]{40}$' || { echo "RELEASE_SHA must be hexadecimal" >&2; exit 1; }
@@ -79,23 +121,6 @@ case "$capacity_claim" in
   none|100k|500k) ;;
   *) echo "CAPACITY_CLAIM must be none, 100k, or 500k" >&2; exit 1 ;;
 esac
-
-find_report() {
-  pattern=$1
-  find "$results_dir" -maxdepth 1 -type f -name "$pattern" -print 2>/dev/null | sort | tail -n 1
-}
-
-require_report() {
-  label=$1
-  pattern=$2
-  path=$(find_report "$pattern")
-  if [ -z "$path" ]; then
-    missing_reports="${missing_reports}${missing_reports:+, }$label"
-    return
-  fi
-  present_reports="${present_reports}${present_reports:+
-}$label|${path#$repo_root/}"
-}
 
 missing_reports=
 present_reports=
@@ -143,6 +168,48 @@ case "$mode" in
     ;;
 esac
 
+# Derive the topology from the reports that the harness actually produced. The
+# operator-provided values are declarations only; they are never used as evidence
+# by themselves. Capacity claims fail closed if the declaration and observed
+# primary campaign topology do not match.
+primary_campaign_report=$(find_primary_campaign_report || true)
+actual_worker_count=1
+actual_worker_concurrency=unavailable
+if [ -n "$primary_campaign_report" ]; then
+  parsed_concurrency=$(json_number_field "$primary_campaign_report" workerConcurrency || true)
+  [ -n "$parsed_concurrency" ] && actual_worker_concurrency=$parsed_concurrency
+elif [ "$mode" = "webhook-status" ]; then
+  # webhook-status-flood.ts starts one worker with WORKER_CONCURRENCY=1.
+  actual_worker_concurrency=1
+fi
+
+primary_campaign_report_rel=unavailable
+[ -n "$primary_campaign_report" ] && primary_campaign_report_rel=${primary_campaign_report#$repo_root/}
+
+actual_aggregate_concurrency=unavailable
+if [ "$actual_worker_concurrency" != "unavailable" ]; then
+  actual_aggregate_concurrency=$((actual_worker_count * actual_worker_concurrency))
+fi
+
+topology_match=unavailable
+if [ "$actual_worker_concurrency" != "unavailable" ]; then
+  if [ "$REPRESENTATIVE_WORKER_COUNT" -eq "$actual_worker_count" ] && \
+     [ "$REPRESENTATIVE_WORKER_CONCURRENCY" -eq "$actual_worker_concurrency" ]; then
+    topology_match=yes
+  else
+    topology_match=no
+  fi
+fi
+
+multi_worker_report=$(find_report "*-chaos-multi-worker.json")
+multi_worker_processes=not-run
+if [ -n "$multi_worker_report" ]; then
+  extra_workers=$(json_number_field "$multi_worker_report" extraWorkers || true)
+  if [ -n "$extra_workers" ]; then
+    multi_worker_processes=$((1 + extra_workers))
+  fi
+fi
+
 claim_eligible=yes
 claim_reason="Representative evidence bundle is complete for the selected mode."
 if [ "$benchmark_outcome" != "success" ]; then
@@ -157,6 +224,12 @@ elif [ "$capacity_claim" = "500k" ] && [ "$mode" != "certify" ]; then
 elif [ "$capacity_claim" = "100k" ] && [ "$mode" != "full" ] && [ "$mode" != "certify" ]; then
   claim_eligible=no
   claim_reason="A 100k claim requires full or certify mode."
+elif [ "$capacity_claim" != "none" ] && [ "$actual_worker_concurrency" = "unavailable" ]; then
+  claim_eligible=no
+  claim_reason="A capacity claim requires worker topology derived from the actual primary campaign report."
+elif [ "$capacity_claim" != "none" ] && [ "$topology_match" != "yes" ]; then
+  claim_eligible=no
+  claim_reason="Declared worker topology (${REPRESENTATIVE_WORKER_COUNT} x ${REPRESENTATIVE_WORKER_CONCURRENCY}) does not match the benchmarked primary campaign topology (${actual_worker_count} x ${actual_worker_concurrency})."
 fi
 
 generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -207,11 +280,14 @@ fi
 checksums_file="$output_dir/report-sha256.txt"
 : > "$checksums_file"
 if command -v sha256sum >/dev/null 2>&1; then
-  find "$results_dir" -maxdepth 1 -type f \( -name '*.json' -o -name '*.md' \) -print 2>/dev/null \
-    | sort \
-    | while IFS= read -r report; do
-        sha256sum "$report"
-      done > "$checksums_file"
+  (
+    cd "$results_dir"
+    find . -maxdepth 1 -type f \( -name '*.json' -o -name '*.md' \) -print 2>/dev/null \
+      | sort \
+      | while IFS= read -r report; do
+          sha256sum "${report#./}"
+        done
+  ) > "$checksums_file"
 fi
 
 evidence_file="$output_dir/representative-load-evidence.md"
@@ -278,9 +354,13 @@ cat > "$evidence_file" <<EOF
 
 ## Worker topology
 
-- Worker processes represented: $REPRESENTATIVE_WORKER_COUNT
-- Worker concurrency per process: $REPRESENTATIVE_WORKER_CONCURRENCY
-- Aggregate configured worker concurrency: $((REPRESENTATIVE_WORKER_COUNT * REPRESENTATIVE_WORKER_CONCURRENCY))
+- Primary campaign report used for topology: $primary_campaign_report_rel
+- Benchmarked primary campaign worker processes: $actual_worker_count
+- Benchmarked primary campaign concurrency per process: $actual_worker_concurrency
+- Benchmarked aggregate primary concurrency: $actual_aggregate_concurrency
+- Operator declaration: ${REPRESENTATIVE_WORKER_COUNT} process(es) x ${REPRESENTATIVE_WORKER_CONCURRENCY} concurrency
+- Declaration matches benchmarked primary topology: $topology_match
+- Multi-worker chaos process count: $multi_worker_processes (when that scenario ran; details remain in its report)
 - Load-test send target: local fake Meta only; this evidence does not claim Meta/provider delivery throughput.
 
 ## Required report classes
@@ -300,16 +380,24 @@ cat >> "$evidence_file" <<EOF
 
 ## Evidence integrity
 
-Report checksums are in \`report-sha256.txt\`. The source SHA must match the immutable release manifest before this collector runs. Release image references are required to be pinned by SHA-256 digest.
+Report checksums are in \`representative-evidence/report-sha256.txt\` and contain artifact-root-relative report paths. Verify them from the downloaded artifact root with \`sha256sum --check representative-evidence/report-sha256.txt\`. The source SHA must match the immutable release manifest before this collector runs. Release image references are required to be pinned by SHA-256 digest.
 
 ## Capacity-claim boundary
 
-This bundle can support only application-side capacity statements scoped to the recorded machine, database, Valkey, worker topology, thresholds, and fake-provider conditions. It does not establish WhatsApp/Meta end-to-end delivery throughput. A 500k application-side claim requires \`certify\` mode with full stress, soak, chaos, recovery, and webhook-status evidence and a successful benchmark outcome.
+This bundle can support only application-side capacity statements scoped to the recorded machine, database, Valkey, **benchmarked** worker topology, thresholds, and fake-provider conditions. Operator-declared worker values never override the topology derived from benchmark reports. It does not establish WhatsApp/Meta end-to-end delivery throughput. A 500k application-side claim requires \`certify\` mode with full stress, soak, chaos, recovery, and webhook-status evidence and a successful benchmark outcome.
 EOF
 
 escape_json() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g'
 }
+
+if [ "$actual_worker_concurrency" = "unavailable" ]; then
+  actual_worker_concurrency_json=null
+  actual_aggregate_concurrency_json=null
+else
+  actual_worker_concurrency_json=$actual_worker_concurrency
+  actual_aggregate_concurrency_json=$actual_aggregate_concurrency
+fi
 
 cat > "$json_file" <<EOF
 {
@@ -358,9 +446,14 @@ cat > "$json_file" <<EOF
     "save": "$(escape_json "$valkey_rdb")"
   },
   "worker": {
-    "processes": $REPRESENTATIVE_WORKER_COUNT,
-    "concurrencyPerProcess": $REPRESENTATIVE_WORKER_CONCURRENCY,
-    "aggregateConcurrency": $((REPRESENTATIVE_WORKER_COUNT * REPRESENTATIVE_WORKER_CONCURRENCY))
+    "primaryCampaignReport": "$(escape_json "$primary_campaign_report_rel")",
+    "benchmarkedProcesses": $actual_worker_count,
+    "benchmarkedConcurrencyPerProcess": $actual_worker_concurrency_json,
+    "benchmarkedAggregateConcurrency": $actual_aggregate_concurrency_json,
+    "declaredProcesses": $REPRESENTATIVE_WORKER_COUNT,
+    "declaredConcurrencyPerProcess": $REPRESENTATIVE_WORKER_CONCURRENCY,
+    "declarationMatchesBenchmark": "$(escape_json "$topology_match")",
+    "multiWorkerChaosProcesses": "$(escape_json "$multi_worker_processes")"
   },
   "missingReports": "$(escape_json "$missing_reports")"
 }
