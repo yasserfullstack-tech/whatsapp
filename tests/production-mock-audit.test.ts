@@ -78,6 +78,10 @@ function isAllowedFinding(file: string, line: string): boolean {
   if (file === "apps/web/lib/marketing-content.ts") return true;
   if (AUDIENCE_SAMPLE_FILES.has(file) && /\bsample\b/.test(line)) return true;
   if (SEMANTIC_FALLBACK_FILES.has(file) && /\bfallback\b/.test(line)) return true;
+  if (
+    file === "infra/production/scripts/validate-provider-evidence.ts"
+    && /placeholder (?:SHA|digest)/i.test(line)
+  ) return true;
   if (file === "apps/web/lib/public-app-url.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
   if (file === "apps/worker/src/notification-runtime.ts" && /127\.0\.0\.1/.test(line)) return true;
   if (file === "packages/config/src/index.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
