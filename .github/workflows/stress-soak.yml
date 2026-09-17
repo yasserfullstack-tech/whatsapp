@@ -55,13 +55,13 @@ on:
         required: false
         default: ""
       worker_count:
-        description: Worker process count represented by this benchmark
+        description: Primary capacity-workload worker process count recorded in the representative summary
         required: false
         default: "1"
       worker_concurrency:
-        description: Per-worker concurrency represented by this benchmark
+        description: Primary capacity-workload per-worker concurrency; exact per-scenario values remain in benchmark JSON
         required: false
-        default: "50"
+        default: "1200"
       capacity_claim:
         description: Optional application-side capacity statement this evidence is intended to support
         required: true
@@ -173,7 +173,7 @@ jobs:
   dedicated-benchmark:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: [self-hosted, linux, x64, stress]
-    timeout-minutes: 480
+    timeout-minutes: 360
     env:
       LOAD_ALLOW_REMOTE: "0"
       LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
@@ -191,12 +191,21 @@ jobs:
         shell: bash
         env:
           RELEASE_MANIFEST_PATH: ${{ inputs.release_manifest_path }}
+          STORAGE_PROFILE: ${{ inputs.storage_profile }}
           CAPACITY_CLAIM: ${{ inputs.capacity_claim }}
           MODE: ${{ inputs.mode }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_MANIFEST_PATH" || { echo "release_manifest_path is required for representative evidence" >&2; exit 1; }
           test -f "$RELEASE_MANIFEST_PATH" || { echo "release manifest not found on runner: $RELEASE_MANIFEST_PATH" >&2; exit 1; }
+          test -n "$STORAGE_PROFILE" || { echo "storage_profile is required for representative evidence" >&2; exit 1; }
+          sh infra/production/scripts/check-immutable-images.sh "$RELEASE_MANIFEST_PATH"
+          release_sha=$(awk -F= '$1 == "RELEASE_SHA" {print $2; exit}' "$RELEASE_MANIFEST_PATH")
+          test "$release_sha" = "$EXPECTED_SHA" || {
+            echo "release manifest SHA ($release_sha) does not match workflow SHA ($EXPECTED_SHA)" >&2
+            exit 1
+          }
           if [[ "$CAPACITY_CLAIM" == "500k" && "$MODE" != "certify" ]]; then
             echo "A 500k evidence run must use certify mode." >&2
             exit 1
