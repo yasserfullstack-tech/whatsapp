@@ -6,7 +6,7 @@ This runbook is the PR-013 evidence layer on top of `docs/stress-soak.md`. It do
 
 A generic GitHub-hosted runner or an arbitrary self-hosted machine is a regression environment, not representative evidence.
 
-Select `evidence_level=representative` only when the `[self-hosted, linux, x64, stress]` runner is intentionally sized to the deployment being evaluated and its CPU, memory, storage/IOPS class, PostgreSQL/Valkey topology, and worker count/concurrency are the configuration you want to make an application-capacity statement about.
+Select `evidence_level=representative` only when the `[self-hosted, linux, x64, stress]` runner is intentionally sized to the deployment being evaluated and its CPU, memory, storage/IOPS class, PostgreSQL/Valkey topology, and worker topology are the configuration you want to make an application-capacity statement about.
 
 Representative evidence is scoped to the recorded configuration. It does not establish Meta/WhatsApp end-to-end delivery throughput because provider sends remain fake by design.
 
@@ -44,8 +44,10 @@ For representative evidence, set:
 - `representative_environment=staging` or `production-like`
 - `release_manifest_path` to the PR-009 manifest path on the runner
 - `storage_profile` to the real storage/media and IOPS class
-- `worker_count` and `worker_concurrency` to the topology being represented
+- `worker_count` and `worker_concurrency` to the expected primary campaign topology
 - `capacity_claim=none`, `100k`, or `500k`
+
+The worker inputs are assertions, not a way to rewrite the benchmark after it runs. The evidence collector derives the primary campaign worker count/concurrency from the actual benchmark artifacts and records those measured values. For `100k` or `500k` capacity evidence, a mismatch between the declared and benchmarked topology makes the evidence gate fail. Multi-worker chaos topology is recorded separately in its own report.
 
 Use the ordinary modes when validating one failure class. Use `mode=certify` for a complete PR-013 evidence bundle. `certify` executes the full progressive stress profile, all 429/500/mixed recovery cases, all Valkey/worker/Postgres/multi-worker chaos cases, the requested soak, and duplicate/out-of-order webhook validation.
 
@@ -62,7 +64,7 @@ sh infra/production/scripts/collect-representative-load-evidence.sh \
   load-results/representative-evidence
 ```
 
-The collector fails closed unless the release SHA matches the benchmark SHA, release images are immutable, required report classes exist, and the benchmark step succeeded.
+The collector fails closed unless the release SHA matches the benchmark SHA, release images are immutable, required report classes exist, and the benchmark step succeeded. Capacity evidence also fails closed if the declared primary worker topology differs from the topology derived from the actual benchmark report.
 
 The uploaded `stress-soak-<run>-<attempt>` artifact contains:
 
@@ -71,9 +73,13 @@ The uploaded `stress-soak-<run>-<attempt>` artifact contains:
 - `representative-evidence/representative-load-evidence.json`;
 - `representative-evidence/report-sha256.txt`.
 
-The evidence summary records the workflow URL, exact code/release SHA, immutable web/API/worker/migrator image digests, kernel/architecture, CPU model/count, memory, filesystem and storage profile, PostgreSQL runtime image/version/settings, Valkey runtime image/version/persistence/memory policy, worker count/concurrency, and SHA-256 hashes of the load compose files and threshold definitions.
+The evidence summary records the workflow URL, exact code/release SHA, immutable web/API/worker/migrator image digests, kernel/architecture, CPU model/count, memory, filesystem and storage profile, PostgreSQL runtime image/version/settings, Valkey runtime image/version/persistence/memory policy, benchmark-derived worker topology, the operator declaration/match result, and SHA-256 hashes of the load compose files and threshold definitions.
 
-The report checksum file makes the bundle tamper-evident after download.
+The report checksum file makes the bundle tamper-evident after download and uses artifact-root-relative paths. Verify it from the downloaded artifact root:
+
+```bash
+sha256sum --check representative-evidence/report-sha256.txt
+```
 
 ## Metrics and pass criteria
 
