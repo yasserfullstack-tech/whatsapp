@@ -15,7 +15,6 @@ export const NOTIFICATION_DEFINITIONS: NotificationDefinition[] = [
   { type: "subscription_past_due", category: "billing", label: { en: "Subscription past due", ar: "تأخر استحقاق الاشتراك" }, mandatory: true },
   { type: "subscription_changed", category: "billing", label: { en: "Subscription changed", ar: "تغيير الاشتراك" }, mandatory: false },
   { type: "security_event", category: "security", label: { en: "Security event", ar: "حدث أمني" }, mandatory: true },
-  { type: "team_invitation", category: "team", label: { en: "Team invitation", ar: "دعوة إلى الفريق" }, mandatory: true },
   { type: "inbound_message", category: "inbox", label: { en: "New inbound message", ar: "رسالة واردة جديدة" }, mandatory: false, defaultEnabled: false },
 ];
 
