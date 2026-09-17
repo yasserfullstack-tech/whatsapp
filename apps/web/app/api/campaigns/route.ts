@@ -8,10 +8,11 @@ import {
   audienceSelectionSchema,
   countEligibleAudience,
   resolveAudienceSelection,
+  sampleEligibleAudience,
 } from "@/lib/audience-server";
 import { parseCampaignScheduledAt } from "@/lib/campaign-scheduling";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
-import { validateOnboardingTestRequest } from "@/lib/onboarding-test-mode";
+import { ONBOARDING_TEST_RECIPIENT_LIMIT, validateOnboardingTestRequest } from "@/lib/onboarding-test-mode";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
@@ -108,16 +109,26 @@ export async function POST(request: Request) {
   }
 
   const isOnboardingTest = parsed.data.mode === "onboarding_test";
+  let onboardingTestRecipients: Awaited<ReturnType<typeof sampleEligibleAudience>> = [];
   if (isOnboardingTest) {
     const testModeError = validateOnboardingTestRequest({ eligibleContacts, scheduledAt });
     if (testModeError) return NextResponse.json({ error: testModeError }, { status: 400 });
+
+    onboardingTestRecipients = await sampleEligibleAudience(organizationId, audience.definition);
+    if (onboardingTestRecipients.length === 0) {
+      return NextResponse.json({ error: "The selected audience no longer has eligible contacts. Refresh and retry the test." }, { status: 409 });
+    }
+    if (onboardingTestRecipients.length > ONBOARDING_TEST_RECIPIENT_LIMIT) {
+      return NextResponse.json({ error: `Onboarding test campaigns are limited to ${ONBOARDING_TEST_RECIPIENT_LIMIT} eligible contacts` }, { status: 400 });
+    }
   }
 
+  const authoritativeRecipientCount = isOnboardingTest ? onboardingTestRecipients.length : eligibleContacts;
   try {
     // This is an early UX check only. The worker records the authoritative
     // billable event immediately before the provider send boundary.
     await entitlements.assertUsage(organizationId, "monthly_campaign_recipients", {
-      requested: eligibleContacts,
+      requested: authoritativeRecipientCount,
     });
   } catch (error) {
     const payload = entitlementErrorPayload(error);
@@ -125,7 +136,8 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  const initialStatus = scheduledAt ? "scheduled" : "dispatching";
+  const snapshotAt = isOnboardingTest ? new Date() : null;
+  const initialStatus = isOnboardingTest ? "sending" : scheduledAt ? "scheduled" : "dispatching";
   const campaignId = await db.transaction(async (tx) => {
     const [campaign] = await tx
       .insert(schema.campaigns)
@@ -137,6 +149,11 @@ export async function POST(request: Request) {
         status: initialStatus,
         scheduledAt,
         templateBindings: bindings,
+        ...(snapshotAt ? {
+          recipientCount: authoritativeRecipientCount,
+          snapshotCreatedAt: snapshotAt,
+          startedAt: snapshotAt,
+        } : {}),
       })
       .returning({ id: schema.campaigns.id });
 
@@ -152,6 +169,15 @@ export async function POST(request: Request) {
     });
 
     if (isOnboardingTest) {
+      await tx.insert(schema.campaignRecipients).values(onboardingTestRecipients.map((recipient) => ({
+        organizationId,
+        campaignId: campaign.id,
+        contactId: recipient.id,
+        phoneE164: recipient.phoneE164,
+        displayName: recipient.displayName,
+        status: "pending" as const,
+      })));
+
       const now = new Date();
       await tx.insert(schema.organizationOnboarding)
         .values({ organizationId, testCampaignId: campaign.id, updatedAt: now })
@@ -184,10 +210,10 @@ export async function POST(request: Request) {
     campaignId,
     status: initialStatus,
     scheduledAt: scheduledAt?.toISOString() ?? null,
-    snapshotTiming: "dispatch",
+    snapshotTiming: isOnboardingTest ? "creation" : "dispatch",
     audienceName: audience.sourceName,
-    eligibleContacts,
+    eligibleContacts: authoritativeRecipientCount,
     throughputMps: phone.throughputMps,
-    estimatedSeconds: Math.ceil(eligibleContacts / Math.max(1, Math.floor(phone.throughputMps * 0.95))),
+    estimatedSeconds: Math.ceil(authoritativeRecipientCount / Math.max(1, Math.floor(phone.throughputMps * 0.95))),
   }, { status: 201 });
 }
