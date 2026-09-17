@@ -13,7 +13,6 @@ export const NOTIFICATION_TYPES = [
   "subscription_past_due",
   "subscription_changed",
   "security_event",
-  "team_invitation",
   "inbound_message",
 ] as const;
 
@@ -33,7 +32,7 @@ export type DomainEvent = {
 
 export type NotificationDefinition = {
   type: NotificationType;
-  category: "campaigns" | "imports" | "templates" | "whatsapp" | "usage" | "billing" | "security" | "team" | "inbox";
+  category: "campaigns" | "imports" | "templates" | "whatsapp" | "usage" | "billing" | "security" | "inbox";
   label: { en: string; ar: string };
   mandatory: boolean;
   defaultEnabled?: boolean;
