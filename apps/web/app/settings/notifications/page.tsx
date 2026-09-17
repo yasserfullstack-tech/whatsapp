@@ -40,8 +40,9 @@ export default async function NotificationSettingsPage() {
             </div>
             {NOTIFICATION_DEFINITIONS.map((definition) => {
               const preference = preferenceByType.get(definition.type);
-              const inAppEnabled = definition.mandatory || preference?.inAppEnabled !== false;
-              const emailEnabled = definition.mandatory || preference?.emailEnabled !== false;
+              const defaultEnabled = definition.defaultEnabled ?? true;
+              const inAppEnabled = definition.mandatory || (preference ? preference.inAppEnabled : defaultEnabled);
+              const emailEnabled = definition.mandatory || (preference ? preference.emailEnabled : defaultEnabled);
               return (
                 <div className={styles.row} role="row" key={definition.type}>
                   <div role="cell"><strong>{definition.label[i18n.locale]}</strong><span className={styles.category}>{m.notifications.categories[definition.category]}</span>{definition.mandatory ? <span className={styles.required}>{m.notifications.required}</span> : null}</div>
