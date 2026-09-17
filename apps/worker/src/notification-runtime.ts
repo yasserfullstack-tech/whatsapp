@@ -1,5 +1,5 @@
 import { QueueEvents, Worker, type Job } from "bullmq";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { loadWorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import {
@@ -19,6 +19,7 @@ import {
   createNotificationEmailQueue,
   type NotificationEmailJob,
 } from "@wa/queue";
+import { reconcileNotificationSources } from "./notification-sources";
 
 class ResendEmailProvider implements EmailProvider {
   constructor(
@@ -223,20 +224,40 @@ async function reconcilePendingEmailDeliveries() {
   log.info("notification_email_reconciled", { count: deliveryIds.length });
 }
 
+const SOURCE_REPLAY_OVERLAP_MS = 2 * 60_000;
+let sourceScanAnchor = new Date();
+async function reconcileDurableSources() {
+  const scanStartedAt = new Date();
+  const since = new Date(sourceScanAnchor.getTime() - SOURCE_REPLAY_OVERLAP_MS);
+  const result = await reconcileNotificationSources({ db, notifications: notificationService, since });
+  sourceScanAnchor = scanStartedAt;
+  const created = Object.values(result).reduce((sum, count) => sum + count, 0);
+  if (created > 0) log.info("notification_sources_reconciled", { created, ...result });
+}
+
 await Promise.all([campaignEvents.waitUntilReady(), importEvents.waitUntilReady()]);
 await reconcilePendingEmailDeliveries().catch((error) => log.warn("notification_email_reconcile_failed", { error }));
+await reconcileDurableSources().catch((error) => log.warn("notification_source_reconcile_failed", { error }));
+
 const reconciliationTimer = setInterval(() => {
   reportAsync("notification_email_reconcile_failed", reconcilePendingEmailDeliveries(), {});
 }, 60_000);
 reconciliationTimer.unref();
 
+const sourceReconciliationTimer = setInterval(() => {
+  reportAsync("notification_source_reconcile_failed", reconcileDurableSources(), {});
+}, 30_000);
+sourceReconciliationTimer.unref();
+
 log.info("notification_runtime_started", {
   emailProvider: providerName,
   emailConcurrency: 8,
+  sourceReplayOverlapSeconds: SOURCE_REPLAY_OVERLAP_MS / 1_000,
 });
 
 const shutdown = async () => {
   clearInterval(reconciliationTimer);
+  clearInterval(sourceReconciliationTimer);
   await Promise.all([
     emailWorker.close(true),
     campaignEvents.close(),
