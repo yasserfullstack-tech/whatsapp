@@ -43,7 +43,7 @@ describe("R2 object key isolation", () => {
       "org-a/contact-imports/import-a/foreign\r.csv",
       "org-a/contact-imports/import-a/foreign\u007f.csv",
     ]) {
-      expect(isObjectKeyWithinPrefix(key, prefix), key).toBe(false);
+      expect(isObjectKeyWithinPrefix(key, prefix)).toBe(false);
     }
   });
 
@@ -58,7 +58,7 @@ describe("R2 object key isolation", () => {
       "org-a/data-exports/job-a\\",
       "org-a/data-exports/job-a\n/",
     ]) {
-      expect(isObjectKeyWithinPrefix(key, prefix), prefix).toBe(false);
+      expect(isObjectKeyWithinPrefix(key, prefix)).toBe(false);
     }
   });
 });
