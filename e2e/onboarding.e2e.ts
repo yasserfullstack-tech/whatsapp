@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, expect, test, type Page } from "@playwright/test";
+import { and, eq } from "drizzle-orm";
 import { createDatabase, schema } from "../packages/db/src/index";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -61,6 +62,47 @@ async function organizationForEmail(email: string): Promise<string> {
   const organizationId = rows[0]?.organizationId;
   if (!organizationId) throw new Error(`Could not find workspace for ${email}`);
   return organizationId;
+}
+
+async function seedMessagingFixtures(organizationId: string, contactCount: number) {
+  const suffix = randomUUID().replaceAll("-", "");
+  const wabaId = `waba-${suffix}`;
+  const [phone] = await database.db.insert(schema.whatsappPhoneNumbers).values({
+    organizationId,
+    wabaId,
+    phoneNumberId: `phone-${suffix}`,
+    displayPhoneNumber: "+9647700000000",
+    verifiedName: "Onboarding Test Business",
+    status: "connected",
+    credentialKey: `e2e/${organizationId}/${suffix}`,
+  }).returning({ id: schema.whatsappPhoneNumbers.id });
+  const [template] = await database.db.insert(schema.templates).values({
+    organizationId,
+    wabaId,
+    metaTemplateId: `template-${suffix}`,
+    name: `onboarding_${suffix.slice(0, 12)}`,
+    language: "en",
+    category: "marketing",
+    status: "approved",
+    bodyPreview: "Hello",
+    components: [{ type: "BODY", text: "Hello" }],
+  }).returning({ id: schema.templates.id });
+
+  const contacts = [];
+  for (let index = 0; index < contactCount; index += 1) {
+    const [contact] = await database.db.insert(schema.contacts).values({
+      organizationId,
+      phoneE164: `+1555${Math.floor(Math.random() * 10_000_000).toString().padStart(7, "0")}${index}`,
+      displayName: `Test Contact ${index + 1}`,
+      optedIn: true,
+      optInSource: "e2e",
+      optInAt: new Date(),
+    }).returning({ id: schema.contacts.id, phoneE164: schema.contacts.phoneE164, displayName: schema.contacts.displayName });
+    if (contact) contacts.push(contact);
+  }
+
+  if (!phone || !template || contacts.length !== contactCount) throw new Error("Could not seed onboarding messaging fixtures");
+  return { phoneId: phone.id, templateId: template.id, contacts };
 }
 
 afterAll(async () => {
@@ -156,6 +198,107 @@ test("onboarding automatically recognizes work completed outside the guide", asy
   }
   await expect(page.locator('[data-step="consent"]')).toContainText("Incomplete");
   await expect(page.locator('[data-step="campaign"]')).toContainText("Incomplete");
+});
+
+test("onboarding test mode is distinct and direct API calls cannot exceed five recipients", async ({ page }, testInfo) => {
+  const { email } = await createVerifiedWorkspace(page, `test-limit-${testInfo.project.name}`);
+  const organizationId = await organizationForEmail(email);
+  const fixtures = await seedMessagingFixtures(organizationId, 6);
+
+  await page.goto("/campaigns?onboarding=test");
+  await expect(page.getByTestId("onboarding-test-mode")).toBeVisible();
+  await expect(page.getByTestId("onboarding-test-mode")).toContainText("limited to 5 eligible contacts");
+  await expect(page.getByText("Choose an audience with 5 or fewer eligible contacts.")).toBeVisible();
+
+  const directCall = await page.evaluate(async (payload) => {
+    const response = await fetch("/api/campaigns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return { status: response.status, body: await response.json() as { error?: string } };
+  }, {
+    name: "Direct bypass attempt",
+    whatsappPhoneNumberId: fixtures.phoneId,
+    templateId: fixtures.templateId,
+    audience: { type: "all" },
+    bindings: [],
+    mode: "onboarding_test",
+  });
+
+  expect(directCall.status).toBe(400);
+  expect(directCall.body.error).toContain("limited to 5 eligible contacts");
+
+  const onboardingRows = await database.db.select({ testCampaignId: schema.organizationOnboarding.testCampaignId })
+    .from(schema.organizationOnboarding)
+    .where(eq(schema.organizationOnboarding.organizationId, organizationId));
+  expect(onboardingRows[0]?.testCampaignId ?? null).toBeNull();
+});
+
+test("failed onboarding tests stay incomplete and successful accepted sends complete the test step", async ({ page }, testInfo) => {
+  const { email } = await createVerifiedWorkspace(page, `test-state-${testInfo.project.name}`);
+  const organizationId = await organizationForEmail(email);
+  const fixtures = await seedMessagingFixtures(organizationId, 1);
+  const contact = fixtures.contacts[0];
+  if (!contact) throw new Error("Missing test contact");
+
+  const [campaign] = await database.db.insert(schema.campaigns).values({
+    organizationId,
+    whatsappPhoneNumberId: fixtures.phoneId,
+    templateId: fixtures.templateId,
+    name: "Onboarding send outcome test",
+    status: "failed",
+    recipientCount: 1,
+    snapshotCreatedAt: new Date(),
+    startedAt: new Date(),
+  }).returning({ id: schema.campaigns.id });
+  if (!campaign) throw new Error("Could not seed onboarding test campaign");
+
+  const [recipient] = await database.db.insert(schema.campaignRecipients).values({
+    organizationId,
+    campaignId: campaign.id,
+    contactId: contact.id,
+    phoneE164: contact.phoneE164,
+    displayName: contact.displayName,
+    status: "failed",
+    lastError: "Synthetic provider failure",
+    failedAt: new Date(),
+  }).returning({ id: schema.campaignRecipients.id });
+  if (!recipient) throw new Error("Could not seed onboarding test recipient");
+
+  await database.db.insert(schema.organizationOnboarding).values({
+    organizationId,
+    testCampaignId: campaign.id,
+    updatedAt: new Date(),
+  });
+
+  await page.goto("/onboarding");
+  await expect(page.locator('[data-step="test"]')).toContainText("Incomplete");
+
+  const now = new Date();
+  await database.db.update(schema.campaignRecipients).set({
+    status: "submitted",
+    wamid: `wamid-${randomUUID()}`,
+    submittedAt: now,
+    lastError: null,
+    failedAt: null,
+    updatedAt: now,
+  }).where(and(
+    eq(schema.campaignRecipients.id, recipient.id),
+    eq(schema.campaignRecipients.organizationId, organizationId),
+  ));
+  await database.db.update(schema.campaigns).set({
+    status: "completed",
+    dispatchCompletedAt: now,
+    completedAt: now,
+    updatedAt: now,
+  }).where(and(
+    eq(schema.campaigns.id, campaign.id),
+    eq(schema.campaigns.organizationId, organizationId),
+  ));
+
+  await page.reload();
+  await expect(page.locator('[data-step="test"]')).toContainText("Completed");
 });
 
 test("onboarding state is isolated between organizations", async ({ browser }, testInfo) => {

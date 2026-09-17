@@ -2,6 +2,7 @@ import { and, count, eq, ne } from "drizzle-orm";
 import { schema } from "@wa/db";
 import { db } from "@/lib/server";
 import { deriveOnboardingProgress, type OnboardingProgress } from "@/lib/onboarding-model";
+import { isSuccessfulOnboardingTest, type OnboardingTestRecipientCounts } from "@/lib/onboarding-test-mode";
 
 export async function getOnboardingProgress(
   organizationId: string,
@@ -21,6 +22,8 @@ export async function getOnboardingProgress(
     listRows,
     segmentRows,
     campaignRows,
+    testCampaignRows,
+    testRecipientRows,
   ] = await Promise.all([
     db.select({ emailVerified: schema.authUser.emailVerified }).from(schema.authUser)
       .where(eq(schema.authUser.id, externalAuthId)).limit(1),
@@ -50,7 +53,31 @@ export async function getOnboardingProgress(
           ))
       : db.select({ total: count() }).from(schema.campaigns)
           .where(eq(schema.campaigns.organizationId, organizationId)),
+    onboarding?.testCampaignId
+      ? db.select({
+          status: schema.campaigns.status,
+          recipientCount: schema.campaigns.recipientCount,
+        }).from(schema.campaigns)
+          .where(and(
+            eq(schema.campaigns.id, onboarding.testCampaignId),
+            eq(schema.campaigns.organizationId, organizationId),
+          ))
+          .limit(1)
+      : Promise.resolve([]),
+    onboarding?.testCampaignId
+      ? db.select({ status: schema.campaignRecipients.status, total: count() })
+          .from(schema.campaignRecipients)
+          .where(and(
+            eq(schema.campaignRecipients.campaignId, onboarding.testCampaignId),
+            eq(schema.campaignRecipients.organizationId, organizationId),
+          ))
+          .groupBy(schema.campaignRecipients.status)
+      : Promise.resolve([]),
   ]);
+
+  const testCounts: OnboardingTestRecipientCounts = {};
+  for (const row of testRecipientRows) testCounts[row.status] = row.total;
+  const testCampaign = testCampaignRows[0];
 
   return deriveOnboardingProgress({
     emailVerified: authRows[0]?.emailVerified ?? false,
@@ -60,7 +87,11 @@ export async function getOnboardingProgress(
     consentConfirmed: Boolean(onboarding?.consentConfirmedAt),
     templateReady: (templateRows[0]?.total ?? 0) > 0,
     audienceReady: (listRows[0]?.total ?? 0) > 0 || (segmentRows[0]?.total ?? 0) > 0,
-    testSent: Boolean(onboarding?.testCampaignId),
+    testSent: isSuccessfulOnboardingTest({
+      campaignStatus: testCampaign?.status,
+      recipientCount: testCampaign?.recipientCount ?? 0,
+      counts: testCounts,
+    }),
     campaignLaunched: (campaignRows[0]?.total ?? 0) > 0,
     skippedSteps: onboarding?.skippedSteps ?? [],
     dismissed: Boolean(onboarding?.skippedAt),

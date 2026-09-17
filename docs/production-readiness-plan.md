@@ -641,7 +641,7 @@ Extend the current text-oriented template flow to support the Meta template stru
 - [ ] Cancel/reschedule are safe.
 - [ ] Duplicate scheduler execution cannot duplicate campaign dispatch.
 
-## [ ] PR-017 — Implement real onboarding test mode
+## [x] PR-017 — Implement real onboarding test mode
 
 **Tracking issue:** [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62)
 
@@ -660,11 +660,11 @@ Extend the current text-oriented template flow to support the Meta template stru
 
 ### Definition of done
 
-- [ ] Test mode is visibly distinct.
-- [ ] Recipient limit is server-enforced.
-- [ ] Successful test updates onboarding state.
-- [ ] Failed test does not incorrectly complete onboarding.
-- [ ] Automated tests cover test-mode restrictions.
+- [x] Test mode is visibly distinct.
+- [x] Recipient limit is server-enforced.
+- [x] Successful test updates onboarding state.
+- [x] Failed test does not incorrectly complete onboarding.
+- [x] Automated tests cover test-mode restrictions.
 
 ---
 
@@ -873,7 +873,7 @@ These do not necessarily block the first paid launch unless they are explicitly 
 - [x] PR-014 Inbound inbox ([#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59))
 - [ ] PR-015 Rich WhatsApp templates ([#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60))
 - [ ] PR-016 Campaign scheduling/automation foundation ([#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61))
-- [ ] PR-017 Onboarding test mode ([#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62))
+- [x] PR-017 Onboarding test mode ([#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62))
 - [ ] PR-018 Contact management depth ([#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63))
 - [ ] PR-019 Full notification runtime ([#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64))
 - [ ] PR-020 Expanded platform admin tooling ([#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65))
