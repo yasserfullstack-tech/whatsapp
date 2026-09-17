@@ -10,6 +10,11 @@ describe("notification policy", () => {
     expect(resolveNotificationChannels("security_event", { inAppEnabled: false, emailEnabled: false })).toEqual({ inApp: true, email: true });
   });
 
+  test("inbound message notifications are opt-in by default", () => {
+    expect(resolveNotificationChannels("inbound_message", null)).toEqual({ inApp: false, email: false });
+    expect(resolveNotificationChannels("inbound_message", { inAppEnabled: true, emailEnabled: false })).toEqual({ inApp: true, email: false });
+  });
+
   test("renders English email as LTR", () => {
     const rendered = renderNotificationEmail({ title: "Campaign completed", message: "Done", link: "/campaigns/123", locale: "en", baseUrl: "https://app.example.test" });
     expect(rendered.direction).toBe("ltr");
