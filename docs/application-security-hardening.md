@@ -14,7 +14,7 @@ Relevant regression suites include:
 - `e2e/security/query-abuse.e2e.ts` for SQL metacharacters and wildcard payloads through audience filters;
 - `e2e/security/object-storage-isolation.e2e.ts` for foreign-tenant, traversal-like, duplicate-separator, backslash, and control-character object keys;
 - `e2e/security/platform-admin*.e2e.ts` for workspace/platform-admin boundary checks;
-- package-level security tests for storage prefix validation and credential encryption.
+- package-level storage prefix tests plus `tests/credential-encryption-rotation.test.ts` for credential encryption and key-rotation behavior.
 
 A security regression is not accepted merely because the UI hides an object. Tenant identity must participate in the database lookup/mutation predicate, foreign resources should normally be indistinguishable from absent resources, and object-storage keys must be independently checked against the authenticated tenant's expected prefix before signing or reading.
 
@@ -44,7 +44,7 @@ All production secrets remain owned by the deployment secret manager or host con
 
 ### Credential-encryption key: current exercise
 
-`packages/credentials/src/index.test.ts` exercises the cryptographic core of the current rotation procedure:
+`tests/credential-encryption-rotation.test.ts` exercises the cryptographic core of the current rotation procedure:
 
 1. encrypt a credential with the old 32-byte AES key;
 2. decrypt it with the old key;
