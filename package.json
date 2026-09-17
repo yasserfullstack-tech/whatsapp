@@ -16,6 +16,7 @@
     "test:e2e": "bun e2e/support/run-e2e.ts",
     "test:security": "playwright test -c playwright.security.config.ts",
     "typecheck": "bun run --filter '@wa/*' typecheck",
+    "validate:provider-evidence": "bun infra/production/scripts/validate-provider-evidence.ts",
     "db:generate": "bun run --filter @wa/db db:generate",
     "db:migrate": "bun run --filter @wa/db db:migrate",
     "db:verify": "bun run --filter @wa/db db:verify",
