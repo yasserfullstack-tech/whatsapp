@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "environment": "staging",
+  "executedAt": "2026-09-17T00:00:00Z",
+  "operator": "release-engineer",
+  "release": {
+    "commit": "0000000000000000000000000000000000000000",
+    "images": {
+      "web": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "api": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "worker": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "migrator": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "flows": [
+    {
+      "id": "meta_embedded_signup",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "whatsapp_send",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "delivery_read_status",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "deliberate_send_failure",
+      "status": "pending",
+      "recoveryStatus": "pending",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "inbound_message",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "opt_out",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "credential_invalidation_reconnect",
+      "status": "pending",
+      "recoveryStatus": "pending",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "meta_asset_sync",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "r2_upload_import",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "email_delivery",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "full_campaign_dispatch",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "account_export",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "account_deletion",
+      "status": "pending",
+      "recoveryStatus": "not_applicable",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "billing_lifecycle",
+      "status": "pending",
+      "recoveryStatus": "pending",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "backup_restore",
+      "status": "pending",
+      "recoveryStatus": "pending",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    },
+    {
+      "id": "release_rollback",
+      "status": "pending",
+      "recoveryStatus": "pending",
+      "evidence": [],
+      "recoveryEvidence": [],
+      "notes": ""
+    }
+  ]
+}
