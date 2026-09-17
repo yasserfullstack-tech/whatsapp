@@ -17,13 +17,18 @@ export type R2Config = {
   endpoint?: string;
 };
 
+function hasUnsafeObjectPath(value: string, allowTrailingSlash = false): boolean {
+  if (value.startsWith("/") || value.includes("\\") || /[\u0000-\u001f\u007f]/u.test(value)) return true;
+
+  const normalized = allowTrailingSlash && value.endsWith("/") ? value.slice(0, -1) : value;
+  if (!normalized) return true;
+  return normalized.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
 export function isObjectKeyWithinPrefix(key: string, prefix: string): boolean {
   if (!key || !prefix || !prefix.endsWith("/")) return false;
-  if (key.startsWith("/") || key.includes("\\") || key.includes("\0")) return false;
-  if (!key.startsWith(prefix) || key.length <= prefix.length) return false;
-
-  const segments = key.split("/");
-  return !segments.some((segment) => segment === "" || segment === "." || segment === "..");
+  if (hasUnsafeObjectPath(prefix, true) || hasUnsafeObjectPath(key)) return false;
+  return key.startsWith(prefix) && key.length > prefix.length;
 }
 
 export function createR2Client(config: R2Config): S3Client {
