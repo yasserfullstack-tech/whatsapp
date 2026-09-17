@@ -9,6 +9,7 @@ import {
 import { createDatabase, schema } from "@wa/db";
 import { parseInboxWebhook, type InboxInboundMessage } from "@wa/meta/inbox";
 import type { WhatsAppMessageStatus } from "@wa/meta/webhooks";
+import { NotificationService } from "@wa/notifications";
 import { createLogger } from "@wa/observability";
 
 type Database = ReturnType<typeof createDatabase>["db"];
@@ -81,69 +82,19 @@ async function emitInboundNotification(
     preview: string | null;
   },
 ) {
-  const [members, localeRow, preferences] = await Promise.all([
-    db
-      .select({ userId: schema.organizationMembers.userId })
-      .from(schema.organizationMembers)
-      .where(eq(schema.organizationMembers.organizationId, input.organizationId)),
-    db
-      .select({ preferredLanguage: schema.workspacePreferences.preferredLanguage })
-      .from(schema.workspacePreferences)
-      .where(eq(schema.workspacePreferences.organizationId, input.organizationId))
-      .limit(1)
-      .then((rows) => rows[0]),
-    db
-      .select({ userId: schema.notificationPreferences.userId, inAppEnabled: schema.notificationPreferences.inAppEnabled })
-      .from(schema.notificationPreferences)
-      .where(and(
-        eq(schema.notificationPreferences.organizationId, input.organizationId),
-        eq(schema.notificationPreferences.type, "inbound_message"),
-      )),
-  ]);
-
-  const disabled = new Set(preferences.filter((item) => !item.inAppEnabled).map((item) => item.userId));
-  const locale = localeRow?.preferredLanguage === "ar" ? "ar" : "en";
-  const display = input.senderName || input.senderPhone;
-  const title = locale === "ar" ? "رسالة واتساب جديدة" : "New WhatsApp message";
-  const message = locale === "ar"
-    ? `${display} أرسل رسالة جديدة${input.preview ? `: ${input.preview}` : "."}`
-    : `${display} sent a new message${input.preview ? `: ${input.preview}` : "."}`;
-
-  for (const member of members) {
-    if (disabled.has(member.userId)) continue;
-    const [notification] = await db
-      .insert(schema.notifications)
-      .values({
-        organizationId: input.organizationId,
-        userId: member.userId,
-        type: "inbound_message",
-        title,
-        message: message.slice(0, 1_000),
-        metadata: {
-          conversationId: input.conversationId,
-          phoneNumber: input.senderPhone,
-          senderName: input.senderName,
-        },
-        link: `/inbox?conversation=${input.conversationId}`,
-        dedupeKey: `inbox:${input.messageId}`,
-      })
-      .onConflictDoNothing({
-        target: [schema.notifications.organizationId, schema.notifications.userId, schema.notifications.dedupeKey],
-      })
-      .returning({ id: schema.notifications.id });
-    if (!notification) continue;
-    await db
-      .insert(schema.notificationDeliveries)
-      .values({
-        notificationId: notification.id,
-        organizationId: input.organizationId,
-        userId: member.userId,
-        channel: "in_app",
-        status: "sent",
-        sentAt: new Date(),
-      })
-      .onConflictDoNothing();
-  }
+  const notifications = new NotificationService({ db });
+  await notifications.emit({
+    id: `inbox:${input.messageId}`,
+    type: "inbound_message",
+    organizationId: input.organizationId,
+    metadata: {
+      conversationId: input.conversationId,
+      phoneNumber: input.senderPhone,
+      senderName: input.senderName,
+      preview: input.preview,
+    },
+    link: `/inbox?conversation=${input.conversationId}`,
+  });
 }
 
 async function recordInboundMessage(
