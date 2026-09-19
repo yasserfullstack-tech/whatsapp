@@ -49,7 +49,7 @@ For engineering tasks, verification requires implementation, automated tests, do
 
 ## 2. `main` is not protected
 
-GitHub reports `main` with branch protection disabled and required status-check enforcement off. That allows code to land even when a workflow is red. At minimum, CI, Security, Production Infra where applicable, and the release-relevant load/reliability gate should be enforced through branch protection/rulesets or an equivalent required-PR policy.
+GitHub reports `main` with branch protection disabled and required status-check enforcement off. That allows code to land even when a workflow is red. At minimum, CI, Security, Production Infra where applicable, and the release-relevant load/reliability gate should be enforced through branch protection/rulesets or an equivalent required-PR policy. The repository-side controls are prepared but **not applied**: see [`docs/release-controls.md`](release-controls.md) for the enforced-policy runbook (required-check list, force-push/deletion and bypass policy, and the two test-PR verifications) and [`.github/rulesets/main.json`](../.github/rulesets/main.json) for the ruleset-as-code that the repository owner applies with one command. Nothing below is marked complete until that enforcement is active and verified.
 
 ## 3. Tracking issues and readiness evidence have drifted apart
 
