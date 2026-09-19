@@ -364,3 +364,40 @@ Before changing any unchecked task to `[x]`:
 6. Update this plan in the same change that declares the task verified.
 
 A green local/fake-provider test is valuable regression evidence, but it does not substitute for provider, production, legal, recovery, operator-delivery, representative-capacity, or independent-security evidence where those are explicitly required.
+
+---
+
+# Closing-keyword convention for readiness PRs
+
+The readiness tracking issues (#46–#67) are the source of truth for launch state; this plan's top-level `[x]`/`[ ]` checkboxes must stay aligned with them. To stop the drift documented in [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92), use these merge keywords on readiness implementation PRs:
+
+- `[x]` in this plan means **verified complete**, not merely merged. Never check a box (and never declare a task done) until its Definition of Done and any required real-environment evidence are satisfied.
+- An implementation PR that intentionally leaves external evidence outstanding **must** use `Refs #N` or `Supports #N`, **never** `Closes #N` or `Fixes #N`. This applies to provider, production, legal, recovery, capacity, operator-delivery, and independent-security evidence that cannot be produced by repository CI.
+- External-evidence tracking issues are **never** closed by repository CI alone. A merge that auto-closes one of #46–#67 must first carry real evidence of completion, or the issue must be reopened and the plan checkbox left unchecked.
+- When a readiness checkbox is promoted to `[x]`, the same change/review must confirm the tracking issue can be closed and that evidence links are present on the issue.
+- If a tracking issue was auto-closed by a merge while evidence is still outstanding, reopen it and keep the corresponding plan checkbox unchecked.
+
+A minimal automated check enforces this contract:
+
+```
+bun infra/production/scripts/check-readiness-sync.ts
+```
+
+It parses the top-level `PR-001`..`PR-022` checklist in this file, queries each tracking issue's state, and fails when a checked item has an open issue or an unchecked item has a closed issue.
+
+---
+
+# Release review step
+
+This step is performed before declaring production readiness (or any paid-production launch) and is gated on the `release-review` workflow (manual dispatch from the Actions tab) plus a maintainer sign-off on this plan.
+
+1. Run the consistency check and confirm zero mismatches:
+   ```
+   bun infra/production/scripts/check-readiness-sync.ts
+   ```
+   The table it prints (`item -> checkbox state -> issue number -> issue state -> OK/MISMATCH`) must contain no `MISMATCH` rows.
+2. Reconcile `docs/production-readiness-plan.md` with issue state: every unchecked item must have an open tracking issue; every checked item's issue must be closed only after real evidence is attached.
+3. Confirm every Paid-production launch gate (#46–#58) has verified real-environment evidence, not repository CI alone.
+4. Confirm `main` branch protection and required release-relevant status checks (CI, Security, Production Infra, representative load gate) are enforced.
+5. Confirm the current Load Smoke workflow is green on the release commit.
+6. Record the audit result and release-verdict evidence in `docs/production-readiness-plan.md` under "Current release verdict" before announcing readiness.
