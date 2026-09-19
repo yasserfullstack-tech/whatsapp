@@ -19,6 +19,19 @@ jobs:
         run: bun run load:run -- --scenario=baseline-80 --recipients=1000 --timeout-ms=120000
       - name: 1k webhook smoke
         run: bun run load:webhooks -- --events=1000 --concurrency=50 --timeout-ms=120000
+      - name: Collect load infrastructure logs
+        if: always()
+        run: |
+          mkdir -p load-results
+          docker compose -f docker-compose.load.yml logs --no-color --timestamps > load-results/docker-compose.log 2>&1 || true
+      - name: Upload load smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-smoke-results
+          path: load-results/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Cleanup load infrastructure
         if: always()
         run: bun run load:infra:down
