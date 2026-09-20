@@ -11,6 +11,11 @@ function desktopOnly(projectName: string) {
   return projectName !== "desktop-1440";
 }
 
+const mutationHeaders = {
+  origin: "http://127.0.0.1:3000",
+  "sec-fetch-site": "same-origin",
+};
+
 type ContactDetail = {
   contact: {
     id: string;
@@ -33,6 +38,7 @@ test.describe("contact management evidence", () => {
     const tenant = await createTenant("contact-management-lifecycle");
     try {
       const targetResponse = await tenant.api.post("/api/contacts", {
+        headers: mutationHeaders,
         data: {
           phoneE164: "+18005550101",
           displayName: "Primary Contact",
@@ -45,6 +51,7 @@ test.describe("contact management evidence", () => {
       const target = (await targetResponse.json()) as { contact: { id: string } };
 
       const sourceResponse = await tenant.api.post("/api/contacts", {
+        headers: mutationHeaders,
         data: {
           phoneE164: "+18005550102",
           displayName: "Duplicate Contact",
@@ -57,6 +64,7 @@ test.describe("contact management evidence", () => {
       const source = (await sourceResponse.json()) as { contact: { id: string } };
 
       const update = await tenant.api.patch(`/api/contacts/${target.contact.id}`, {
+        headers: mutationHeaders,
         data: {
           displayName: "Primary Contact Updated",
           tags: ["vip", "priority"],
@@ -67,6 +75,7 @@ test.describe("contact management evidence", () => {
       expect(update.status(), await update.text()).toBe(200);
 
       const bulkTag = await tenant.api.post("/api/contacts/bulk", {
+        headers: mutationHeaders,
         data: {
           contactIds: [target.contact.id, source.contact.id],
           action: "add_tag",
@@ -77,6 +86,7 @@ test.describe("contact management evidence", () => {
       expect(await bulkTag.json()).toMatchObject({ affected: 2, action: "add_tag" });
 
       const merge = await tenant.api.post("/api/contacts/merge", {
+        headers: mutationHeaders,
         data: {
           targetContactId: target.contact.id,
           sourceContactIds: [source.contact.id],
@@ -131,6 +141,7 @@ test.describe("contact management evidence", () => {
       expect(mergeAudit[0]?.target_snapshot.id).toBe(target.contact.id);
 
       const bulkSuppress = await tenant.api.post("/api/contacts/bulk", {
+        headers: mutationHeaders,
         data: {
           contactIds: [target.contact.id],
           action: "suppress",
