@@ -515,12 +515,22 @@ async function emitCampaignTerminalStates(db: Database, notifications: Notificat
   return emitted;
 }
 
-async function emitImportTerminalStates(db: Database, notifications: NotificationEmitter, since: Date): Promise<number> {
+/**
+ * Replays contact-import completions.
+ *
+ * Only `completed` rows are replayed. `processContactImport` writes
+ * `status = "failed"` before rethrowing on *every* attempt, so a `failed` row is
+ * not necessarily terminal while the contact-import queue still has retries
+ * left. Replaying it here could announce a failure that a later retry turns into
+ * a success. Import failures are therefore emitted only by the queue hook in
+ * `notification-runtime.ts`, which checks `attemptsMade >= attempts` first.
+ */
+async function emitImportCompletionStates(db: Database, notifications: NotificationEmitter, since: Date): Promise<number> {
   const rows = await db
     .select({ id: schema.contactImports.id })
     .from(schema.contactImports)
     .where(and(
-      inArray(schema.contactImports.status, ["completed", "failed"]),
+      eq(schema.contactImports.status, "completed"),
       gte(schema.contactImports.updatedAt, since),
     ));
 
@@ -551,7 +561,7 @@ export async function reconcileNotificationSources(input: {
     emitSubscriptionChanges(input.db, input.notifications, input.since),
     emitUsageThresholds(input.db, input.notifications, input.since),
     emitCampaignTerminalStates(input.db, input.notifications, input.since),
-    emitImportTerminalStates(input.db, input.notifications, input.since),
+    emitImportCompletionStates(input.db, input.notifications, input.since),
   ]);
   return { platform, workspace, payments, subscriptions, usage, campaigns, imports };
 }

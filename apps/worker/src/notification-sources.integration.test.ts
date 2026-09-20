@@ -149,4 +149,40 @@ describe("notification durable source reconciliation", () => {
       await database.client.end({ timeout: 5 });
     }
   });
+
+  test("does not replay a contact-import failure that the queue may still retry", async () => {
+    const database = createDatabase(databaseUrl);
+    const db = database.db;
+    const suffix = randomUUID().slice(0, 8);
+    const { organizationId, ownerId } = await seedOrganization(db, suffix);
+    const notifications = new NotificationService({ db });
+
+    try {
+      const importId = randomUUID();
+      // `processContactImport` persists exactly this shape before rethrowing on
+      // every attempt, so the row is not terminal while retries remain.
+      await db.insert(schema.contactImports).values({
+        id: importId,
+        organizationId,
+        originalFileName: `import-${suffix}.csv`,
+        objectKey: `imports/${suffix}/import.csv`,
+        sizeBytes: 128,
+        defaultCountry: "US",
+        optInSource: "manual",
+        confirmedOptInAt: new Date(),
+        status: "failed",
+        errorMessage: "transient failure",
+      });
+
+      const since = new Date(Date.now() - 60_000);
+      await reconcileNotificationSources({ db, notifications, since });
+
+      expect(await notificationCount(db, `import:${importId}:failed`)).toBe(0);
+      expect(await notificationCount(db, `import:${importId}:completed`)).toBe(0);
+    } finally {
+      await db.delete(schema.organizations).where(eq(schema.organizations.id, organizationId));
+      await db.delete(schema.users).where(eq(schema.users.id, ownerId));
+      await database.client.end({ timeout: 5 });
+    }
+  });
 });

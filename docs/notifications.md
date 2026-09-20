@@ -12,7 +12,8 @@ source claims durable reconciliation that `reconcileNotificationSources` no long
 | Notification | Durable source | Emitter | Recipient scope |
 | --- | --- | --- | --- |
 | Campaign completed / failed | `campaigns.status` terminal state plus the BullMQ campaign-dispatch completion/failure event | `apps/worker/src/notification-runtime.ts` (queue hook) and `emitCampaignTerminalStates` in `apps/worker/src/notification-sources.ts` (durable replay) | Workspace members, filtered by preferences |
-| Import completed / failed | `contact_imports.status` terminal state plus the BullMQ contact-import completion/failure event | `apps/worker/src/notification-runtime.ts` (queue hook) and `emitImportTerminalStates` in `apps/worker/src/notification-sources.ts` (durable replay) | Workspace members, filtered by preferences |
+| Import completed | `contact_imports.status` = completed plus the BullMQ contact-import completion event | `apps/worker/src/notification-runtime.ts` (queue hook) and `emitImportCompletionStates` in `apps/worker/src/notification-sources.ts` (durable replay) | Workspace members, filtered by preferences |
+| Import failed | `contact_imports.status` = failed once the contact-import queue has exhausted its attempts | `apps/worker/src/notification-runtime.ts` only; the hook checks `attemptsMade >= attempts` | Workspace members, filtered by preferences |
 | Template approved / rejected | `platform_audit_events` written by Meta webhook/reconciliation state changes | `emitPlatformAuditEvents` in `apps/worker/src/notification-sources.ts` | Workspace members, filtered by preferences |
 | WhatsApp disconnected | `workspace_audit_logs` written by the disconnect mutation | `emitWorkspaceAuditEvents` in `apps/worker/src/notification-sources.ts` | Owners/admins; mandatory |
 | WhatsApp reauthorization / connection problem | Connection-health transition and restricted-WABA audit event | `notifyWorkspaceAdmins` in `apps/worker/src/connection-health.ts` and `emitPlatformAuditEvents` in `apps/worker/src/notification-sources.ts` | Owners/admins; mandatory |
@@ -28,13 +29,21 @@ Team invitation delivery is a separate transactional invitation email and is not
 
 Inbound-message notifications are the only catalog entry without a durable reconciliation pass: they are emitted inline from the webhook projection that inserts the `inbox_messages` row, and the webhook event itself is retried until the row is durably projected.
 
+Import failures are deliberately not replayed. `processContactImport` writes `status = "failed"` before rethrowing on *every* attempt, so a failed row is not terminal while the contact-import queue still has retries left (4 attempts with backoff). A scan cannot tell a transient failure write from a terminal one, so `import_failed` is emitted only by the queue hook, which compares `attemptsMade` against `attempts`. Replaying a transient row would announce a failure that a later retry turns into a success.
+
+### Reconciliation window
+
+The durable pass rereads a short overlap window (`SOURCE_REPLAY_OVERLAP_MS`, 2 minutes) and initialises its scan anchor at process start, so it replays terminal transitions that happened within roughly two minutes before the notification worker started. A transition older than that when the worker restarts is not replayed, for any source in the pass — this is the pre-existing anchor behaviour, not specific to the campaign/import scans.
+
+That window is a deliberate bound: dedupe keys are stable, so widening it would be idempotent, but it would also deliver stale notifications for every terminal transition during a long outage. Widening it is an operational decision that needs an explicit retention bound, so it is left as documented behaviour rather than an unbounded backfill.
+
 ## Replay and deduplication
 
 `NotificationService` uses the durable source identity as `dedupe_key`. The database unique constraint on `(organization_id, user_id, dedupe_key)` is the final duplicate barrier.
 
 The worker intentionally rereads a short overlap window for audit/billing sources. This makes process restarts and scan-boundary races safe: a source event may be inspected more than once, but the same user cannot receive a second notification for the same event.
 
-Campaign and import terminal notifications are emitted by the BullMQ completion/failure hook and by the same durable reconciliation pass that covers audit/billing sources. Both paths build the same stable key, so a queue event that is missed while the notification worker is restarting is replayed exactly once by the next scan.
+Campaign terminal notifications are emitted by the BullMQ completion/failure hook and by the same durable reconciliation pass that covers audit/billing sources. Both paths build the same stable key, so a queue event that is missed while the notification worker is restarting is replayed exactly once by the next scan, within the reconciliation window described above. Import completions replay the same way; import failures do not replay, for the reason given above.
 
 Examples:
 

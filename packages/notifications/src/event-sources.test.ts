@@ -61,8 +61,11 @@ describe("notification event-source catalog", () => {
     }
   });
 
-  test("only opt-in or explicitly non-reconciled events skip the durable pass", () => {
+  test("only events with a genuinely terminal durable state skip the reconciliation pass", () => {
+    // `inbound_message` is projected inline by the retried webhook processor, and
+    // `import_failed` needs the queue's attempt count to distinguish a transient
+    // failure write from a terminal one, so neither can be re-derived from a scan.
     const withoutReconciler = NOTIFICATION_TYPES.filter((type) => !NOTIFICATION_EVENT_SOURCES[type].reconciler);
-    expect(withoutReconciler).toEqual(["inbound_message"]);
+    expect(withoutReconciler).toEqual(["import_failed", "inbound_message"]);
   });
 });

@@ -48,22 +48,21 @@ export const NOTIFICATION_EVENT_SOURCES: Record<NotificationType, NotificationEv
     reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitCampaignTerminalStates" },
   },
   import_completed: {
-    source: "`contact_imports.status` terminal state (BullMQ contact-import completion, replayed by the durable scan)",
+    source: "`contact_imports.status` = completed (BullMQ contact-import completion, replayed by the durable scan)",
     recipients: "Workspace members, filtered by preferences",
     emitters: [
       { file: NOTIFICATION_RUNTIME, anchor: "emitImportTerminalNotification" },
       { file: NOTIFICATION_SOURCES, anchor: "\"import_completed\"" },
     ],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitImportTerminalStates" },
+    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitImportCompletionStates" },
   },
   import_failed: {
-    source: "`contact_imports.status` terminal state (BullMQ contact-import terminal failure, replayed by the durable scan)",
+    source: "`contact_imports.status` = failed once the contact-import queue has exhausted its attempts",
     recipients: "Workspace members, filtered by preferences",
-    emitters: [
-      { file: NOTIFICATION_RUNTIME, anchor: "emitImportTerminalNotification" },
-      { file: NOTIFICATION_SOURCES, anchor: "\"import_failed\"" },
-    ],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitImportTerminalStates" },
+    // No reconciler: `processContactImport` writes `status = "failed"` before
+    // rethrowing on every attempt, so a failed row is not terminal until the
+    // queue gives up. Only the queue hook can tell the two apart.
+    emitters: [{ file: NOTIFICATION_RUNTIME, anchor: "emitImportTerminalNotification" }],
   },
   template_approved: {
     source: "`platform_audit_events` rows for `meta.asset.template_status_changed` / `meta.asset.template_reconciled` with status approved",
