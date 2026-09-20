@@ -1,6 +1,6 @@
 # Production Readiness Plan
 
-_Last audited against `main`: 2026-09-17_
+_Last audited against `main`: 2026-09-20_
 
 This document is the source of truth for production-readiness and product-completeness status. It deliberately separates **repository implementation** from **production verification** so merged code, closed GitHub issues, mocks, or documentation are not mistaken for launch evidence.
 
@@ -8,18 +8,18 @@ This document is the source of truth for production-readiness and product-comple
 
 > **NOT CLEARED FOR PAID PRODUCTION TRAFFIC.**
 
-The codebase has substantial production-readiness work merged, but the paid-launch gate is still open because real Meta/provider/production evidence is incomplete and the current `main` HEAD has a failing Load Smoke workflow.
+The codebase has substantial production-readiness work merged, but the paid-launch gate is still open because real Meta/provider/production/legal/security evidence is incomplete and `main` release controls are not yet enforced. The previously failing Load Smoke gate has been fixed and is green.
 
-Current audited HEAD before this documentation update:
+Current audited `main`:
 
-- Commit: [`149cc1aa4d286ff5ceba7adaf35dda1f2d3e044e`](https://github.com/yasserfullstack-tech/whatsapp/commit/149cc1aa4d286ff5ceba7adaf35dda1f2d3e044e)
-- CI: **success** — [run 35209808808](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808808)
-- Security: **success** — [run 35209808801](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808801)
-- Production Infra: **success** — [run 35209808836](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808836)
-- Load Smoke: **failure** — [run 35209808796](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796)
-- `main` branch protection: **disabled**; required status checks are not enforced by branch protection.
+- Commit: [`8c373540111d01c3968d2bd95b6b5618066a323b`](https://github.com/yasserfullstack-tech/whatsapp/commit/8c373540111d01c3968d2bd95b6b5618066a323b)
+- CI: **success** — [run 35437481703](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35437481703)
+- Security: **success** — [run 35437481670](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35437481670)
+- Load Smoke: **success** — [run 35437481771](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35437481771)
+- Readiness Issue Sync: **success** — [run 35437481734](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35437481734)
+- Repository rulesets: **none active**; the ruleset collection is still empty, so required merge checks are not yet enforced.
 
-The failed Load Smoke job reached the composed upload/throughput/send smoke step and failed there; its artifact-upload step also failed. The exact runtime root cause is **not yet verified** because job-log retrieval was unavailable during this audit. Do not guess the cause; investigate the run directly and rerun it to green.
+Load Smoke issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) is closed after the billing-fixture root cause was fixed and the green `main` rerun was verified. The current release-control blocker is [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91): apply and verify the prepared `main-release-controls` ruleset, prove a failing required check blocks merge, then prove a fully green PR merges through the active policy.
 
 ---
 
@@ -41,61 +41,25 @@ For engineering tasks, verification requires implementation, automated tests, do
 
 ---
 
-# What is wrong right now
+# Current launch blockers and recent fixes
 
-## 1. Current `main` is red on Load Smoke
+## 1. Load Smoke regression is resolved
 
-[Load Smoke run 35209808796](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796) failed on audited HEAD `149cc1aa...`. This must be investigated and rerun successfully before treating the current release candidate as healthy.
+The previously failing release smoke is fixed. [Load Smoke run 35437481771](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35437481771) is green on `main` commit `8c373540...`, and [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) is closed with the root-cause and recovery evidence recorded. Keep the release-relevant smoke gate green on future release candidates.
 
-## 2. `main` is not protected
+## 2. `main` release controls are still not active
 
-GitHub reports `main` with branch protection disabled and required status-check enforcement off. That allows code to land even when a workflow is red. At minimum, CI, Security, Production Infra where applicable, and the release-relevant load/reliability gate should be enforced through branch protection/rulesets or an equivalent required-PR policy. The repository-side controls are prepared but **not applied**: see [`docs/release-controls.md`](release-controls.md) for the enforced-policy runbook (required-check list, force-push/deletion and bypass policy, and the two test-PR verifications) and [`.github/rulesets/main.json`](../.github/rulesets/main.json) for the ruleset-as-code that the repository owner applies with one command. Nothing below is marked complete until that enforcement is active and verified.
+The policy and runbook are merged, but the repository ruleset collection is still empty. See [`docs/release-controls.md`](release-controls.md) and [`.github/rulesets/main.json`](../.github/rulesets/main.json). [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91) remains the immediate control-plane blocker: activate the prepared ruleset, verify the exact required contexts, demonstrate a red PR is blocked, and use the preserved green PR [#96](https://github.com/yasserfullstack-tech/whatsapp/pull/96) to prove normal protected merging.
 
-## 3. Tracking issues and readiness evidence have drifted apart
+## 3. Readiness issue-state drift is guarded; final launch reconciliation remains
 
-Some issues are currently closed even though their PRs/comments explicitly say required evidence remains. Examples found during this audit:
+[#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92) added an automated plan/issue consistency check plus a manual release-review job. The last recorded audit reported `22 items audited, 0 mismatch(es)`. The closing-keyword convention is also documented below.
 
-- PR-004 / [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49): comments say real Meta staging state-change/reconciliation evidence is still required, but the issue is closed.
-- PR-009 / [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54): comment says real staging/production deployment, DNS/TLS/firewall, isolation, and rollback evidence is still required, but the issue is closed.
-- PR-010 / [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55): comments say real production backup/clean-host restore/RPO-RTO evidence is still required, but the issue is closed.
-- PR-022 / [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67): comments say independent security assessment/pentest evidence is still required, but the issue is closed.
-- PR-006 / [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51): the implementation PR states real Stripe test-mode lifecycle evidence was not yet claimed, while the tracking issue is closed.
-- PR-003 / [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48): the implementation PR says real staging reconnect evidence remains an operational validation item, while the tracking issue is closed.
-
-**Action:** reopen an issue when its required evidence is genuinely outstanding, or attach/review the missing evidence before leaving it closed. Do not use issue state alone as the release gate.
+The remaining #92 acceptance item is the final launch review itself: rerun the consistency check after the release-control and external-evidence work is complete, reconcile all PR-001…PR-022 checkbox/issue states, and record the final release verdict.
 
 ## 4. Mock/local regression coverage is not provider acceptance
 
-The repository has strong local/fake-provider regression coverage, but fake Meta, mock Stripe, local R2/S3, or synthetic email cannot close the provider-production acceptance gate. PR-012 exists specifically to require real-provider evidence.
-
----
-
-# Current task status
-
-| Task | Readiness | Repository implementation | What is still required |
-| --- | --- | --- | --- |
-| PR-001 Production readiness tracking | ✅ `[x]` | Merged via [#68](https://github.com/yasserfullstack-tech/whatsapp/pull/68) | Keep this plan current and keep merge gates accurate. |
-| PR-002 Current Meta Embedded Signup | 🟦 ⏳ `[ ]` | v4/config-driven flow merged via [#70](https://github.com/yasserfullstack-tech/whatsapp/pull/70) | Verify current production/test Meta config ID and complete a real Meta test-business onboarding with redacted evidence in [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47). |
-| PR-003 Connection health / reauthorization | 🟦 ⏳ `[ ]` | Lifecycle/validation/reconnect work merged via [#79](https://github.com/yasserfullstack-tech/whatsapp/pull/79) | Attach real staging reconnect/credential-replacement evidence; reconcile the currently closed [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) with that missing evidence. |
-| PR-004 Meta asset/account synchronization | 🟦 ⏳ `[ ]` | Webhook/reconciliation/audit/metrics work merged via [#78](https://github.com/yasserfullstack-tech/whatsapp/pull/78) | Capture a real Meta state transition or reconciliation repair in staging; [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49) is closed despite comments saying this evidence is still required. |
-| PR-005 External Meta prerequisites | ⏳ `[ ]` | Evidence runbook merged via [#69](https://github.com/yasserfullstack-tech/whatsapp/pull/69) | Production Meta approvals/access, webhook/configuration, real WABA/phone onboarding, and sanitized proof in [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50). |
-| PR-006 Real billing provider | 🟦 ⏳ `[ ]` | Stripe provider/lifecycle/webhook code merged via [#73](https://github.com/yasserfullstack-tech/whatsapp/pull/73) | Run the documented real Stripe test-mode lifecycle: Checkout, webhooks, upgrade/downgrade, portal, failed-payment recovery, cancel, replay, refund. Reconcile closed [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51) with the missing evidence. |
-| PR-007 Server-side entitlements | 🟦 `[ ]` | Enforcement/accounting merged via [#76](https://github.com/yasserfullstack-tech/whatsapp/pull/76) | Backfill/confirm final task evidence against the DoD and provider-linked billing behavior; keep paid-launch verification tied to PR-006/PR-012. |
-| PR-008 Legal/compliance | 🟦 ⏳ `[ ]` | Versioned drafts, acceptance storage, and runbooks merged via [#74](https://github.com/yasserfullstack-tech/whatsapp/pull/74) | Qualified legal review/approval, final entity/jurisdiction/vendor details, and approval evidence in [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53). |
-| PR-009 Staging/production infrastructure | 🟦 ⏳ `[ ]` | Isolation/immutable release/evidence/rollback tooling merged via [#71](https://github.com/yasserfullstack-tech/whatsapp/pull/71) | Real staging + production deployment proof, DNS/TLS/firewall, environment isolation, email/Sentry/Meta config, and actual rollback drill. [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54) is closed despite this evidence gap. |
-| PR-010 Backup/recovery | 🟦 ⏳ `[ ]` | Backup scheduling, off-server validation, restore drill tooling merged via [#77](https://github.com/yasserfullstack-tech/whatsapp/pull/77) | Real production timer/backup, freshness monitoring, clean-host restore + app smoke test, measured recovery, and accepted RPO/RTO/R2 strategy. [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55) is closed despite this gap. |
-| PR-011 Production alerting | 🟦 ⏳ `[ ]` | Alert rules, Alertmanager, exporters/probes, runbooks merged via [#75](https://github.com/yasserfullstack-tech/whatsapp/pull/75) | Trigger test alerts and prove delivery to a real human-operated destination; attach evidence to [#56](https://github.com/yasserfullstack-tech/whatsapp/issues/56). |
-| PR-012 Real-provider validation | 🟦 ⏳ `[ ]` | Evidence manifest/validator/signoff tooling merged via [#87](https://github.com/yasserfullstack-tech/whatsapp/pull/87) | Execute every required real-provider flow and recovery case, validate with `--require-pass`, review/redact artifacts, attach results to [#57](https://github.com/yasserfullstack-tech/whatsapp/issues/57). |
-| PR-013 Representative scale validation | 🟦 ⏳ ⚠️ `[ ]` | Certification/evidence controls merged via [#89](https://github.com/yasserfullstack-tech/whatsapp/pull/89) | Fix current Load Smoke failure first, then run representative staging/production-like load/soak/chaos/recovery with immutable release evidence and attach artifacts to [#58](https://github.com/yasserfullstack-tech/whatsapp/issues/58). |
-| PR-014 Inbound inbox | ✅ `[x]` | Merged via [#82](https://github.com/yasserfullstack-tech/whatsapp/pull/82) | Maintain regression/provider validation under PR-012. |
-| PR-015 Rich WhatsApp templates | 🟦 ⏳ `[ ]` | Rich components/preview/bindings/validation merged via [#80](https://github.com/yasserfullstack-tech/whatsapp/pull/80) | Approved representative rich template + real staging send evidence in [#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60). |
-| PR-016 Campaign scheduling | 🟦 `[ ]` | Scheduling/timezone/idempotent dispatch/cancel/reschedule merged via [#83](https://github.com/yasserfullstack-tech/whatsapp/pull/83) | Backfill explicit final CI/browser evidence against the DoD before promoting the plan checkbox. |
-| PR-017 Onboarding test mode | ✅ `[x]` | Merged and verified via [#85](https://github.com/yasserfullstack-tech/whatsapp/pull/85) | Maintain regression coverage. |
-| PR-018 Contact management | 🟦 `[ ]` | CRUD/custom fields/tags/notes/import mapping/bulk/merge/pagination merged via [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84) | Backfill explicit plan verification/evidence links before promoting the checkbox. |
-| PR-019 Notification runtime | 🟦 `[ ]` | Runtime event sources/dedupe/preferences/reconciliation merged via [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86) | Backfill explicit plan verification and any applicable production delivery evidence. |
-| PR-020 Platform admin tooling | 🟦 `[ ]` | Admin access/billing/Meta/queue/webhook/audit tooling merged via [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81) | Backfill final authorization/security/operational evidence before promoting the checkbox. |
-| PR-021 Container/supply-chain security | 🟦 `[ ]` | Frozen installs, provenance labels, Trivy scans and blocking policy merged via [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72) | Confirm/link final scan artifacts and policy evidence for the release; current Security/Production Infra are green on audited HEAD. |
-| PR-022 Application security / independent testing | 🟦 ⏳ `[ ]` | IDOR/object-storage/rotation/RLS/admin hardening merged via [#88](https://github.com/yasserfullstack-tech/whatsapp/pull/88) | Independent assessment/pentest plus remediation/retest or formal acceptance of critical/high findings. [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67) is closed even though its comments say this remains outstanding. |
+The repository has strong local/fake-provider regression coverage, but fake Meta, mock Stripe, local R2/S3, synthetic email delivery, and local infrastructure do not replace the explicitly required real-provider/production evidence. Those tasks remain unchecked until their tracking issues contain sanitized external evidence.
 
 ---
 
@@ -155,9 +119,9 @@ These items do not necessarily block the first paid launch unless explicitly pro
 
 ## P0 — release health and controls
 
-1. Investigate [Load Smoke run 35209808796](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796), fix the verified cause, rerun, and require a green release-relevant load gate.
-2. Protect `main` (or add an equivalent ruleset) so required CI/Security/release checks cannot be bypassed.
-3. Reconcile incorrectly closed readiness issues with their own outstanding evidence requirements.
+1. Activate and verify the prepared `main` ruleset in [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91), including the red blocked-merge probe and green merge-through-protection proof using [#96](https://github.com/yasserfullstack-tech/whatsapp/pull/96).
+2. After #96 lands, merge the staged verification PRs [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97) and [#98](https://github.com/yasserfullstack-tech/whatsapp/pull/98), then reconcile PR-018/PR-020 issue and checkbox state.
+3. Keep Load Smoke green on release candidates and run the #92 release-review consistency check before any launch decision.
 
 ## P0 — close paid-launch external evidence
 
@@ -173,8 +137,10 @@ These items do not necessarily block the first paid launch unless explicitly pro
 ## P1 — product/security evidence backfill
 
 12. Complete PR-015 real rich-template staging send evidence.
-13. Backfill explicit final evidence/checklist review for PR-016, PR-018, PR-019, PR-020, and PR-021.
-14. Complete PR-022 independent security assessment/pentest and remediation gate.
+13. Complete PR-016 by merging the preserved green verification PR #96 after #91 is active.
+14. Land PR-018 verification PR #97 and PR-020 verification PR #98 after #96; PR-021 repository evidence is already recorded on #66 and only needs synchronized checkbox/issue promotion.
+15. Complete PR-019 real email-provider delivery evidence.
+16. Complete PR-022 independent security assessment/pentest and remediation gate.
 
 ---
 
@@ -316,7 +282,9 @@ Verified complete with server-enforced recipient limits, direct-API bypass prote
 
 Manual CRUD, custom fields/tags/notes, import mapping, activity, bulk operations, auditable merge, permission checks, consent invariants, and keyset pagination are merged.
 
-**Still needed:** backfill the explicit final verification links/performance evidence required by the task before promoting the plan checkbox.
+**Verification staged:** [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97) adds direct CRUD/bulk/merge/permission/tenant-isolation/keyset-pagination evidence and is fully green. Its CI run traversed 1,205 contacts in 13 bounded pages and confirmed PostgreSQL used `contacts_org_phone_uq`.
+
+**Still needed:** land #97 on `main` after the #91/#96 protected-merge sequence, then close #63 and promote this checkbox in the same review.
 
 ## [ ] PR-019 — Wire the full notification catalog
 
@@ -324,7 +292,9 @@ Manual CRUD, custom fields/tags/notes, import mapping, activity, bulk operations
 
 Runtime event sources, preference/mandatory-category handling, replay-safe dedupe, durable reconciliation, and observable delivery are merged.
 
-**Still needed:** backfill explicit final verification and any applicable real-provider delivery evidence before promoting the checkbox.
+Repository-side dedupe, preference, mandatory-category, retry/failure, browser, and tenant-isolation evidence has been reviewed and recorded on #64.
+
+**Still needed:** attach redacted real email-provider delivery evidence (production uses Resend) before promoting this checkbox.
 
 ## [ ] PR-020 — Expand platform admin tooling
 
@@ -332,7 +302,9 @@ Runtime event sources, preference/mandatory-category handling, replay-safe dedup
 
 Platform-admin access, membership support, billing/Meta visibility, safe queue retry, webhook operations, pagination/search, and audit export are merged without adding impersonation.
 
-**Still needed:** explicit final authorization/security/operational evidence review against the task DoD.
+**Verification staged:** [#98](https://github.com/yasserfullstack-tech/whatsapp/pull/98) adds real failed-queue-job retry and durable webhook-retry browser evidence. Root tests, typecheck, build, browser E2E, Security, and CodeQL are green on the PR.
+
+**Still needed:** land #98 on `main` after the #91/#96 protected-merge sequence, then close #65 and promote this checkbox in the same review.
 
 ## [ ] PR-021 — Container and supply-chain security hardening
 
@@ -340,7 +312,9 @@ Platform-admin access, membership support, billing/Meta visibility, safe queue r
 
 Frozen Bun installs, lockfile repair after reproduced failure, OCI source/revision/version labels, Trivy scanning, report artifacts, and HIGH/CRITICAL blocking policy are merged.
 
-**Still needed:** ensure the release evidence contains the scan artifacts/policy outcome and any approved exception rationale. Keep the control continuous even after this checkbox is eventually verified.
+Repository verification is complete and recorded on #66: PR-021's Production Infra run built and scanned all four production images, uploaded the retained Trivy artifact, verified OCI labels, and passed every fixable HIGH/CRITICAL policy gate; CI and Security were green and no vulnerability exception was required.
+
+**Still needed:** synchronize the plan checkbox and #66 issue state in the same post-#91 review. Keep this continuous control enabled after promotion.
 
 ## [ ] PR-022 — Application security hardening and independent testing
 
@@ -348,7 +322,7 @@ Frozen Bun installs, lockfile repair after reproduced failure, OCI source/revisi
 
 Expanded IDOR/object-storage tests, credential key-rotation exercise/design, RLS decision, and privileged-admin review are merged. Current audited HEAD has green CI, Security, and Production Infra.
 
-**Still needed:** independent security review/pentest for the required release stage, plus remediation/retest or formal acceptance of critical/high findings. The tracking issue is currently closed even though its own comments say this evidence remains outstanding.
+**Still needed:** independent security review/pentest for the required release stage, plus remediation/retest or formal acceptance of critical/high findings. #67 is open and intentionally remains open until that external evidence is attached.
 
 ---
 
