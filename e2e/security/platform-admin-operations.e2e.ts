@@ -97,6 +97,9 @@ test.describe.serial("expanded platform administrator operational tooling", () =
   const phoneNumberId = `phone-ops-${run}`;
   let victimOrganizationSlug = "";
   let contactImportQueue: ReturnType<typeof createContactImportQueue>;
+  // The billing fixture creates a platform-wide plan (no `organizationId`), so
+  // it does not cascade with the tenant and has to be removed explicitly.
+  let billingPlanId: string | null = null;
 
   const adminViews = [
     "/admin",
@@ -129,6 +132,11 @@ test.describe.serial("expanded platform administrator operational tooling", () =
   test.afterAll(async () => {
     if (contactImportQueue) await contactImportQueue.close();
     if (victim) await destroySecurityTenant(victim);
+    // Subscriptions and subscription changes cascade with the organization, so
+    // by now nothing references the plan versions and the plan can be dropped.
+    if (billingPlanId) {
+      await securitySql`DELETE FROM plans WHERE id = ${billingPlanId}::uuid`;
+    }
     if (attacker) await destroySecurityTenant(attacker);
     if (admin) await destroySecurityTenant(admin);
   });
@@ -180,6 +188,7 @@ test.describe.serial("expanded platform administrator operational tooling", () =
       name: `Security Ops Plan ${run}`,
       isActive: true,
     }).returning();
+    billingPlanId = plan.id;
     const [currentVersion] = await securityDb.insert(schema.billingPlanVersions).values({
       planId: plan.id,
       version: 1,
