@@ -7,6 +7,7 @@ import { parseCampaignScheduledAt } from "@/lib/campaign-scheduling";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
+import { cancelScheduledCampaign, rescheduleCampaign } from "@wa/db";
 
 export const runtime = "nodejs";
 
@@ -32,19 +33,17 @@ export async function POST(request: Request, routeContext: RouteContext) {
 
   const { id } = await routeContext.params;
   const organizationId = context.workspace.organizationId;
-  const [campaign] = await db
+
+  const campaign = await db
     .select({ id: schema.campaigns.id, status: schema.campaigns.status })
     .from(schema.campaigns)
     .where(and(eq(schema.campaigns.id, id), eq(schema.campaigns.organizationId, organizationId)))
-    .limit(1);
+    .limit(1)
+    .then((rows) => rows[0]);
 
   if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
   if (parsed.data.action === "reschedule") {
-    if (campaign.status !== "scheduled") {
-      return NextResponse.json({ error: `Campaign cannot be rescheduled from ${campaign.status}` }, { status: 409 });
-    }
-
     let scheduledAt: Date;
     try {
       scheduledAt = parseCampaignScheduledAt(parsed.data.scheduledAt)!;
@@ -52,19 +51,14 @@ export async function POST(request: Request, routeContext: RouteContext) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid campaign schedule" }, { status: 400 });
     }
 
-    const [rescheduled] = await db.update(schema.campaigns)
-      .set({ scheduledAt, updatedAt: new Date() })
-      .where(and(
-        eq(schema.campaigns.id, campaign.id),
-        eq(schema.campaigns.organizationId, organizationId),
-        eq(schema.campaigns.status, "scheduled"),
-      ))
-      .returning({ id: schema.campaigns.id });
-
-    if (!rescheduled) {
-      return NextResponse.json({ error: "Campaign dispatch already started; it can no longer be rescheduled" }, { status: 409 });
+    const result = await rescheduleCampaign(db, id, organizationId, scheduledAt);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: "Campaign dispatch already started; it can no longer be rescheduled" },
+        { status: 409 }
+      );
     }
-    return NextResponse.json({ status: "scheduled", scheduledAt: scheduledAt.toISOString() });
+    return NextResponse.json({ status: "scheduled", scheduledAt: result.scheduledAt.toISOString() });
   }
 
   if (parsed.data.action === "pause") {
@@ -112,18 +106,12 @@ export async function POST(request: Request, routeContext: RouteContext) {
   }
 
   if (campaign.status === "scheduled") {
-    const now = new Date();
-    const [cancelled] = await db.update(schema.campaigns)
-      .set({ status: "cancelled", completedAt: now, updatedAt: now })
-      .where(and(
-        eq(schema.campaigns.id, campaign.id),
-        eq(schema.campaigns.organizationId, organizationId),
-        eq(schema.campaigns.status, "scheduled"),
-      ))
-      .returning({ id: schema.campaigns.id });
-
-    if (!cancelled) {
-      return NextResponse.json({ error: "Campaign dispatch already started; it can no longer be cancelled as scheduled work" }, { status: 409 });
+    const result = await cancelScheduledCampaign(db, id, organizationId);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: "Campaign dispatch already started; it can no longer be cancelled as scheduled work" },
+        { status: 409 }
+      );
     }
     return NextResponse.json({ status: "cancelled" });
   }

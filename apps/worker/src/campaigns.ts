@@ -46,6 +46,94 @@ const TOKEN_CACHE_MS = 5 * 60_000;
 const UNKNOWN_SEND_OUTCOME_ERROR = "Previous send attempt ended without a recorded Meta outcome; automatic resend suppressed to prevent duplicate delivery";
 const UNKNOWN_SEND_OUTCOME_CODE = "send_outcome_unknown";
 
+export type CampaignDeferralResult =
+  | { deferred: true; scheduledAt: string | null }
+  | { deferred: false };
+
+export function checkCampaignDeferral(campaignStatus: string, scheduledAt: Date | null): CampaignDeferralResult {
+  if (campaignStatus === "scheduled") {
+    return { deferred: true, scheduledAt: scheduledAt?.toISOString() ?? null };
+  }
+  return { deferred: false };
+}
+
+export type SnapshotResult =
+  | { terminal: "failed"; reason: string }
+  | { snapshotCreated: true; recipientCount: number; snapshotAt: Date };
+
+export async function createRecipientSnapshot(
+  db: Database,
+  campaignId: string,
+  organizationId: string,
+  audienceDefinition: ReturnType<typeof normalizeAudienceDefinition>,
+): Promise<SnapshotResult> {
+  const audiencePredicate = buildEligibleAudiencePredicate(audienceDefinition, organizationId);
+
+  await db.execute(sql`
+    INSERT INTO campaign_recipients (
+      id,
+      organization_id,
+      campaign_id,
+      contact_id,
+      phone_e164,
+      display_name,
+      status,
+      created_at,
+      updated_at
+    )
+    SELECT
+      gen_random_uuid(),
+      ${organizationId}::uuid,
+      ${campaignId}::uuid,
+      c.id,
+      c.phone_e164,
+      c.display_name,
+      'pending',
+      now(),
+      now()
+    FROM contacts c
+    WHERE ${audiencePredicate}
+    ON CONFLICT (campaign_id, contact_id) DO NOTHING
+  `);
+
+  const [snapshotCount] = await db
+    .select({ total: count() })
+    .from(schema.campaignRecipients)
+    .where(and(
+      eq(schema.campaignRecipients.campaignId, campaignId),
+      eq(schema.campaignRecipients.organizationId, organizationId),
+    ));
+
+  const total = snapshotCount?.total ?? 0;
+  if (total === 0) {
+    await db
+      .update(schema.campaigns)
+      .set({ status: "failed", recipientCount: 0, updatedAt: new Date() })
+      .where(and(
+        eq(schema.campaigns.id, campaignId),
+        eq(schema.campaigns.organizationId, organizationId),
+      ));
+    return { terminal: "failed", reason: "no-eligible-recipients" };
+  }
+
+  const snapshotAt = new Date();
+  await db
+    .update(schema.campaigns)
+    .set({
+      recipientCount: total,
+      snapshotCreatedAt: snapshotAt,
+      startedAt: snapshotAt,
+      status: "sending",
+      updatedAt: snapshotAt,
+    })
+    .where(and(
+      eq(schema.campaigns.id, campaignId),
+      eq(schema.campaigns.organizationId, organizationId),
+    ));
+
+  return { snapshotCreated: true, recipientCount: total, snapshotAt };
+}
+
 class CredentialUnavailableError extends Error {
   constructor(
     readonly code: "credential_missing" | "credential_unreadable",
@@ -490,9 +578,8 @@ export function startCampaignWorkers(input: {
     if (["completed", "cancelled", "failed"].includes(record.campaignStatus)) return { terminal: record.campaignStatus };
     // A forged, stale, or prematurely restored queue job must never bypass the
     // persisted schedule. Reconciliation atomically claims due rows first.
-    if (record.campaignStatus === "scheduled") {
-      return { deferred: true, scheduledAt: record.scheduledAt?.toISOString() ?? null };
-    }
+    const deferral = checkCampaignDeferral(record.campaignStatus, record.scheduledAt);
+    if (deferral.deferred) return deferral;
 
     const connection = await prepareConnectionForSend(db, {
       organizationId: record.organizationId,
@@ -527,69 +614,8 @@ export function startCampaignWorkers(input: {
 
     if (!record.snapshotCreatedAt) {
       const audienceDefinition = normalizeAudienceDefinition(record.audienceDefinition ?? { type: "all" });
-      const audiencePredicate = buildEligibleAudiencePredicate(audienceDefinition, record.organizationId);
-
-      await db.execute(sql`
-        INSERT INTO campaign_recipients (
-          id,
-          organization_id,
-          campaign_id,
-          contact_id,
-          phone_e164,
-          display_name,
-          status,
-          created_at,
-          updated_at
-        )
-        SELECT
-          gen_random_uuid(),
-          ${record.organizationId}::uuid,
-          ${record.campaignId}::uuid,
-          c.id,
-          c.phone_e164,
-          c.display_name,
-          'pending',
-          now(),
-          now()
-        FROM contacts c
-        WHERE ${audiencePredicate}
-        ON CONFLICT (campaign_id, contact_id) DO NOTHING
-      `);
-
-      const [snapshotCount] = await db
-        .select({ total: count() })
-        .from(schema.campaignRecipients)
-        .where(and(
-          eq(schema.campaignRecipients.campaignId, record.campaignId),
-          eq(schema.campaignRecipients.organizationId, record.organizationId),
-        ));
-
-      const total = snapshotCount?.total ?? 0;
-      if (total === 0) {
-        await db
-          .update(schema.campaigns)
-          .set({ status: "failed", recipientCount: 0, updatedAt: new Date() })
-          .where(and(
-            eq(schema.campaigns.id, record.campaignId),
-            eq(schema.campaigns.organizationId, record.organizationId),
-          ));
-        return { terminal: "failed", reason: "no-eligible-recipients" };
-      }
-
-      const snapshotAt = new Date();
-      await db
-        .update(schema.campaigns)
-        .set({
-          recipientCount: total,
-          snapshotCreatedAt: snapshotAt,
-          startedAt: snapshotAt,
-          status: "sending",
-          updatedAt: snapshotAt,
-        })
-        .where(and(
-          eq(schema.campaigns.id, record.campaignId),
-          eq(schema.campaigns.organizationId, record.organizationId),
-        ));
+      const snapshotResult = await createRecipientSnapshot(db, record.campaignId, record.organizationId, audienceDefinition);
+      if ("terminal" in snapshotResult) return snapshotResult;
     }
 
     const targetBacklog = Math.max(
