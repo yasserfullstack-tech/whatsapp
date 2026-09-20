@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { schema } from "../packages/db/src/index";
+import { createContactImportQueue } from "../packages/queue/src/index";
 import {
   createTenant,
   destroyTenant,
@@ -26,6 +28,95 @@ async function submitServerAction(page: import("@playwright/test").Page, route: 
 
 test.describe("platform admin mutations", () => {
   test.beforeEach(({}, testInfo) => test.skip(desktopOnly(testInfo.project.name), "admin mutations run once on desktop Chromium"));
+
+  test("platform admin safely retries failed queue jobs and durable webhook events", async ({ page, context }) => {
+    const admin = await createTenant("admin-retry-actor");
+    const target = await createTenant("admin-retry-target");
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) throw new Error("REDIS_URL is required for admin retry E2E");
+    const contactImportQueue = createContactImportQueue(redisUrl);
+
+    try {
+      await grantPlatformAdmin(admin);
+      await useTenantSession(context, admin);
+      const health = await guardBrowser(page);
+
+      const missingImportId = randomUUID();
+      const failedJobId = `admin-retry-e2e-${randomUUID()}`;
+      const failedJob = await contactImportQueue.add(
+        "process-contact-import",
+        { organizationId: target.organizationId, importId: missingImportId },
+        { jobId: failedJobId, attempts: 1, removeOnFail: false },
+      );
+
+      await expect.poll(async () => await failedJob.getState(), {
+        timeout: 15_000,
+        intervals: [250, 500, 1000],
+      }).toBe("failed");
+
+      await page.goto("/admin/system");
+      const queueRow = page.locator("tr").filter({ hasText: failedJobId }).first();
+      await expect(queueRow).toBeVisible();
+      await expect(queueRow).toContainText(/contact import|process-contact-import/i);
+      await submitServerAction(page, "/admin/system", () =>
+        queueRow.getByRole("button", { name: "Retry failed job" }).click(),
+      );
+
+      await expect.poll(async () => {
+        const rows = await functionalDb
+          .select({
+            action: schema.platformAuditEvents.action,
+            targetId: schema.platformAuditEvents.targetId,
+          })
+          .from(schema.platformAuditEvents)
+          .where(eq(schema.platformAuditEvents.actorAuthUserId, admin.authUserId));
+        return rows.some((row) =>
+          row.action === "queue.retry_requested" &&
+          row.targetId === `contact-import:${failedJobId}`,
+        );
+      }, { timeout: 10_000 }).toBe(true);
+
+      const [event] = await functionalDb
+        .insert(schema.webhookEvents)
+        .values({
+          organizationId: target.organizationId,
+          eventKey: `admin-retry-webhook-${randomUUID()}`,
+          payload: { object: "whatsapp_business_account", entry: [] },
+          processingStatus: "dead_letter",
+          processingAttempts: 12,
+          lastProcessingError: "E2E forced dead-letter state",
+          deadLetteredAt: new Date(),
+        })
+        .returning({ id: schema.webhookEvents.id });
+      if (!event) throw new Error("Could not seed webhook retry fixture");
+
+      await page.goto(`/admin/webhooks?eventId=${event.id}`);
+      await expect(page.getByRole("button", { name: "Retry event safely" })).toBeVisible();
+      await submitServerAction(page, "/admin/webhooks", () =>
+        page.getByRole("button", { name: "Retry event safely" }).click(),
+      );
+
+      await expect.poll(async () => {
+        const rows = await functionalDb
+          .select({
+            action: schema.platformAuditEvents.action,
+            targetId: schema.platformAuditEvents.targetId,
+          })
+          .from(schema.platformAuditEvents)
+          .where(eq(schema.platformAuditEvents.actorAuthUserId, admin.authUserId));
+        return rows.some((row) =>
+          row.action === "webhook.retry_requested" &&
+          row.targetId === event.id,
+        );
+      }, { timeout: 10_000 }).toBe(true);
+
+      await health.expectHealthy();
+    } finally {
+      await contactImportQueue.close();
+      await destroyTenant(target);
+      await destroyTenant(admin);
+    }
+  });
 
   test("platform admin manages access, membership, limits, lifecycle, and user state", async ({ page, context }) => {
     const admin = await createTenant("admin-actor");
