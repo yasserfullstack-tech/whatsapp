@@ -107,6 +107,47 @@ test.describe.serial("cross-tenant and API security boundaries", () => {
     expect(await restore.json()).toEqual({ error: "Contact not found" });
   });
 
+  test("Organization A cannot mutate Organization B through contact-management endpoints", async () => {
+    const [secondTenantBContact] = await securityDb
+      .insert(schema.contacts)
+      .values({
+        organizationId: tenantB.organizationId,
+        phoneE164: `+1555888${Math.floor(Math.random() * 10_000_000).toString().padStart(7, "0")}`,
+        displayName: "Tenant B merge source",
+        optedIn: true,
+        optInSource: "security_test",
+        optInAt: new Date(),
+      })
+      .returning({ id: schema.contacts.id });
+    if (!secondTenantBContact) throw new Error("Could not seed second Tenant B contact");
+
+    const update = await tenantA.api.patch(`/api/contacts/${tenantBResources.contactId}`, {
+      data: { displayName: "Cross-tenant mutation" },
+    });
+    expect(update.status()).toBe(404);
+    expect(await update.json()).toEqual({ error: "Contact not found" });
+
+    const bulk = await tenantA.api.post("/api/contacts/bulk", {
+      data: {
+        contactIds: [tenantBResources.contactId],
+        action: "add_tag",
+        tag: "cross-tenant",
+      },
+    });
+    expect(bulk.status()).toBe(404);
+    expect(await bulk.json()).toEqual({ error: "One or more contacts were not found in this workspace" });
+
+    const merge = await tenantA.api.post("/api/contacts/merge", {
+      data: {
+        targetContactId: tenantBResources.contactId,
+        sourceContactIds: [secondTenantBContact.id],
+        reason: "Cross-tenant merge attempt",
+      },
+    });
+    expect(merge.status()).toBe(404);
+    expect(await merge.json()).toEqual({ error: "One or more contacts were not found in this workspace" });
+  });
+
   test("Organization A cannot reference Organization B list in a segment", async () => {
     const response = await tenantA.api.post("/api/audiences/segments", {
       data: {
