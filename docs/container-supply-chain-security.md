@@ -70,6 +70,27 @@ The production-infrastructure workflow sets source to the GitHub repository URL 
 
 For a registry-backed production deployment, preserve these labels and prefer deploying an immutable image digest or a commit-SHA tag rather than a mutable tag such as `latest`.
 
+## Continuous control verification
+
+Documentation alone does not keep these controls wired, so the controls are
+guarded by a check that reads the workflow files, Dockerfiles, and manifests
+that implement them:
+
+```
+bun run check:container-supply-chain
+```
+
+`infra/production/scripts/check-container-supply-chain.ts` asserts that the
+frozen installs, the pinned Bun toolchain, the per-image and lockfile scans, the
+retained scan artifacts, the blocking policy (including `ignore-unfixed` and the
+aggregating failure step), the commit-pinned scanner action, the OCI provenance
+labels, and this document's severity/exception sections are all still present.
+It fails, with a GitHub annotation, when one is removed or weakened.
+
+The `Container and supply-chain controls` job in `.github/workflows/security.yml`
+runs the same check on every pull request and on pushes to `main`, so the control
+cannot regress silently after PR-021 is closed.
+
 ## Evidence for PR-021
 
 A PR-021 implementation is considered verified only when:
@@ -80,3 +101,37 @@ A PR-021 implementation is considered verified only when:
 4. Trivy report artifacts are present for all four images.
 5. The blocking HIGH/CRITICAL policy passes, or every approved exception is documented as described above.
 6. Existing Bun audit, Gitleaks, CodeQL, security E2E, build, and smoke-test jobs remain green.
+
+### Verified results (issue #66)
+
+| Claim | How it was verified | Result |
+| --- | --- | --- |
+| Frozen install succeeds against the committed lockfile | `bun ci` under the pinned Bun 1.4.2 in a scratch copy of the manifests and committed `bun.lock` | exit 0, `bun.lock` byte-identical afterwards |
+| A plain install does not require a lockfile change for CI | `bun install` then `git diff bun.lock` | `bun ci` passes unchanged, so no lockfile edit was made |
+| Scanner covers all four images and the lockfile | Trivy artifact `trivy-production-security-35525089424-1` from the [Production Infra run](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35525089424) | `trivy-web/api/worker/migrator.json` and `trivy-dependencies.json` all present |
+| Blocking policy passes | Same artifact, inspecting `FixedVersion` on every HIGH/CRITICAL finding | 0 fixable HIGH/CRITICAL findings across all five reports |
+| Existing security jobs stay green | [Security run on `main`](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35525718027) and [CI run on `main`](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35525718018) at `8b57bdc` | both `success` |
+| Controls cannot silently regress | `bun run check:container-supply-chain` plus its regression tests | 14/14 controls pass; 18 tests cover the removal of each control |
+
+### Accepted exceptions (issue #66)
+
+The policy above does not block on unfixed findings, but requires them to be
+reviewed. The latest production scan reports the following unfixed HIGH findings,
+identical across the API, worker, and migrator images, all in the `oven/bun:1.4.2-slim`
+(Debian 13.7) base image. None has a published fix, so none is a blocker; they are
+retained in the scan artifact and accepted as follows.
+
+| Field | Value |
+| --- | --- |
+| Advisories | `CVE-2025-69720` (ncurses), `CVE-2026-16742` (systemd), `CVE-2026-54369` (acl), `CVE-2026-76642`, `CVE-2026-78408`, `CVE-2026-78409`, `CVE-2026-78410` (util-linux), `CVE-2026-9538` (perl-Archive-Tar) |
+| Affected images | `whatsapp-api`, `whatsapp-worker`, `whatsapp-migrator` |
+| Affected packages | `util-linux` and its libraries, `libsystemd0`/`libudev1`, `libacl1`, `ncurses`/`libtinfo6`, `perl-base` |
+| Why remediation is not immediate | Debian 13 has published no fixed package version for any of these advisories, so `ignore-unfixed` correctly does not block. Pinning a newer base is impossible until upstream releases one. |
+| Reachability | The images run as the unprivileged `bun` user with `no-new-privileges`. The util-linux mount/`nsenter` issues require `CAP_SYS_ADMIN` and a privileged mount helper; `systemd-homed` is not present or running in these containers; the ncurses issues need an interactive terminal; `perl-Archive-Tar` is not invoked by the application. |
+| Compensating controls | Non-root `USER bun`, `no-new-privileges` in `docker-compose.production.yml`, immutable digest-pinned release images, and no interactive shell in the runtime path. |
+| Owner | @yasserfullstack-tech |
+| Review / expiry date | 2026-10-20 — re-check for a Debian fix, and remove this exception as soon as one ships |
+
+No finding is suppressed from the scan reports; a `.trivyignore` is deliberately
+not used, so these remain visible for triage in every artifact.
+
