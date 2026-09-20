@@ -17,7 +17,7 @@ Current audited HEAD before this documentation update:
 - Security: **success** — [run 35209808801](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808801)
 - Production Infra: **success** — [run 35209808836](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808836)
 - Load Smoke: **failure** — [run 35209808796](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796)
-- `main` branch protection: **disabled**; required status checks are not enforced by branch protection.
+- `main` release controls: **active** — repository ruleset `main-release-controls` (id `23732752`, `enforcement: active`) requires pull requests, blocks deletion and force-push, and enforces five status checks: `checks`, `Dependency audit`, `Secret scan`, `CodeQL`, `Tenant isolation and API abuse tests`. Applied and verified 2026-09-20; runbook and evidence in [`docs/release-controls.md`](release-controls.md) §7 and §11.
 
 The failed Load Smoke job reached the composed upload/throughput/send smoke step and failed there; its artifact-upload step also failed. The exact runtime root cause is **not yet verified** because job-log retrieval was unavailable during this audit. Do not guess the cause; investigate the run directly and rerun it to green.
 
@@ -47,9 +47,16 @@ For engineering tasks, verification requires implementation, automated tests, do
 
 [Load Smoke run 35209808796](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796) failed on audited HEAD `149cc1aa...`. This must be investigated and rerun successfully before treating the current release candidate as healthy.
 
-## 2. `main` is not protected
+## 2. `main` is protected by an active ruleset
 
-GitHub reports `main` with branch protection disabled and required status-check enforcement off. That allows code to land even when a workflow is red. At minimum, CI, Security, Production Infra where applicable, and the release-relevant load/reliability gate should be enforced through branch protection/rulesets or an equivalent required-PR policy. The repository-side controls are prepared but **not applied**: see [`docs/release-controls.md`](release-controls.md) for the enforced-policy runbook (required-check list, force-push/deletion and bypass policy, and the two test-PR verifications) and [`.github/rulesets/main.json`](../.github/rulesets/main.json) for the ruleset-as-code that the repository owner applies with one command. Nothing below is marked complete until that enforcement is active and verified.
+**Resolved 2026-09-20.** The ruleset-as-code in [`.github/rulesets/main.json`](../.github/rulesets/main.json) was applied by the repository owner as ruleset `main-release-controls` (id `23732752`, `enforcement: active`, target `branch`, `refs/heads/main`), and both test-PR verifications are recorded:
+
+- Red case — [PR #100](https://github.com/yasserfullstack-tech/whatsapp/pull/100) added a deliberately failing unit test; the required `checks` check-run concluded `failure`, the PR reported `mergeStateStatus: BLOCKED`, and `gh pr merge` was rejected with "the base branch policy prohibits the merge". Closed without merging, branch deleted.
+- Green case — [PR #96](https://github.com/yasserfullstack-tech/whatsapp/pull/96) reported all five required checks `success` (with `CodeQL` green from both the Actions job and code-scanning default setup) and merged as `b206bcc`; the merge was gated by the ruleset.
+
+Enforced on every pull request to `main`: pull request required, five required status checks (§4 of the runbook), `strict_required_status_checks_policy` (branch must be up to date), and server-side blocks on deletion, force-push and re-creation of `main`. `bypass_actors` is empty; the only documented emergency path is a temporary ruleset change, recorded in issue [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91).
+
+Remaining, deliberately documented gaps (runbook §12, still open on the tracking issue): path-filtered release gates (`Production Infra`, `Backup Recovery`, `Reporting Scale`) are not yet enforceable as required checks and still run after merge; `required_approving_review_count` is `0` until a second human reviewer is reliably available; there is no `CODEOWNERS` file; `Load Smoke` is a post-merge health signal, not a merge gate. At minimum, CI and Security can no longer be bypassed on `main`.
 
 ## 3. Tracking issues and readiness evidence have drifted apart
 
@@ -156,7 +163,7 @@ These items do not necessarily block the first paid launch unless explicitly pro
 ## P0 — release health and controls
 
 1. Investigate [Load Smoke run 35209808796](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796), fix the verified cause, rerun, and require a green release-relevant load gate.
-2. Protect `main` (or add an equivalent ruleset) so required CI/Security/release checks cannot be bypassed.
+2. ~~Protect `main` (or add an equivalent ruleset) so required CI/Security/release checks cannot be bypassed.~~ ✅ **Verified complete 2026-09-20** — ruleset `main-release-controls` (id `23732752`) is active on `refs/heads/main`; red case [PR #100](https://github.com/yasserfullstack-tech/whatsapp/pull/100) was blocked, green case [PR #96](https://github.com/yasserfullstack-tech/whatsapp/pull/96) merged gated. Follow-up: convert the path-filtered release gates to an always-on aggregator so they can be required too (runbook §12 item 1).
 3. Reconcile incorrectly closed readiness issues with their own outstanding evidence requirements.
 
 ## P0 — close paid-launch external evidence

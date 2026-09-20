@@ -2,9 +2,10 @@
 
 This runbook implements the repository-side controls for **issue #91** (`[P0] Enforce protected main and required release checks`) and the release-control gap recorded in section 2 of `docs/production-readiness-plan.md`.
 
-> **Status: prepared, not applied.** `main` is still unprotected and no required status checks are enforced. The ruleset exists only as code in [`.github/rulesets/main.json`](../.github/rulesets/main.json) and must be applied by a repository administrator. Do not check off the issue #91 acceptance criteria or the readiness-plan item until the ruleset is active and both test PRs in section 11 have been recorded.
+> **Status: applied and verified (2026-09-20).** The ruleset in [`.github/rulesets/main.json`](../.github/rulesets/main.json) was POSTed by the repository owner and is live as ruleset `main-release-controls`, **`id` `23732752`**, `enforcement: active`. All five required checks are enforced, and both test PRs required by issue #91 are recorded in [section 11](#11-test-pr-verification-issue-91-acceptance-evidence): the red case is [PR #100](https://github.com/yasserfullstack-tech/whatsapp/pull/100) (blocked, closed unmerged) and the green case is [PR #96](https://github.com/yasserfullstack-tech/whatsapp/pull/96) (merged as `b206bcc`). **Do not run the section 6 command again** — a second POST creates a second, duplicate ruleset rather than updating this one; changes go through the `PUT` in section 7.
 
 - Ruleset-as-code: [`.github/rulesets/main.json`](../.github/rulesets/main.json)
+- Live ruleset: `main-release-controls`, id `23732752` (applied 2026-09-20)
 - Target: `refs/heads/main` (the repository default branch)
 - Enforced by: a repository administrator; the non-admin automation account cannot create or modify rulesets
 - Evidence to attach to issue #91: the ruleset export, the required-check list, and the red/green test-PR links
@@ -167,6 +168,23 @@ gh api repos/yasserfullstack-tech/whatsapp/rules/branches/main --jq '[.[] | .typ
 
 Expected: one ruleset, `target: branch`, `enforcement: active`, five rule types (`deletion`, `non_fast_forward`, `creation`, `pull_request`, `required_status_checks`) and exactly the five contexts listed in section 4.
 
+Recorded output (2026-09-20, ruleset id `23732752`):
+
+```text
+$ gh api repos/yasserfullstack-tech/whatsapp/rulesets --jq '.[] | {id, name, target, enforcement}'
+{"enforcement":"active","id":23732752,"name":"main-release-controls","target":"branch"}
+
+$ gh api repos/yasserfullstack-tech/whatsapp/rulesets/23732752 --jq '{name, enforcement, rules: [.rules[] | {type, parameters}]}'
+required_status_checks contexts: checks, Dependency audit, Secret scan, CodeQL, Tenant isolation and API abuse tests
+strict_required_status_checks_policy: true
+pull_request: required_approving_review_count 0, required_review_thread_resolution true
+
+$ gh api repos/yasserfullstack-tech/whatsapp/rules/branches/main --jq '[.[] | .type]'
+["deletion","non_fast_forward","creation","pull_request","required_status_checks"]
+```
+
+One operational consequence of `required_review_thread_resolution: true`: a review comment left by a bot counts as an unresolved conversation and blocks the merge until it is resolved, so resolve (or answer and resolve) review threads rather than using administrator override.
+
 Change:
 
 ```bash
@@ -296,6 +314,36 @@ git push origin main
 ```
 
 This is optional because it pushes a real (if empty) commit attempt at `main`. If it unexpectedly succeeds, stop and report immediately: it means a bypass actor or an inactive ruleset exists, and the commit is harmless but the policy is not.
+
+### 11.4 Recorded results (2026-09-20)
+
+Both probes ran against ruleset `23732752`, on base `main` at `8c37354`.
+
+**Red — [PR #100](https://github.com/yasserfullstack-tech/whatsapp/pull/100)** (`test/branch-protection-red-probe`, head `2ff9b54`, one deliberately failing `bun:test` file at `apps/web/lib/branch-protection-red-probe.test.ts`):
+
+```text
+checks                                FAILURE   (28s, failed at the bun run test step)
+Dependency audit                      SUCCESS
+Secret scan                           SUCCESS
+gh pr view 100 --json mergeable,mergeStateStatus  ->  {"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED"}
+gh pr merge 100 --squash  ->  X Pull request #100 is not mergeable: the base branch policy prohibits the merge.
+```
+
+Cleanup performed: PR closed, branch `test/branch-protection-red-probe` deleted, and `git log origin/main -- apps/web/lib/branch-protection-red-probe.test.ts` returns nothing, so the probe never reached `main`.
+
+**Green — [PR #96](https://github.com/yasserfullstack-tech/whatsapp/pull/96)** (`feat/campaign-scheduling-61`, head `4ab4cbf`), merged as `b206bcc`:
+
+```text
+checks                                SUCCESS
+Dependency audit                      SUCCESS
+Secret scan                           SUCCESS
+CodeQL                                SUCCESS   (Actions job)
+CodeQL                                SUCCESS   (github-advanced-security / code-scanning default setup)
+Tenant isolation and API abuse tests  SUCCESS
+mergeStateStatus CLEAN -> merged, gated by the ruleset
+```
+
+Evidence here is API output (check-run conclusions, `mergeStateStatus`, and the rejected/allowed merge commands) rather than screenshots; it captures the same observations the screenshots would.
 
 ## 12. Known gaps and follow-up work
 
