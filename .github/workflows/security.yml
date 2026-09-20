@@ -25,6 +25,22 @@ jobs:
       - name: Fail on high or critical dependency vulnerabilities
         run: bun audit --audit-level=high
 
+  # container-supply-chain: guards the PR-021 controls (issue #66). The policy in
+  # docs/container-supply-chain-security.md is only real while the workflows and
+  # Dockerfiles still implement it, so this job fails if a frozen install, an
+  # image scan, the blocking severity policy, or an OCI provenance label is
+  # removed or weakened. See infra/production/scripts/check-container-supply-chain.ts.
+  container-supply-chain:
+    name: Container and supply-chain controls
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Verify container and supply-chain controls are wired
+        run: bun infra/production/scripts/check-container-supply-chain.ts
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
