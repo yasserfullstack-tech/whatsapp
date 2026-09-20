@@ -8,6 +8,13 @@ on:
   pull_request:
     paths:
       - docs/production-readiness-plan.md
+  # Recurrence guard for issue #92: an implementation PR that auto-closes one of
+  # the readiness tracking issues (#46..#67) with `Closes #N` while its plan
+  # checkbox is still unchecked must not pass unnoticed. This event fires after
+  # the merge closes the issue, so the sync-check below turns red and annotates
+  # the drift. External-evidence issues are never closed by repository CI alone.
+  issues:
+    types: [closed, reopened]
   workflow_dispatch:
 
 permissions:
