@@ -1,7 +1,6 @@
 import { QueueEvents, Worker, type Job } from "bullmq";
-import { eq } from "drizzle-orm";
 import { loadWorkerEnv } from "@wa/config";
-import { createDatabase, schema } from "@wa/db";
+import { createDatabase } from "@wa/db";
 import {
   ConsoleEmailProvider,
   NotificationService,
@@ -19,7 +18,7 @@ import {
   createNotificationEmailQueue,
   type NotificationEmailJob,
 } from "@wa/queue";
-import { reconcileNotificationSources } from "./notification-sources";
+import { reconcileNotificationSources, emitCampaignTerminalNotification, emitImportTerminalNotification } from "./notification-sources";
 
 class ResendEmailProvider implements EmailProvider {
   constructor(
@@ -116,63 +115,6 @@ emailWorker.on("failed", (job, error) => {
   });
 });
 
-async function emitCampaignTerminal(campaignId: string) {
-  const campaign = (
-    await db
-      .select({
-        id: schema.campaigns.id,
-        organizationId: schema.campaigns.organizationId,
-        name: schema.campaigns.name,
-        status: schema.campaigns.status,
-      })
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaignId))
-      .limit(1)
-  )[0];
-  if (!campaign || (campaign.status !== "completed" && campaign.status !== "failed")) return;
-
-  await notificationService.emit({
-    id: `campaign:${campaign.id}:${campaign.status}`,
-    type: campaign.status === "completed" ? "campaign_completed" : "campaign_failed",
-    organizationId: campaign.organizationId,
-    metadata: { campaignId: campaign.id, campaignName: campaign.name },
-    link: `/campaigns/${campaign.id}`,
-  });
-}
-
-async function emitImportTerminal(importId: string) {
-  const contactImport = (
-    await db
-      .select({
-        id: schema.contactImports.id,
-        organizationId: schema.contactImports.organizationId,
-        fileName: schema.contactImports.originalFileName,
-        status: schema.contactImports.status,
-        importedRows: schema.contactImports.importedRows,
-        invalidRows: schema.contactImports.invalidRows,
-        errorMessage: schema.contactImports.errorMessage,
-      })
-      .from(schema.contactImports)
-      .where(eq(schema.contactImports.id, importId))
-      .limit(1)
-  )[0];
-  if (!contactImport || (contactImport.status !== "completed" && contactImport.status !== "failed")) return;
-
-  await notificationService.emit({
-    id: `import:${contactImport.id}:${contactImport.status}`,
-    type: contactImport.status === "completed" ? "import_completed" : "import_failed",
-    organizationId: contactImport.organizationId,
-    metadata: {
-      importId: contactImport.id,
-      fileName: contactImport.fileName,
-      importedRows: contactImport.importedRows,
-      invalidRows: contactImport.invalidRows,
-      ...(contactImport.errorMessage ? { detail: contactImport.errorMessage } : {}),
-    },
-    link: "/contacts",
-  });
-}
-
 function idFromJob(jobId: string, prefix: string): string | null {
   return jobId.startsWith(prefix) ? jobId.slice(prefix.length) : null;
 }
@@ -190,16 +132,16 @@ const importEvents = new QueueEvents(CONTACT_IMPORT_QUEUE_NAME, {
 
 campaignEvents.on("completed", ({ jobId }) => {
   const campaignId = idFromJob(jobId, "campaign-");
-  if (campaignId) reportAsync("campaign_notification_failed", emitCampaignTerminal(campaignId), { campaignId });
+  if (campaignId) reportAsync("campaign_notification_failed", emitCampaignTerminalNotification(db, notificationService, campaignId), { campaignId });
 });
 campaignEvents.on("failed", ({ jobId }) => {
   const campaignId = idFromJob(jobId, "campaign-");
-  if (campaignId) reportAsync("campaign_notification_failed", emitCampaignTerminal(campaignId), { campaignId });
+  if (campaignId) reportAsync("campaign_notification_failed", emitCampaignTerminalNotification(db, notificationService, campaignId), { campaignId });
 });
 
 importEvents.on("completed", ({ jobId }) => {
   const importId = idFromJob(jobId, "contact-import-");
-  if (importId) reportAsync("import_notification_failed", emitImportTerminal(importId), { importId });
+  if (importId) reportAsync("import_notification_failed", emitImportTerminalNotification(db, notificationService, importId), { importId });
 });
 importEvents.on("failed", ({ jobId }) => {
   const importId = idFromJob(jobId, "contact-import-");
@@ -209,7 +151,7 @@ importEvents.on("failed", ({ jobId }) => {
     if (!job) return;
     const attempts = Number(job.opts.attempts ?? 1);
     if (job.attemptsMade < attempts) return;
-    await emitImportTerminal(importId);
+    await emitImportTerminalNotification(db, notificationService, importId);
   })(), { importId });
 });
 
