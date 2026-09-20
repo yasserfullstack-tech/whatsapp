@@ -29,6 +29,7 @@ export const schema = {
   ...metaAssetSchema,
   ...inboxSchema,
 };
+export type Database = ReturnType<typeof createDatabase>["db"];
 export * from "./schema";
 export * from "./contact-import-schema";
 export * from "./suppression-schema";
@@ -43,6 +44,7 @@ export * from "./legal-schema";
 export * from "./meta-asset-schema";
 export * from "./inbox-schema";
 export * from "./audience-query";
+export * from "./campaign-control";
 
 export function createDatabase(databaseUrl: string) {
   const client = postgres(databaseUrl, {
