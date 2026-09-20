@@ -30,6 +30,7 @@ export type RepoSource = {
 	dockerfiles: Record<string, string>;
 	rootPackageJson: string;
 	policyDoc: string;
+	composeProduction: string;
 };
 
 /** Production images that must be scanned and labelled. */
@@ -38,11 +39,37 @@ export const PRODUCTION_IMAGES = ["web", "api", "worker", "migrator"] as const;
 /** Bun version the repository pins for CI and image builds. */
 export const PINNED_BUN_VERSION = "1.4.2";
 
+/** Severity classes that must block a release. */
+export const BLOCKING_SEVERITIES = ["HIGH", "CRITICAL"] as const;
+
+/**
+ * Every target that needs its own enforcing scan. Each one must have a
+ * dedicated policy step whose outcome is aggregated into the job result.
+ */
+export type PolicyTarget = {
+	key: string;
+	kind: "dependencies" | "image";
+	image?: string;
+};
+
+export const POLICY_TARGETS: PolicyTarget[] = [
+	{ key: "dependencies", kind: "dependencies" },
+	...PRODUCTION_IMAGES.map((image) => ({ key: image, kind: "image" as const, image })),
+];
+
 const OCI_LABELS = [
 	"org.opencontainers.image.source",
 	"org.opencontainers.image.revision",
 	"org.opencontainers.image.version",
 ] as const;
+
+/** Matches a scan pinned to the repository root, not a sub-path. */
+const ROOT_SCAN_REF_RE = /^\s*scan-ref:\s*\.\s*$/m;
+
+/** Matches a filesystem scan step targeting the repository root. */
+function isLockfileScan(body: string): boolean {
+	return /scan-type:\s*fs/.test(body) && ROOT_SCAN_REF_RE.test(body);
+}
 
 export type WorkflowStep = { name: string; body: string };
 
@@ -82,6 +109,89 @@ export function bunImagePinsAreFrozen(content: string): { ok: boolean; detail: s
 	return { ok: true, detail: `all ${refs.length} Bun stage(s) pinned to ${PINNED_BUN_VERSION}` };
 }
 
+/** Splits a Dockerfile into logical instructions, joining `\` continuations. */
+export function dockerInstructions(content: string): string[] {
+	const instructions: string[] = [];
+	let buffer = "";
+	for (const raw of content.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		buffer = buffer ? `${buffer} ${line.trim()}` : line;
+		if (/\\\s*$/.test(buffer)) continue;
+		instructions.push(buffer);
+		buffer = "";
+	}
+	if (buffer) instructions.push(buffer);
+	return instructions;
+}
+
+/**
+ * Returns every `bun install` invocation that does not freeze the lockfile.
+ * Every invocation must be checked: one frozen install must not mask a second
+ * unfrozen one in the same Dockerfile.
+ */
+export function frozenInstallProblems(content: string): string[] {
+	return dockerInstructions(content)
+		.filter((instruction) => /\bbun\s+install\b/.test(instruction))
+		.filter((instruction) => !instruction.includes("--frozen-lockfile"))
+		.map((instruction) => instruction.trim());
+}
+
+/** Splits a Dockerfile into its `FROM ... AS <name>` build stages. */
+export function parseDockerStages(content: string): Array<{ name: string; body: string }> {
+	const stages: Array<{ name: string; body: string[] }> = [];
+	let current: { name: string; body: string[] } | null = null;
+	for (const line of content.split("\n")) {
+		const match = line.match(/^FROM\s+\S+(?:\s+AS\s+(\S+))?\s*$/i);
+		if (match) {
+			if (current) stages.push(current);
+			current = { name: match[1] ?? `stage-${stages.length}`, body: [line] };
+			continue;
+		}
+		if (current) current.body.push(line);
+	}
+	if (current) stages.push(current);
+	return stages.map((stage) => ({ name: stage.name, body: stage.body.join("\n") }));
+}
+
+/** True when a Docker stage never drops privileges with a `USER` instruction. */
+export function stageRunsAsRoot(stage: string): boolean {
+	return !/^\s*USER\s+\S/m.test(stage);
+}
+
+/** Returns the body of a top-level service block in a Compose file. */
+export function composeServiceBlock(content: string, name: string): string | undefined {
+	const lines = content.split("\n");
+	const start = lines.findIndex((line) => new RegExp(`^\\s{2}${name}:\\s*$`).test(line));
+	if (start === -1) return undefined;
+	const body: string[] = [];
+	for (let index = start + 1; index < lines.length; index++) {
+		// A service key (2 spaces) or a top-level key (0 spaces) ends the block.
+		if (/^ {0,2}\S/.test(lines[index])) break;
+		body.push(lines[index]);
+	}
+	return body.join("\n");
+}
+
+/** Every `aquasecurity/trivy-action@<ref>` reference in a workflow. */
+export function trivyActionRefs(content: string): string[] {
+	return [...content.matchAll(/aquasecurity\/trivy-action@([^\s#]+)/g)].map((match) => match[1]);
+}
+
+/** Reads the `severity:` list from a step body, upper-cased and trimmed. */
+export function parseSeverityList(body: string): string[] | undefined {
+	const match = body.match(/^\s*severity:\s*(.+?)\s*$/m);
+	if (!match) return undefined;
+	return match[1]
+		.split(",")
+		.map((entry) => entry.trim().toUpperCase())
+		.filter((entry) => entry.length > 0);
+}
+
+/** Reads the `id:` of a step, used to reference `steps.<id>.outcome`. */
+export function stepId(step: WorkflowStep): string | undefined {
+	return step.body.match(/^\s*id:\s*(\S+)\s*$/m)?.[1];
+}
+
 /**
  * Evaluates every PR-021 control against the supplied sources.
  * Pure: all inputs are file contents, so it is directly unit-testable.
@@ -117,16 +227,33 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 	);
 
 	const unpinnedInstalls: string[] = [];
+	const dockerfilesWithoutInstall: string[] = [];
 	for (const [name, content] of Object.entries(source.dockerfiles)) {
-		if (!content.includes("--frozen-lockfile")) unpinnedInstalls.push(name);
+		if (!/\bbun\s+install\b/.test(content)) {
+			dockerfilesWithoutInstall.push(name);
+			continue;
+		}
+		for (const problem of frozenInstallProblems(content)) {
+			unpinnedInstalls.push(`${name}: ${problem}`);
+		}
 	}
+	const frozenInstallOk = unpinnedInstalls.length === 0 && dockerfilesWithoutInstall.length === 0;
 	push(
 		"frozen-install-images",
-		"Every production image installs with `--frozen-lockfile`",
-		unpinnedInstalls.length === 0,
-		unpinnedInstalls.length === 0
-			? `all ${Object.keys(source.dockerfiles).length} Dockerfile(s) use --frozen-lockfile`
-			: `missing --frozen-lockfile: ${unpinnedInstalls.join(", ")}`,
+		"Every `bun install` in every production image is frozen",
+		frozenInstallOk,
+		frozenInstallOk
+			? `all installs in ${Object.keys(source.dockerfiles).length} Dockerfile(s) use --frozen-lockfile`
+			: [
+					unpinnedInstalls.length > 0
+						? `missing --frozen-lockfile: ${unpinnedInstalls.join("; ")}`
+						: "",
+					dockerfilesWithoutInstall.length > 0
+						? `no bun install found in: ${dockerfilesWithoutInstall.join(", ")}`
+						: "",
+				]
+					.filter(Boolean)
+					.join("; "),
 	);
 
 	let packageManager: string | undefined;
@@ -164,26 +291,41 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 	const infraSteps = splitWorkflowSteps(source.productionInfraWorkflow);
 
 	// Scans must target the commit-SHA-tagged image so the scanned artifact is
-	// traceable to the exact revision, not a mutable `:local` tag.
+	// traceable to the exact revision, not a mutable `:local` tag. Every
+	// reference must be checked: a single `:local` scan must not be masked by
+	// another step that still uses the revision tag.
 	const shaRef = "${{ github.sha }}";
-	const scannedImages = PRODUCTION_IMAGES.filter((image) =>
-		infraSteps.some((step) =>
-			step.body.includes(`image-ref: whatsapp-${image}:${shaRef}`),
-		),
-	);
-	const missingImages = PRODUCTION_IMAGES.filter((image) => !scannedImages.includes(image));
+	const missingImages: string[] = [];
+	const mutableImageRefs: string[] = [];
+	for (const image of PRODUCTION_IMAGES) {
+		const pattern = new RegExp(`image-ref:\\s*whatsapp-${image}:([^\\n]+)`, "g");
+		const refs = [...source.productionInfraWorkflow.matchAll(pattern)].map((match) =>
+			match[1].trim(),
+		);
+		if (!refs.includes(shaRef)) missingImages.push(image);
+		const mutable = refs.filter((ref) => ref !== shaRef);
+		if (mutable.length > 0) mutableImageRefs.push(`${image} -> ${mutable.join(", ")}`);
+	}
+	const scanCoverageOk = missingImages.length === 0 && mutableImageRefs.length === 0;
 	push(
 		"image-scan-coverage",
 		"Every production image is vulnerability-scanned at its revision tag",
-		missingImages.length === 0,
-		missingImages.length === 0
-			? `scanned at the revision tag: ${scannedImages.join(", ")}`
-			: `not scanned at the revision tag: ${missingImages.join(", ")}`,
+		scanCoverageOk,
+		scanCoverageOk
+			? `scanned at the revision tag: ${PRODUCTION_IMAGES.join(", ")}`
+			: [
+					missingImages.length > 0
+						? `not scanned at the revision tag: ${missingImages.join(", ")}`
+						: "",
+					mutableImageRefs.length > 0
+						? `mutable image refs: ${mutableImageRefs.join("; ")}`
+						: "",
+				]
+					.filter(Boolean)
+					.join("; "),
 	);
 
-	const scansLockfile = infraSteps.some(
-		(step) => /scan-type:\s*fs/.test(step.body) && /scan-ref:\s*\./.test(step.body),
-	);
+	const scansLockfile = infraSteps.some((step) => isLockfileScan(step.body));
 	push(
 		"dependency-scan",
 		"Application dependencies (bun.lock) are scanned",
@@ -207,46 +349,117 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 
 	// --- Blocking severity policy ------------------------------------------
 
-	const enforcementSteps = infraSteps.filter((step) =>
-		/enforce|policy/i.test(step.name) && /exit-code:\s*"1"/.test(step.body),
-	);
-	const enforcementWithoutIgnoreUnfixed = enforcementSteps.filter(
-		(step) => !/ignore-unfixed:\s*true/.test(step.body),
-	);
-	const policyCoversAllTargets = enforcementSteps.length >= PRODUCTION_IMAGES.length + 1;
+	// Each target needs its own enforcing step. Because those steps use
+	// `continue-on-error: true`, a target can only fail the job through its own
+	// `steps.<id>.outcome`, so a missing or weakened target is a real hole.
+	const enforcementByTarget = new Map<string, WorkflowStep>();
+	const missingTargets: string[] = [];
+	for (const target of POLICY_TARGETS) {
+		const step = infraSteps.find((candidate) => {
+			if (!/exit-code:\s*"1"/.test(candidate.body)) return false;
+			if (target.kind === "dependencies") {
+				return isLockfileScan(candidate.body);
+			}
+			return candidate.body.includes(`image-ref: whatsapp-${target.image}:${shaRef}`);
+		});
+		if (step) enforcementByTarget.set(target.key, step);
+		else missingTargets.push(target.key);
+	}
+
+	const enforcementProblems: string[] = [];
+	for (const target of POLICY_TARGETS) {
+		const step = enforcementByTarget.get(target.key);
+		if (!step) continue;
+		if (!/ignore-unfixed:\s*true/.test(step.body)) {
+			enforcementProblems.push(`${target.key}: missing ignore-unfixed: true`);
+		}
+		const severities = parseSeverityList(step.body);
+		if (!severities) {
+			enforcementProblems.push(`${target.key}: no severity list`);
+			continue;
+		}
+		const missingSeverities = BLOCKING_SEVERITIES.filter(
+			(severity) => !severities.includes(severity),
+		);
+		if (missingSeverities.length > 0) {
+			enforcementProblems.push(
+				`${target.key}: severity "${severities.join(",")}" omits ${missingSeverities.join(",")}`,
+			);
+		}
+	}
+	const enforcementOk = missingTargets.length === 0 && enforcementProblems.length === 0;
 	push(
 		"blocking-policy",
-		"Fixable HIGH/CRITICAL findings block the workflow for images and dependencies",
-		enforcementSteps.length > 0 &&
-			enforcementWithoutIgnoreUnfixed.length === 0 &&
-			policyCoversAllTargets,
-		enforcementSteps.length === 0
-			? "no enforcing (exit-code 1) policy step found"
-			: `enforcing steps: ${enforcementSteps.length}, without ignore-unfixed: ${enforcementWithoutIgnoreUnfixed.length}`,
+		"Every target has an enforcing HIGH/CRITICAL scan with ignore-unfixed",
+		enforcementOk,
+		enforcementOk
+			? `enforcing steps cover ${POLICY_TARGETS.map((target) => target.key).join(", ")}`
+			: [
+					missingTargets.length > 0 ? `no enforcing step for: ${missingTargets.join(", ")}` : "",
+					...enforcementProblems,
+				]
+					.filter(Boolean)
+					.join("; "),
 	);
 
-	const aggregationStep = infraSteps.find((step) =>
-		/\.outcome/.test(step.body) && /exit\s+"?\$failed"?/.test(step.body),
+	const aggregationStep = infraSteps.find(
+		(step) => /\.outcome/.test(step.body) && /exit\s+"?\$failed"?/.test(step.body),
 	);
+
+	// Every enforcing step's outcome must be read by the aggregating step: an
+	// outcome that is dropped from the loop can no longer fail the job.
+	const unreferencedOutcomes: string[] = [];
+	const enforcementWithoutId: string[] = [];
+	for (const target of POLICY_TARGETS) {
+		const step = enforcementByTarget.get(target.key);
+		if (!step) continue;
+		const id = stepId(step);
+		if (!id) {
+			enforcementWithoutId.push(target.key);
+			continue;
+		}
+		if (!aggregationStep || !aggregationStep.body.includes(`steps.${id}.outcome`)) {
+			unreferencedOutcomes.push(`${target.key} (steps.${id}.outcome)`);
+		}
+	}
+	const aggregationOk =
+		Boolean(aggregationStep) &&
+		unreferencedOutcomes.length === 0 &&
+		enforcementWithoutId.length === 0;
 	push(
 		"blocking-policy-aggregated",
-		"Policy outcomes are aggregated into a failing job step",
-		Boolean(aggregationStep),
-		aggregationStep
-			? `aggregated by step "${aggregationStep.name}"`
-			: "no step aggregates the policy outcomes into a failure",
+		"Every enforcing scan outcome is aggregated into a failing job step",
+		aggregationOk,
+		aggregationOk
+			? `aggregated by step "${aggregationStep?.name}"`
+			: !aggregationStep
+				? "no step aggregates the policy outcomes into a failure"
+				: [
+						unreferencedOutcomes.length > 0
+							? `outcomes not referenced: ${unreferencedOutcomes.join(", ")}`
+							: "",
+						enforcementWithoutId.length > 0
+							? `enforcing step without an id: ${enforcementWithoutId.join(", ")}`
+							: "",
+					]
+						.filter(Boolean)
+						.join("; "),
 	);
 
-	const pinnedScanner = /aquasecurity\/trivy-action@[0-9a-f]{40}/.test(
-		source.productionInfraWorkflow,
-	);
+	// One pinned reference is not enough: every invocation must be pinned, or an
+	// individual report/enforcement scan can silently lose its supply-chain pin.
+	const scannerRefs = trivyActionRefs(source.productionInfraWorkflow);
+	const floatingScannerRefs = scannerRefs.filter((ref) => !/^[0-9a-f]{40}$/.test(ref));
+	const scannerPinnedOk = scannerRefs.length > 0 && floatingScannerRefs.length === 0;
 	push(
 		"scanner-pinned",
-		"The vulnerability scanner action is pinned to a commit SHA",
-		pinnedScanner,
-		pinnedScanner
-			? "trivy-action pinned to a 40-character commit SHA"
-			: "trivy-action is not pinned to a commit SHA",
+		"Every vulnerability scanner action reference is pinned to a commit SHA",
+		scannerPinnedOk,
+		scannerPinnedOk
+			? `all ${scannerRefs.length} trivy-action reference(s) pinned to a 40-character commit SHA`
+			: scannerRefs.length === 0
+				? "no aquasecurity/trivy-action reference found"
+				: `not pinned to a commit SHA: ${floatingScannerRefs.join(", ")}`,
 	);
 
 	// --- Image provenance / traceability -----------------------------------
@@ -275,6 +488,38 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 		verifiesLabels
 			? "workflow inspects and asserts OCI labels"
 			: "workflow no longer verifies OCI labels",
+	);
+
+	// --- Documented runtime exposure ---------------------------------------
+
+	// The exception rationale leans on a non-root compensating control, so the
+	// documented exposure must match what the image and Compose actually do.
+	// This is bidirectional: making the migrator non-root without updating the
+	// doc fails just as loudly as dropping a real root restriction.
+	const migratorStage = parseDockerStages(
+		source.dockerfiles["infra/docker/api.Dockerfile"] ?? "",
+	).find((stage) => stage.name === "migrator");
+	const migrateService = composeServiceBlock(source.composeProduction, "migrate");
+	const migratorRunsAsRoot =
+		(migratorStage ? stageRunsAsRoot(migratorStage.body) : true) &&
+		!(migrateService && /^\s*user:\s*\S/m.test(migrateService));
+
+	const docClaimsMigratorRoot = /whatsapp-migrator[^\n]*runs as root/i.test(source.policyDoc);
+	const docClaimsMigratorNonRoot = /whatsapp-migrator[^\n]*runs as non-root/i.test(
+		source.policyDoc,
+	);
+	const exposureDocumented = migratorRunsAsRoot
+		? docClaimsMigratorRoot && !docClaimsMigratorNonRoot
+		: docClaimsMigratorNonRoot && !docClaimsMigratorRoot;
+	push(
+		"migrator-exposure-documented",
+		"The migrator's runtime user is documented accurately",
+		exposureDocumented,
+		exposureDocumented
+			? `documented as ${migratorRunsAsRoot ? "root" : "non-root"}, matching the image`
+			: migratorRunsAsRoot
+				? "whatsapp-migrator runs as root but the policy doc does not say so"
+				: "whatsapp-migrator is non-root but the policy doc still documents root exposure",
 	);
 
 	// --- Policy documentation ----------------------------------------------
@@ -331,6 +576,7 @@ function loadSource(): RepoSource {
 		dockerfiles,
 		rootPackageJson: readFileSync("package.json", "utf8"),
 		policyDoc: readFileSync("docs/container-supply-chain-security.md", "utf8"),
+		composeProduction: readFileSync("docker-compose.production.yml", "utf8"),
 	};
 }
 
