@@ -60,6 +60,17 @@ export function normalizeCustomFields(fields: Record<string, string>): Record<st
   );
 }
 
+/**
+ * Drizzle wraps driver failures in `DrizzleQueryError`, so the Postgres error
+ * code lives on the `cause` chain rather than on the thrown error itself.
+ * Walking the chain keeps duplicate-phone and duplicate-merge handling on the
+ * intended 409 path instead of surfacing a 500.
+ */
 export function isUniqueViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505");
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
+    if ((current as { code?: string }).code === "23505") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
