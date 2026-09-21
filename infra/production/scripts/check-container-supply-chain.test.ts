@@ -34,7 +34,7 @@ function dockerfile(): string {
 	].join("\n");
 }
 
-/** api.Dockerfile with a `runtime` stage that drops to `bun` and a root `migrator` stage. */
+/** api.Dockerfile with both `migrator` and `runtime` stages running as `bun`. */
 function apiDockerfile(): string {
 	return [
 		"FROM oven/bun:1.4.2-slim AS build",
@@ -551,7 +551,7 @@ describe("check-container-supply-chain helpers", () => {
 		expect(stages.map((stage) => stage.name)).toEqual(["build", "migrator", "runtime"]);
 		const migrator = stages.find((stage) => stage.name === "migrator");
 		const runtime = stages.find((stage) => stage.name === "runtime");
-		expect(migrator && stageRunsAsRoot(migrator.body)).toBe(true);
+		expect(migrator && stageRunsAsRoot(migrator.body)).toBe(false);
 		expect(runtime && stageRunsAsRoot(runtime.body)).toBe(false);
 	});
 
