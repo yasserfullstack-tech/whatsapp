@@ -365,3 +365,5 @@ volumes:
   grafana_data:
   caddy_data:
   caddy_config:
+
+this: [is: not: valid: yaml
