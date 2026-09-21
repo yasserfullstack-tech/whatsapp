@@ -42,6 +42,8 @@ describe("Stripe webhook lifecycle integration", () => {
       `evt_refund_second_${suffix}`,
       `evt_charge_refund_${suffix}`,
       `evt_refund_late_${suffix}`,
+      `evt_failed_late_${suffix}`,
+      `evt_subscription_late_${suffix}`,
     ];
     const growthPrice = `price_growth_${suffix}`;
     const scalePrice = `price_scale_${suffix}`;
@@ -106,12 +108,6 @@ describe("Stripe webhook lifecycle integration", () => {
       if (!localSubscription) throw new Error("Failed to create subscription fixture");
 
       const now = new Date("2026-09-16T10:00:00.000Z");
-      const service = createStripeWebhookService(db, {
-        priceRefs: { growth: growthPrice, scale: scalePrice },
-        failedPaymentGraceDays: 7,
-        now: () => now,
-      });
-
       const subscriptionObject = (status: string, price: string, cancelAtPeriodEnd = false): StripeObject => ({
         id: subscriptionId,
         customer: customerId,
@@ -122,14 +118,36 @@ describe("Stripe webhook lifecycle integration", () => {
         current_period_end: 1_790_812_800,
         cancel_at_period_end: cancelAtPeriodEnd,
       });
+      const latestSubscriptions = new Map<string, StripeObject>();
+      const latestInvoices = new Map<string, StripeObject>();
+      const service = createStripeWebhookService(db, {
+        priceRefs: { growth: growthPrice, scale: scalePrice },
+        failedPaymentGraceDays: 7,
+        now: () => now,
+        retrieveSubscription: async (id) => {
+          const value = latestSubscriptions.get(id);
+          if (!value) throw new Error(`Missing provider subscription fixture ${id}`);
+          return value;
+        },
+        retrieveInvoice: async (id) => {
+          const value = latestInvoices.get(id);
+          if (!value) throw new Error(`Missing provider invoice fixture ${id}`);
+          return value;
+        },
+      });
 
-      await service.process(stripeEvent(eventIds[0]!, "customer.subscription.created", subscriptionObject("active", growthPrice)));
+      const initialSubscription = subscriptionObject("active", growthPrice);
+      latestSubscriptions.set(subscriptionId, initialSubscription);
+      await service.process(stripeEvent(eventIds[0]!, "customer.subscription.created", initialSubscription));
 
       const duplicateSubscriptionId = `sub_duplicate_${suffix}`;
-      await expect(service.process(stripeEvent(eventIds[7]!, "customer.subscription.created", {
+      const duplicateSubscription = {
         ...subscriptionObject("active", growthPrice),
         id: duplicateSubscriptionId,
-      }))).rejects.toThrow("Workspace already has a different active Stripe subscription");
+      };
+      latestSubscriptions.set(duplicateSubscriptionId, duplicateSubscription);
+      await expect(service.process(stripeEvent(eventIds[7]!, "customer.subscription.created", duplicateSubscription)))
+        .rejects.toThrow("Workspace already has a different active Stripe subscription");
 
       let subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
@@ -170,6 +188,7 @@ describe("Stripe webhook lifecycle integration", () => {
         period_start: 1_788_220_800,
         period_end: 1_790_812_800,
       };
+      latestInvoices.set(invoiceId, failedInvoice);
       const failedResult = await service.process(stripeEvent(eventIds[1]!, "invoice.payment_failed", failedInvoice));
       expect(failedResult).toEqual({ processed: true, replay: false });
 
@@ -198,30 +217,52 @@ describe("Stripe webhook lifecycle integration", () => {
         ));
       expect(failedPaymentCount[0]?.total).toBe(1);
 
-      await service.process(stripeEvent(eventIds[2]!, "invoice.payment_succeeded", {
+      const paidInvoice = {
         ...failedInvoice,
         status: "paid",
         amount_due: 0,
         amount_paid: 1000,
         status_transitions: { paid_at: 1_789_552_800 },
-      }));
+      };
+      latestInvoices.set(invoiceId, paidInvoice);
+      await service.process(stripeEvent(eventIds[2]!, "invoice.payment_succeeded", paidInvoice));
       subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
       )[0];
       expect(subscription?.status).toBe("active");
       expect(subscription?.graceEndsAt).toBeNull();
-      const payment = (
+      let payment = (
         await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
       )[0];
       expect(payment).toMatchObject({ status: "succeeded", amountMinor: 1000, refundedAmountMinor: 0 });
 
-      await service.process(stripeEvent(eventIds[3]!, "customer.subscription.updated", subscriptionObject("active", scalePrice)));
+      await service.process(stripeEvent(eventIds[11]!, "invoice.payment_failed", failedInvoice));
+      subscription = (
+        await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
+      )[0];
+      payment = (
+        await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
+      )[0];
+      expect(subscription?.status).toBe("active");
+      expect(payment?.status).toBe("succeeded");
+
+      const scaleSubscription = subscriptionObject("active", scalePrice);
+      latestSubscriptions.set(subscriptionId, scaleSubscription);
+      await service.process(stripeEvent(eventIds[3]!, "customer.subscription.updated", scaleSubscription));
       subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
       )[0];
       expect(subscription?.planVersionId).toBe(scale.id);
 
-      await service.process(stripeEvent(eventIds[4]!, "customer.subscription.updated", subscriptionObject("active", scalePrice, true)));
+      await service.process(stripeEvent(eventIds[12]!, "customer.subscription.updated", subscriptionObject("active", growthPrice)));
+      subscription = (
+        await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
+      )[0];
+      expect(subscription?.planVersionId).toBe(scale.id);
+
+      const cancelScheduledSubscription = subscriptionObject("active", scalePrice, true);
+      latestSubscriptions.set(subscriptionId, cancelScheduledSubscription);
+      await service.process(stripeEvent(eventIds[4]!, "customer.subscription.updated", cancelScheduledSubscription));
       subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
       )[0];
@@ -266,7 +307,9 @@ describe("Stripe webhook lifecycle integration", () => {
       )[0];
       expect(refundedPayment).toMatchObject({ status: "refunded", refundedAmountMinor: 1000 });
 
-      await service.process(stripeEvent(eventIds[6]!, "customer.subscription.deleted", subscriptionObject("canceled", scalePrice, false)));
+      const cancelledSubscription = subscriptionObject("canceled", scalePrice, false);
+      latestSubscriptions.set(subscriptionId, cancelledSubscription);
+      await service.process(stripeEvent(eventIds[6]!, "customer.subscription.deleted", cancelledSubscription));
       subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
       )[0];
