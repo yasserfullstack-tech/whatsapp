@@ -201,6 +201,46 @@ export async function getWhatsAppPhoneNumber(
   };
 }
 
+export async function listWhatsAppBusinessAccountPhoneNumberIds(input: {
+  wabaId: string;
+  accessToken: string;
+  graphApiVersion: string;
+}): Promise<string[]> {
+  const phoneNumberIds: string[] = [];
+  let after: string | undefined;
+
+  for (let page = 0; page < 100; page += 1) {
+    const endpoint = new URL(`https://graph.facebook.com/${input.graphApiVersion}/${input.wabaId}/phone_numbers`);
+    endpoint.searchParams.set("fields", "id");
+    endpoint.searchParams.set("limit", "100");
+    if (after) endpoint.searchParams.set("after", after);
+
+    const response = await metaFetch("list_waba_phone_numbers", endpoint, {
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+    });
+    const body = await assertMetaResponse(
+      response,
+      "Could not read the WhatsApp Business Account phone numbers from Meta",
+    );
+
+    if (!isRecord(body) || !Array.isArray(body.data)) {
+      throw new MetaApiError("Meta WABA phone-number response was invalid", response.status, body);
+    }
+
+    for (const item of body.data) {
+      if (isRecord(item) && typeof item.id === "string") phoneNumberIds.push(item.id);
+    }
+
+    const paging = isRecord(body.paging) ? body.paging : undefined;
+    const cursors = paging && isRecord(paging.cursors) ? paging.cursors : undefined;
+    const nextAfter = cursors && typeof cursors.after === "string" ? cursors.after : undefined;
+    if (!nextAfter || nextAfter === after) break;
+    after = nextAfter;
+  }
+
+  return phoneNumberIds;
+}
+
 type SubscribeAppInput = {
   wabaId: string;
   accessToken: string;
