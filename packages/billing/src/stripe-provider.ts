@@ -201,6 +201,14 @@ export class StripeBillingProvider extends BaseBillingProvider {
     return this.subscriptionReference(subscription, externalId);
   }
 
+  async retrieveSubscription(subscriptionExternalId: string): Promise<Record<string, unknown>> {
+    return this.request(`/v1/subscriptions/${encodeURIComponent(subscriptionExternalId)}`);
+  }
+
+  async retrieveInvoice(invoiceExternalId: string): Promise<Record<string, unknown>> {
+    return this.request(`/v1/invoices/${encodeURIComponent(invoiceExternalId)}`);
+  }
+
   override async changePlan(input: Parameters<BaseBillingProvider["changePlan"]>[0]): Promise<BillingProviderSubscription> {
     if (input.effectiveAt && input.effectiveAt.getTime() > this.now().getTime() + 60_000) {
       throw new Error("Stripe billing adapter does not support scheduled future plan changes");
