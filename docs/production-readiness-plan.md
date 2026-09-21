@@ -97,7 +97,7 @@ The repository has strong local/fake-provider regression coverage, but fake Meta
 | PR-016 Campaign scheduling | ✅ `[x]` | Scheduling implementation merged via [#83](https://github.com/yasserfullstack-tech/whatsapp/pull/83); final deterministic scheduling/worker verification merged via [#96](https://github.com/yasserfullstack-tech/whatsapp/pull/96) | Verified complete; [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) closed after protected-merge and CI/Security/browser evidence review. |
 | PR-017 Onboarding test mode | ✅ `[x]` | Merged and verified via [#85](https://github.com/yasserfullstack-tech/whatsapp/pull/85) | Maintain regression coverage. |
 | PR-018 Contact management | ✅ `[x]` | Product surface merged via [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84); production-query/performance verification via [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105) and browser/security E2E via [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97) | Verified complete; [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) closed after all acceptance/evidence requirements landed on protected `main`. |
-| PR-019 Notification runtime | 🟦 `[ ]` | Runtime event sources/dedupe/preferences/reconciliation merged via [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86) | Backfill explicit plan verification and any applicable production delivery evidence. |
+| PR-019 Notification runtime | 🟦 ⏳ `[ ]` | Runtime event sources/dedupe/preferences/reconciliation merged via [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86); source mapping/replay hardening via [#103](https://github.com/yasserfullstack-tech/whatsapp/pull/103) and [#110](https://github.com/yasserfullstack-tech/whatsapp/pull/110) | Repository verification and browser/security evidence are complete; attach redacted real Resend staging/production delivery evidence before promoting the checkbox. |
 | PR-020 Platform admin tooling | 🟦 `[ ]` | Admin access/billing/Meta/queue/webhook/audit tooling merged via [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81) | Backfill final authorization/security/operational evidence before promoting the checkbox. |
 | PR-021 Container/supply-chain security | 🟦 `[ ]` | Frozen installs, provenance labels, Trivy scans and blocking policy merged via [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72) | Confirm/link final scan artifacts and policy evidence for the release; current Security/Production Infra are green on audited HEAD. |
 | PR-022 Application security / independent testing | 🟦 ⏳ `[ ]` | IDOR/object-storage/rotation/RLS/admin hardening merged via [#88](https://github.com/yasserfullstack-tech/whatsapp/pull/88) | Independent assessment/pentest plus remediation/retest or formal acceptance of critical/high findings — attach to the reopened [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67). |
@@ -178,7 +178,7 @@ These items do not necessarily block the first paid launch unless explicitly pro
 ## P1 — product/security evidence backfill
 
 12. Complete PR-015 real rich-template staging send evidence.
-13. Complete the remaining final evidence/checklist review for PR-019, PR-020, and PR-021.
+13. Complete real Resend delivery evidence for PR-019, the remaining real-environment admin evidence for PR-020, and the owner-reviewed vulnerability exception/release evidence for PR-021.
 14. Complete PR-022 independent security assessment/pentest and remediation gate.
 
 ---
@@ -321,11 +321,11 @@ Verified complete. Manual CRUD, custom fields/tags/notes, import mapping, broade
 
 ## [ ] PR-019 — Wire the full notification catalog
 
-**Tracking:** [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) · **Implementation:** [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86)
+**Tracking:** [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) · **Implementation:** [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86) · **Repository verification:** [#103](https://github.com/yasserfullstack-tech/whatsapp/pull/103), [#110](https://github.com/yasserfullstack-tech/whatsapp/pull/110)
 
-Runtime event sources, preference/mandatory-category handling, replay-safe dedupe, durable reconciliation, and observable delivery are merged.
+Runtime event sources, preference/mandatory-category handling, replay-safe dedupe, durable reconciliation, persistent restart-safe reconciliation cursor behavior, delayed billing-event replay, and observable delivery are merged. PR #110 passed CI (including EN/AR desktop/tablet/mobile browser E2E), Security, and Production Infra on its final head before protected merge.
 
-**Still needed:** backfill explicit final verification and any applicable real-provider delivery evidence before promoting the checkbox.
+**Still needed:** attach redacted real Resend delivery evidence from the staging/production provider configuration, including the resulting provider delivery status/message reference with recipient data redacted. Repository CI does not substitute for that provider evidence.
 
 ## [ ] PR-020 — Expand platform admin tooling
 
