@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { once } from "node:events";
 import { Socket } from "node:net";
 import { connect as connectTls, type TLSSocket } from "node:tls";
 import type { EmailProvider } from "./email";
@@ -25,6 +24,38 @@ export type SmtpMailInput = {
 };
 
 type SmtpSocket = Socket | TLSSocket;
+
+const SMTP_CONNECT_TIMEOUT_MS = 15_000;
+
+async function waitForSocketEvent(
+  socket: SmtpSocket,
+  event: "connect" | "secureConnect",
+  timeoutMs = SMTP_CONNECT_TIMEOUT_MS,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let timer: NodeJS.Timeout;
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off(event, onReady);
+      socket.off("error", onError);
+    };
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    timer = setTimeout(() => {
+      cleanup();
+      socket.destroy();
+      reject(new Error(`Timed out waiting for SMTP ${event}`));
+    }, timeoutMs);
+    socket.once(event, onReady);
+    socket.once("error", onError);
+  });
+}
 
 function required(value: string | undefined, name: string): string {
   const normalized = value?.trim();
@@ -269,7 +300,7 @@ async function connectSmtp(config: SmtpEmailConfig): Promise<{ socket: SmtpSocke
       minVersion: "TLSv1.2",
     });
     const reader = new SmtpLineReader(socket);
-    await once(socket, "secureConnect");
+    await waitForSocketEvent(socket, "secureConnect");
     expectCode(await readResponse(reader), 220, "greeting");
     await ehlo(socket, reader);
     return { socket, reader };
@@ -278,7 +309,7 @@ async function connectSmtp(config: SmtpEmailConfig): Promise<{ socket: SmtpSocke
   const plain = new Socket();
   const plainReader = new SmtpLineReader(plain);
   plain.connect(config.port, config.host);
-  await once(plain, "connect");
+  await waitForSocketEvent(plain, "connect");
   expectCode(await readResponse(plainReader), 220, "greeting");
   await ehlo(plain, plainReader);
 
@@ -292,7 +323,7 @@ async function connectSmtp(config: SmtpEmailConfig): Promise<{ socket: SmtpSocke
     minVersion: "TLSv1.2",
   });
   const reader = new SmtpLineReader(socket);
-  await once(socket, "secureConnect");
+  await waitForSocketEvent(socket, "secureConnect");
   await ehlo(socket, reader);
   return { socket, reader };
 }
@@ -333,12 +364,10 @@ export async function sendSmtpEmail(
     socket.write(`${dotStuff(message)}\r\n.\r\n`);
     expectCode(await readResponse(reader), 250, "message delivery");
 
+    // DATA acceptance (250) is the delivery boundary. QUIT is best-effort only:
+    // treating a QUIT failure as a delivery failure can cause a duplicate retry
+    // after the SMTP server has already accepted the message.
     writeLine(socket, "QUIT");
-    const quit = await readResponse(reader).catch(() => null);
-    if (quit && quit.code !== 221) {
-      throw new Error(`SMTP QUIT failed with ${quit.code}`);
-    }
-
     return { messageId };
   } finally {
     reader?.dispose();
