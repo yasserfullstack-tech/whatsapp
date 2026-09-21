@@ -234,7 +234,10 @@ export async function requestOnlinePlanChange(input: {
     cancelUrl: `${root}/settings/billing?billing=checkout-cancelled`,
     idempotencyKey: checkoutAttempt.idempotencyKey,
     expiresAt: checkoutAttempt.expiresAt,
-    metadata: { planCode: input.planCode },
+    metadata: {
+      planCode: input.planCode,
+      checkoutAttemptKey: checkoutAttempt.idempotencyKey,
+    },
   });
   return { kind: "checkout", url: checkout.url };
 }
