@@ -374,6 +374,7 @@ The readiness tracking issues (#46–#67) are the source of truth for launch sta
 
 - `[x]` in this plan means **verified complete**, not merely merged. Never check a box (and never declare a task done) until its Definition of Done and any required real-environment evidence are satisfied.
 - An implementation PR that intentionally leaves external evidence outstanding **must** use `Refs #N` or `Supports #N`, **never** `Closes #N` or `Fixes #N`. This applies to provider, production, legal, recovery, capacity, operator-delivery, and independent-security evidence that cannot be produced by repository CI.
+- Do not put a negated closing phrase next to a readiness issue reference either (for example, `does not close #N`). GitHub can still parse the embedded `close #N` token when the PR merges. Write `keeps #N open` instead.
 - External-evidence tracking issues are **never** closed by repository CI alone. A merge that auto-closes one of #46–#67 must first carry real evidence of completion, or the issue must be reopened and the plan checkbox left unchecked.
 - When a readiness checkbox is promoted to `[x]`, the same change/review must confirm the tracking issue can be closed and that evidence links are present on the issue.
 - If a tracking issue was auto-closed by a merge while evidence is still outstanding, reopen it and keep the corresponding plan checkbox unchecked.
