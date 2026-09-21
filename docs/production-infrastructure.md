@@ -58,6 +58,35 @@ sh infra/production/scripts/check-immutable-images.sh .env.staging
 sh infra/production/scripts/check-immutable-images.sh .env.production
 ```
 
+### Publish an immutable candidate release
+
+The repository does not deploy to staging or production from CI, but it can publish
+the exact reviewed images that an operator later promotes. Run the **Release
+Images** workflow manually and provide the full 40-character commit SHA to
+publish.
+
+The workflow refuses any SHA that is not already in `origin/main`, then builds
+and pushes the web, API, worker, and migrator images to GitHub Container
+Registry. Each invocation uses a unique run tag so a repeated build does not
+silently replace the tag selected by an earlier release session. The workflow
+uploads a safe `release.env` artifact containing only:
+
+- the exact reviewed source SHA;
+- `WEB_IMAGE`, `API_IMAGE`, `WORKER_IMAGE`, and `MIGRATOR_IMAGE` as
+  immutable `ghcr.io/...@sha256:...` references.
+
+Copy those digest references into the host-only staging environment file and
+run `check-immutable-images.sh` again before deployment. Do not use the
+workflow's human-readable tag as the deployment identity.
+
+If the GHCR packages are not public, authenticate the deployment host to
+`ghcr.io` with a least-privilege credential that can only read packages.
+Keep that credential on the host/operator secret store; never commit it or put
+it in the safe release manifest.
+
+This publisher creates release artifacts only. It intentionally has no host,
+DNS, provider, staging, or production credentials and performs no deployment.
+
 Where an operator can securely access both host-only env files, verify isolation without printing secret values:
 
 ```bash
