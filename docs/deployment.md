@@ -24,7 +24,7 @@ For real releases, set `WEB_IMAGE`, `API_IMAGE`, `WORKER_IMAGE`, and `MIGRATOR_I
 ## First deployment
 
 1. Point `APP_DOMAIN` DNS at the VPS and make sure inbound TCP 80/443 and UDP 443 are allowed.
-2. Populate `.env.production` and provision the R2 bucket, Meta application credentials, Resend sender, Sentry project if used, and operator-only Grafana credentials.
+2. Populate `.env.production` and provision the R2 bucket, Meta application credentials, SMTP email sender (Google/Gmail is the current default), Sentry project if used, and operator-only Grafana credentials.
 3. Start PostgreSQL and Valkey, then run migrations before application rollout.
 4. Start the web, API, worker, observability, and Caddy services.
 5. Verify readiness, worker queue visibility, and the public smoke test.
@@ -101,6 +101,7 @@ Staging must be isolated from production. At minimum use:
 - a separate Valkey instance/volume and therefore separate queues,
 - a separate R2 bucket or strictly separate staging prefix and credentials,
 - Meta test credentials/numbers rather than production sending credentials,
+- staging/test SMTP credentials (prefer a separate Google account/App Password from production),
 - a distinct Sentry environment/project where practical.
 
 Prefer a separate VPS. If both environments temporarily share a host, use distinct Compose project names, env files, volumes, ports, and buckets. Production and staging must never point at the same `DATABASE_URL` or `REDIS_URL`.
