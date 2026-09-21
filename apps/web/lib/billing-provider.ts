@@ -51,9 +51,12 @@ export function getStripeWebhookProcessor() {
   if (!Number.isFinite(graceDays) || graceDays < 0) {
     throw new Error("BILLING_FAILED_PAYMENT_GRACE_DAYS must be zero or a positive integer");
   }
+  const provider = getStripeBillingProvider();
   return createStripeWebhookService(db, {
     priceRefs: getStripePriceRefs(),
     failedPaymentGraceDays: graceDays,
+    retrieveSubscription: (subscriptionExternalId) => provider.retrieveSubscription(subscriptionExternalId),
+    retrieveInvoice: (invoiceExternalId) => provider.retrieveInvoice(invoiceExternalId),
   });
 }
 
