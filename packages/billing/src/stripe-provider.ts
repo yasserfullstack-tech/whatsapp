@@ -22,7 +22,6 @@ export type StripeBillingProviderConfig = {
   now?: () => Date;
 };
 
-const STRIPE_CHECKOUT_IDEMPOTENCY_WINDOW_MS = 5 * 60_000;
 
 const capabilities: BillingProviderCapabilities = {
   customer: true,
@@ -165,11 +164,11 @@ export class StripeBillingProvider extends BaseBillingProvider {
     if (input.customerExternalId) body.set("customer", input.customerExternalId);
     appendMetadata(body, "metadata", input.metadata);
     appendMetadata(body, "subscription_data[metadata]", input.metadata);
-    const retryWindow = Math.floor(this.now().getTime() / STRIPE_CHECKOUT_IDEMPOTENCY_WINDOW_MS);
+    if (input.expiresAt) body.set("expires_at", String(Math.floor(input.expiresAt.getTime() / 1_000)));
     const session = await this.request("/v1/checkout/sessions", {
       method: "POST",
       body,
-      idempotencyKey: `checkout:${input.organizationId}:${input.planExternalRef}:${retryWindow}`,
+      idempotencyKey: input.idempotencyKey ?? `checkout:${input.organizationId}:${input.planExternalRef}:${randomUUID()}`,
     });
     const externalId = asString(session.id);
     const url = asString(session.url);
