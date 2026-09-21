@@ -51,6 +51,9 @@
           },
           {
             "context": "Tenant isolation and API abuse tests"
+          },
+          {
+            "context": "release-gate"
           }
         ]
       }
