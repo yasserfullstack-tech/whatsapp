@@ -8,7 +8,7 @@ Treat these as secrets or security-sensitive configuration:
 
 - `POSTGRES_PASSWORD` and credentials embedded in `DATABASE_URL`,
 - `BETTER_AUTH_SECRET`,
-- `CREDENTIAL_ENCRYPTION_KEY`,
+- `CREDENTIAL_ENCRYPTION_KEY`, together with `CREDENTIAL_ENCRYPTION_KEY_VERSION` and the decrypt-only `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` used during a rotation window,
 - `META_APP_SECRET`, `META_VERIFY_TOKEN`, and any Meta access token,
 - `R2_ACCESS_KEY_ID` and especially `R2_SECRET_ACCESS_KEY`,
 - `SMTP_PASSWORD` (for Gmail/Google SMTP, use an App Password rather than the account password),
@@ -45,7 +45,12 @@ Document the owner and rotation procedure for each credential. Favor rotations t
 - Better Auth secret: understand session/token invalidation before rotating; an emergency rotation may intentionally sign users out,
 - Grafana password: rotate immediately after suspected disclosure,
 - backup encryption identity: add a new recipient for new backups and preserve the old identity until every retained backup encrypted to it has expired,
-- `CREDENTIAL_ENCRYPTION_KEY`: do **not** just replace the value. Stored encrypted Meta credentials must be decrypted with the old key and re-encrypted with the new key in a controlled rotation. Losing all copies of the old key can make those credentials unrecoverable.
+- `CREDENTIAL_ENCRYPTION_KEY`: stored Meta credentials record the key version that encrypted them (`credential_secrets.key_version`; a row without a version is read as version 1, so pre-versioning rows keep decrypting with the original key and need no data migration). Rotate with a rolling window rather than a big-bang replacement:
+  1. set `CREDENTIAL_ENCRYPTION_KEY` to the replacement key, set `CREDENTIAL_ENCRYPTION_KEY_VERSION` to the next integer, and keep the outgoing key in `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` so both versions decrypt;
+  2. deploy and confirm that new writes use the new version while existing rows still read;
+  3. run `bun run credentials:rotate` (optionally with an organization id to rotate one tenant) to decrypt each row with its recorded key and re-encrypt it under the current version;
+  4. confirm no rows still reference the previous version, then remove `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` and retire the old key.
+  Do not remove the previous key before step 3 has completed for every row, and keep an independently secured recovery copy of every key in the ring: losing all copies of a key can make the credentials encrypted under it unrecoverable.
 
 After any suspected leak, rotate rather than merely deleting the value from the repository history.
 

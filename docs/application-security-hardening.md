@@ -51,23 +51,24 @@ All production secrets remain owned by the deployment secret manager or host con
 3. re-encrypt the plaintext with a newly generated key;
 4. verify the new ciphertext decrypts only with the new key and the old ciphertext does not decrypt with the new key.
 
-This automated exercise does **not** authorize replacing `CREDENTIAL_ENCRYPTION_KEY` in production without a database migration/backfill plan. The current persisted credential row does not record which key encrypted it, so removing the old key before all rows are re-encrypted can make Meta credentials unrecoverable.
+This automated exercise does **not** authorize replacing `CREDENTIAL_ENCRYPTION_KEY` in production without a rotation plan. The persisted credential row now records which key encrypted it, so the previous key can stay decrypt-capable while every row is re-encrypted; removing the previous key before that re-encryption has completed can still make Meta credentials unrecoverable.
 
-### Versioned key/ciphertext design
+### Versioned key design
 
-A production rolling rotation should add explicit envelope metadata instead of relying on operator knowledge:
+`credential_secrets.key_version` (nullable integer) records which key encrypted each row. A row with no version is read as version 1, so rows written before versioning keep decrypting with the original `CREDENTIAL_ENCRYPTION_KEY` and require no data migration.
 
-- add `credential_secrets.key_version` (opaque identifier such as `2026-09`) and `credential_secrets.ciphertext_version` (integer format version);
-- configure a keyring containing the active key and one or more decrypt-only predecessor keys, rather than a single unversioned key;
-- new writes use the active `key_version` and current `ciphertext_version`;
-- reads select the exact key by persisted `key_version`; unknown versions fail closed and move the WhatsApp connection to the existing reauthorization-required path rather than guessing keys;
-- a resumable, tenant-scoped backfill decrypts each old row with its recorded/legacy key and atomically rewrites it with the active key/version;
-- metrics or a verification query prove no rows reference the predecessor key before that key is removed from the keyring;
-- rollback keeps the predecessor key decrypt-capable until the new deployment and backfill have both been proven healthy.
+The runtime key ring is built from the environment:
 
-For legacy rows created before version columns exist, the migration should assign a dedicated `legacy` key version representing the then-current `CREDENTIAL_ENCRYPTION_KEY`; operators must preserve that exact key until the backfill count reaches zero. Ciphertext-format changes must increment `ciphertext_version` independently from key rotation so cryptographic-format migration and key lifecycle are not conflated.
+- `CREDENTIAL_ENCRYPTION_KEY` — the active key; new writes record `CREDENTIAL_ENCRYPTION_KEY_VERSION` (default 1);
+- `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` — a decrypt-only predecessor retained during a rotation window, at the immediately preceding version.
 
-This design should be implemented before a routine production credential-encryption-key rotation is attempted. Emergency rotation after suspected key compromise requires treating all decryptable stored Meta access tokens as potentially exposed and coordinating token replacement/reauthorization, not only re-encryption.
+Reads select the key that matches the persisted version. A version with no configured key fails closed with a clear error instead of guessing a key, so a WhatsApp connection moves to the existing reauthorization-required path rather than returning corrupted plaintext.
+
+`bun run credentials:rotate` (optionally scoped to one organization) decrypts each row with its recorded key and rewrites it under the active version, updating `key_version`. It is idempotent and can be re-run or resumed; rows already at the active version are left untouched. Coverage lives in `packages/credentials/src/index.test.ts` (round-trip, wrong key, version selection, legacy rows, rotation) and `apps/worker/src/credential-rotation.integration.test.ts` (a real Postgres rotation that leaves every row readable with only the active key).
+
+Not yet implemented: a separate `ciphertext_version` column (unnecessary while the AES-256-GCM ciphertext format is unchanged; add one before any format change so key lifecycle and format migration stay independent), and an automated verification query/metric proving no rows still reference the predecessor key. Until that exists, confirming the final step of the rotation runbook is a manual query.
+
+Emergency rotation after suspected key compromise requires treating all decryptable stored Meta access tokens as potentially exposed and coordinating token replacement/reauthorization, not only re-encryption.
 
 ## PostgreSQL RLS decision
 
@@ -120,7 +121,7 @@ Repository evidence provided by this hardening work:
 - abuse/rate-limit regressions: existing suite retained and documented as a release gate;
 - hostile/malformed object-storage regression expansion: implemented in unit and browser security tests;
 - secret rotation procedure: cryptographic re-encryption path exercised in unit tests; operational production rotation remains controlled by the runbook;
-- credential encryption key/ciphertext versioning: design recorded here; runtime/schema implementation remains a prerequisite for routine rolling rotation;
+- credential encryption key/ciphertext versioning: implemented — `credential_secrets.key_version` (nullable; a missing version reads as version 1), an environment key ring (`CREDENTIAL_ENCRYPTION_KEY`, `CREDENTIAL_ENCRYPTION_KEY_VERSION`, decrypt-only `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS`), and an idempotent re-encryption routine (`bun run credentials:rotate`) covered by unit and Postgres integration tests;
 - PostgreSQL RLS: decision documented as deferred with revisit criteria;
 - privileged admin operations: review criteria and current control inventory documented;
 - independent penetration test: **not complete in Git** and remains external evidence for issue #67;

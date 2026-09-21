@@ -12,6 +12,8 @@ export type StripeWebhookServiceOptions = {
   priceRefs: StripePriceRefs;
   failedPaymentGraceDays?: number;
   now?: () => Date;
+  retrieveSubscription?: (subscriptionExternalId: string) => Promise<StripeObject>;
+  retrieveInvoice?: (invoiceExternalId: string) => Promise<StripeObject>;
 };
 
 export type StripeWebhookProcessResult = {
@@ -136,8 +138,20 @@ async function resolveOrganizationId(
   object: StripeObject,
   subscriptionExternalId?: string | null,
 ): Promise<string> {
-  const fromMetadata = metadataOrganizationId(object);
-  if (fromMetadata) return fromMetadata;
+  const externalSubscriptionId = subscriptionExternalId ?? idFrom(object.subscription);
+  if (externalSubscriptionId) {
+    const subscription = (
+      await tx
+        .select({ organizationId: schema.billingSubscriptions.organizationId })
+        .from(schema.billingSubscriptions)
+        .where(and(
+          eq(schema.billingSubscriptions.providerKey, "stripe"),
+          eq(schema.billingSubscriptions.providerSubscriptionId, externalSubscriptionId),
+        ))
+        .limit(1)
+    )[0];
+    if (subscription) return subscription.organizationId;
+  }
 
   const customerExternalId = idFrom(object.customer);
   if (customerExternalId) {
@@ -154,20 +168,8 @@ async function resolveOrganizationId(
     if (account) return account.organizationId;
   }
 
-  const externalSubscriptionId = subscriptionExternalId ?? idFrom(object.subscription);
-  if (externalSubscriptionId) {
-    const subscription = (
-      await tx
-        .select({ organizationId: schema.billingSubscriptions.organizationId })
-        .from(schema.billingSubscriptions)
-        .where(and(
-          eq(schema.billingSubscriptions.providerKey, "stripe"),
-          eq(schema.billingSubscriptions.providerSubscriptionId, externalSubscriptionId),
-        ))
-        .limit(1)
-    )[0];
-    if (subscription) return subscription.organizationId;
-  }
+  const fromMetadata = metadataOrganizationId(object);
+  if (fromMetadata) return fromMetadata;
 
   throw new Error("Could not resolve workspace for Stripe event");
 }
@@ -218,28 +220,99 @@ async function resolvePlanVersionId(
   return planVersion.id;
 }
 
+function assertStripeAccountBinding(
+  account: { providerKey: string | null; providerCustomerId: string | null },
+  customerExternalId: string | null,
+): void {
+  if (account.providerKey && account.providerKey !== "stripe") {
+    throw new Error(`Billing account is already linked to provider ${account.providerKey}`);
+  }
+  if (customerExternalId && account.providerCustomerId && account.providerCustomerId !== customerExternalId) {
+    throw new Error("Stripe customer does not match the workspace billing account");
+  }
+}
+
+function assertStripeSubscriptionBinding(
+  current: { providerKey: string | null; providerSubscriptionId: string | null; status: string } | null | undefined,
+  providerSubscriptionId: string,
+): void {
+  if (!current || current.status === "cancelled") return;
+  if (current.providerKey && current.providerKey !== "stripe") {
+    throw new Error(`Workspace already has an active ${current.providerKey} subscription`);
+  }
+  if (current.providerSubscriptionId && current.providerSubscriptionId !== providerSubscriptionId) {
+    throw new Error("Workspace already has a different active Stripe subscription");
+  }
+}
+
+function refundAmountsFromMetadata(metadata: unknown): Map<string, number> {
+  const raw = asRecord(asRecord(metadata)?.stripeRefundAmounts);
+  const amounts = new Map<string, number>();
+  if (!raw) return amounts;
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      amounts.set(key, value);
+    }
+  }
+  return amounts;
+}
+
+function stripeResourceLockKey(eventType: string, object: StripeObject): string | null {
+  if (
+    eventType === "checkout.session.completed"
+    || eventType.startsWith("customer.subscription.")
+    || eventType.startsWith("invoice.")
+  ) {
+    const customerExternalId = idFrom(object.customer);
+    if (customerExternalId) return `stripe:customer:${customerExternalId}`;
+
+    const subscriptionExternalId = eventType.startsWith("customer.subscription.")
+      ? asString(object.id)
+      : eventType.startsWith("invoice.")
+        ? invoiceSubscriptionId(object)
+        : idFrom(object.subscription);
+    if (subscriptionExternalId) return `stripe:subscription:${subscriptionExternalId}`;
+  }
+  return null;
+}
+
 async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject): Promise<void> {
   const organizationId = metadataOrganizationId(session) ?? asString(session.client_reference_id);
   if (!organizationId) throw new Error("Stripe Checkout session is missing organization metadata");
   const customerExternalId = idFrom(session.customer);
   const providerSubscriptionId = idFrom(session.subscription);
   const account = await billingAccountFor(tx, organizationId);
+  assertStripeAccountBinding(account, customerExternalId);
 
-  if (customerExternalId) {
-    await tx
-      .update(schema.billingAccounts)
-      .set({ providerKey: "stripe", providerCustomerId: customerExternalId, updatedAt: new Date() })
-      .where(eq(schema.billingAccounts.id, account.id));
+  const accountMetadata = { ...(asRecord(account.metadata) ?? {}) };
+  const persistedAttempt = asRecord(accountMetadata.stripeCheckoutAttempt);
+  const completedAttemptKey = asString(asRecord(session.metadata)?.checkoutAttemptKey);
+  if (completedAttemptKey && asString(persistedAttempt?.key) === completedAttemptKey) {
+    delete accountMetadata.stripeCheckoutAttempt;
   }
+  await tx
+    .update(schema.billingAccounts)
+    .set({
+      ...(customerExternalId ? { providerKey: "stripe", providerCustomerId: customerExternalId } : {}),
+      metadata: accountMetadata,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.billingAccounts.id, account.id));
   if (providerSubscriptionId) {
     const current = (
       await tx
-        .select({ id: schema.billingSubscriptions.id })
+        .select({
+          id: schema.billingSubscriptions.id,
+          providerKey: schema.billingSubscriptions.providerKey,
+          providerSubscriptionId: schema.billingSubscriptions.providerSubscriptionId,
+          status: schema.billingSubscriptions.status,
+        })
         .from(schema.billingSubscriptions)
         .where(eq(schema.billingSubscriptions.organizationId, organizationId))
         .orderBy(desc(schema.billingSubscriptions.createdAt))
         .limit(1)
     )[0];
+    assertStripeSubscriptionBinding(current, providerSubscriptionId);
     if (current) {
       await tx
         .update(schema.billingSubscriptions)
@@ -263,6 +336,7 @@ async function syncSubscription(
   const customerExternalId = idFrom(subscription.customer);
   const planVersionId = await resolvePlanVersionId(tx, priceId, options.priceRefs);
   const account = await billingAccountFor(tx, organizationId);
+  assertStripeAccountBinding(account, customerExternalId);
   if (customerExternalId) {
     await tx
       .update(schema.billingAccounts)
@@ -280,6 +354,10 @@ async function syncSubscription(
       ))
       .limit(1)
   )[0];
+  const claimedOrganizationId = metadataOrganizationId(subscription);
+  if (claimedOrganizationId && claimedOrganizationId !== organizationId) {
+    throw new Error("Stripe subscription is already linked to a different workspace");
+  }
   const current = byProvider ?? (
     await tx
       .select()
@@ -288,6 +366,7 @@ async function syncSubscription(
       .orderBy(desc(schema.billingSubscriptions.createdAt))
       .limit(1)
   )[0];
+  assertStripeSubscriptionBinding(current, providerSubscriptionId);
 
   const now = options.now();
   const mapped = mapStripeSubscriptionStatus(providerStatus, now, options.failedPaymentGraceDays, current?.graceEndsAt);
@@ -446,8 +525,8 @@ async function syncInvoice(
   if (!localInvoice) throw new Error("Could not synchronize Stripe invoice");
 
   const providerPaymentId = invoicePaymentId(invoice);
-  const failed = eventType === "invoice.payment_failed";
-  const succeeded = eventType === "invoice.paid" || eventType === "invoice.payment_succeeded" || status === "paid";
+  const failed = eventType === "invoice.payment_failed" && status !== "paid";
+  const succeeded = status === "paid" || eventType === "invoice.paid" || eventType === "invoice.payment_succeeded";
   if (providerPaymentId && (failed || succeeded)) {
     const paymentStatus = failed ? "failed" as const : "succeeded" as const;
     const paymentAmount = succeeded ? Math.max(amountPaidMinor, totalMinor) : Math.max(amountDueMinor, totalMinor);
@@ -466,11 +545,15 @@ async function syncInvoice(
         .update(schema.billingPayments)
         .set({
           invoiceId: localInvoice.id,
-          status: paymentStatus,
+          status: existingPayment.refundedAmountMinor >= paymentAmount
+            ? "refunded"
+            : existingPayment.refundedAmountMinor > 0
+              ? "partially_refunded"
+              : paymentStatus,
           currency,
           amountMinor: paymentAmount,
           paidAt: succeeded ? paidAt ?? now : null,
-          metadata: { providerInvoiceId },
+          metadata: { ...(asRecord(existingPayment.metadata) ?? {}), providerInvoiceId },
         })
         .where(eq(schema.billingPayments.id, existingPayment.id));
     } else {
@@ -505,9 +588,20 @@ async function syncInvoice(
   }
 }
 
-async function syncRefund(tx: BillingTransaction, refundOrCharge: StripeObject): Promise<void> {
+async function syncRefund(
+  tx: BillingTransaction,
+  refundOrCharge: StripeObject,
+  eventType: string,
+): Promise<void> {
   const paymentExternalId = idFrom(refundOrCharge.payment_intent) ?? idFrom(refundOrCharge.charge) ?? asString(refundOrCharge.id);
   if (!paymentExternalId) return;
+  await tx.execute(sql`
+    SELECT ${schema.billingPayments.id}
+    FROM ${schema.billingPayments}
+    WHERE ${schema.billingPayments.providerKey} = 'stripe'
+      AND ${schema.billingPayments.providerPaymentId} = ${paymentExternalId}
+    FOR UPDATE
+  `);
   const payment = (
     await tx
       .select()
@@ -520,13 +614,39 @@ async function syncRefund(tx: BillingTransaction, refundOrCharge: StripeObject):
   )[0];
   if (!payment) return;
 
-  const refundedAmountMinor = asNumber(refundOrCharge.amount_refunded) ?? asNumber(refundOrCharge.amount) ?? payment.amountMinor;
+  const metadata = asRecord(payment.metadata) ?? {};
+  const refundAmounts = refundAmountsFromMetadata(metadata);
+  let authoritativeAmount = asNumber(metadata.stripeChargeRefundedAmountMinor) ?? 0;
+
+  if (eventType === "charge.refunded") {
+    const amountRefunded = asNumber(refundOrCharge.amount_refunded);
+    if (amountRefunded === null) return;
+    authoritativeAmount = Math.max(authoritativeAmount, amountRefunded);
+  } else {
+    if (asString(refundOrCharge.status) !== "succeeded") return;
+    const refundId = asString(refundOrCharge.id);
+    const amount = asNumber(refundOrCharge.amount);
+    if (!refundId || amount === null) return;
+    refundAmounts.set(refundId, amount);
+  }
+
+  const itemizedAmount = [...refundAmounts.values()].reduce((sum, amount) => sum + amount, 0);
+  const refundedAmountMinor = Math.min(payment.amountMinor, Math.max(authoritativeAmount, itemizedAmount));
+  if (refundedAmountMinor <= 0) return;
+
   await tx
     .update(schema.billingPayments)
     .set({
       refundedAmountMinor,
       status: refundedAmountMinor >= payment.amountMinor ? "refunded" : "partially_refunded",
-      metadata: { ...(asRecord(payment.metadata) ?? {}), lastRefundId: asString(refundOrCharge.id) },
+      metadata: {
+        ...metadata,
+        stripeRefundAmounts: Object.fromEntries(refundAmounts),
+        stripeChargeRefundedAmountMinor: authoritativeAmount,
+        lastRefundId: eventType === "charge.refunded"
+          ? metadata.lastRefundId ?? null
+          : asString(refundOrCharge.id),
+      },
     })
     .where(eq(schema.billingPayments.id, payment.id));
 }
@@ -536,6 +656,8 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
     priceRefs: options.priceRefs,
     failedPaymentGraceDays: options.failedPaymentGraceDays ?? 7,
     now: options.now ?? (() => new Date()),
+    retrieveSubscription: options.retrieveSubscription,
+    retrieveInvoice: options.retrieveInvoice,
   };
 
   return {
@@ -543,9 +665,21 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
       if (event.providerKey !== "stripe" || !event.verified) {
         throw new Error("Unverified or non-Stripe billing provider event");
       }
+      const existingLedger = (
+        await db
+          .select({ processedAt: schema.billingProviderEvents.processedAt })
+          .from(schema.billingProviderEvents)
+          .where(and(
+            eq(schema.billingProviderEvents.providerKey, "stripe"),
+            eq(schema.billingProviderEvents.externalEventId, event.externalId),
+          ))
+          .limit(1)
+      )[0];
+      if (existingLedger?.processedAt) return { processed: false, replay: true };
+
       const payload = asRecord(event.payload);
-      const object = asRecord(asRecord(payload?.data)?.object);
-      if (!payload || !object) throw new Error("Stripe webhook payload is invalid");
+      const snapshotObject = asRecord(asRecord(payload?.data)?.object);
+      if (!payload || !snapshotObject) throw new Error("Stripe webhook payload is invalid");
 
       await db
         .insert(schema.billingProviderEvents)
@@ -581,6 +715,23 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
         if (!ledger) throw new Error("Stripe provider event ledger row is missing");
         if (ledger.processedAt) return { processed: false, replay: true };
 
+        let object: StripeObject = snapshotObject;
+        const resourceLockKey = stripeResourceLockKey(event.eventType, object);
+        if (resourceLockKey) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${resourceLockKey})::bigint)`);
+        }
+
+        if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.eventType)
+          && normalized.retrieveSubscription) {
+          const subscriptionId = asString(object.id);
+          if (!subscriptionId) throw new Error("Stripe subscription event is missing id");
+          object = await normalized.retrieveSubscription(subscriptionId);
+        } else if (event.eventType.startsWith("invoice.") && normalized.retrieveInvoice) {
+          const invoiceId = asString(object.id);
+          if (!invoiceId) throw new Error("Stripe invoice event is missing id");
+          object = await normalized.retrieveInvoice(invoiceId);
+        }
+
         if (event.eventType === "checkout.session.completed") {
           await syncCheckoutSession(tx, object);
         } else if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.eventType)) {
@@ -588,7 +739,7 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
         } else if (event.eventType.startsWith("invoice.")) {
           await syncInvoice(tx, object, event.eventType, normalized);
         } else if (["charge.refunded", "refund.created", "refund.updated"].includes(event.eventType)) {
-          await syncRefund(tx, object);
+          await syncRefund(tx, object, event.eventType);
         }
 
         await tx

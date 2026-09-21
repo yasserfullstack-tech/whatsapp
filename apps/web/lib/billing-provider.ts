@@ -1,4 +1,5 @@
-import { and, desc, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   StripeBillingProvider,
   createStripeWebhookService,
@@ -8,6 +9,14 @@ import { schema } from "@wa/db";
 import { db } from "./server";
 
 export type OnlineBillingPlanCode = "growth" | "scale";
+
+const STRIPE_CHECKOUT_ATTEMPT_TTL_MS = 45 * 60_000;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -51,9 +60,12 @@ export function getStripeWebhookProcessor() {
   if (!Number.isFinite(graceDays) || graceDays < 0) {
     throw new Error("BILLING_FAILED_PAYMENT_GRACE_DAYS must be zero or a positive integer");
   }
+  const provider = getStripeBillingProvider();
   return createStripeWebhookService(db, {
     priceRefs: getStripePriceRefs(),
     failedPaymentGraceDays: graceDays,
+    retrieveSubscription: (subscriptionExternalId) => provider.retrieveSubscription(subscriptionExternalId),
+    retrieveInvoice: (invoiceExternalId) => provider.retrieveInvoice(invoiceExternalId),
   });
 }
 
@@ -78,6 +90,57 @@ async function currentSubscription(organizationId: string) {
       .orderBy(desc(schema.billingSubscriptions.createdAt))
       .limit(1)
   )[0] ?? null;
+}
+
+async function reserveStripeCheckoutAttempt(
+  organizationId: string,
+  planCode: OnlineBillingPlanCode,
+): Promise<{ idempotencyKey: string; expiresAt: Date }> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`
+      select ${schema.billingAccounts.id}
+      from ${schema.billingAccounts}
+      where ${schema.billingAccounts.organizationId} = ${organizationId}
+      for update
+    `);
+    const account = (
+      await tx
+        .select({ id: schema.billingAccounts.id, metadata: schema.billingAccounts.metadata })
+        .from(schema.billingAccounts)
+        .where(eq(schema.billingAccounts.organizationId, organizationId))
+        .limit(1)
+    )[0];
+    if (!account) throw new Error("Billing account is not initialized");
+
+    const metadata = asRecord(account.metadata) ?? {};
+    const current = asRecord(metadata.stripeCheckoutAttempt);
+    const currentKey = typeof current?.key === "string" ? current.key : null;
+    const currentPlan = typeof current?.planCode === "string" ? current.planCode : null;
+    const currentExpiresAt = typeof current?.expiresAt === "string" ? new Date(current.expiresAt) : null;
+    const now = new Date();
+
+    if (currentKey && currentExpiresAt && Number.isFinite(currentExpiresAt.getTime()) && currentExpiresAt > now) {
+      if (currentPlan !== planCode) {
+        throw new Error("A Stripe Checkout session is already in progress for another plan");
+      }
+      return { idempotencyKey: currentKey, expiresAt: currentExpiresAt };
+    }
+
+    const expiresAt = new Date(now.getTime() + STRIPE_CHECKOUT_ATTEMPT_TTL_MS);
+    const attempt = {
+      key: randomUUID(),
+      planCode,
+      expiresAt: expiresAt.toISOString(),
+    };
+    await tx
+      .update(schema.billingAccounts)
+      .set({
+        metadata: { ...metadata, stripeCheckoutAttempt: attempt },
+        updatedAt: now,
+      })
+      .where(eq(schema.billingAccounts.id, account.id));
+    return { idempotencyKey: attempt.key, expiresAt };
+  });
 }
 
 async function ensureStripeCustomer(input: {
@@ -161,6 +224,7 @@ export async function requestOnlinePlanChange(input: {
     ...(input.userEmail ? { email: input.userEmail } : {}),
     ...(input.organizationName ? { name: input.organizationName } : {}),
   });
+  const checkoutAttempt = await reserveStripeCheckoutAttempt(input.organizationId, input.planCode);
   const root = appUrl();
   const checkout = await provider.createCheckout({
     organizationId: input.organizationId,
@@ -168,7 +232,12 @@ export async function requestOnlinePlanChange(input: {
     planExternalRef: priceRef,
     successUrl: `${root}/settings/billing?billing=checkout-complete`,
     cancelUrl: `${root}/settings/billing?billing=checkout-cancelled`,
-    metadata: { planCode: input.planCode },
+    idempotencyKey: checkoutAttempt.idempotencyKey,
+    expiresAt: checkoutAttempt.expiresAt,
+    metadata: {
+      planCode: input.planCode,
+      checkoutAttemptKey: checkoutAttempt.idempotencyKey,
+    },
   });
   return { kind: "checkout", url: checkout.url };
 }

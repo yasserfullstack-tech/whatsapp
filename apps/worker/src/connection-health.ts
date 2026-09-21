@@ -4,6 +4,7 @@ import { decryptSecret } from "@wa/credentials";
 import { createDatabase, schema } from "@wa/db";
 import { getWhatsAppPhoneNumber, MetaApiError } from "@wa/meta";
 import { NotificationService } from "@wa/notifications";
+import { workerKeyRing } from "./credential-rotation";
 
 type Database = ReturnType<typeof createDatabase>["db"];
 type ConnectionStatus = "pending" | "connected" | "restricted" | "disconnected";
@@ -401,6 +402,7 @@ async function validateConnection(
         ciphertext: schema.credentialSecrets.ciphertext,
         iv: schema.credentialSecrets.iv,
         authTag: schema.credentialSecrets.authTag,
+        keyVersion: schema.credentialSecrets.keyVersion,
       })
       .from(schema.credentialSecrets)
       .where(and(
@@ -423,7 +425,7 @@ async function validateConnection(
 
   let accessToken: string;
   try {
-    accessToken = decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+    accessToken = decryptSecret(secret, workerKeyRing(env));
   } catch {
     await markConnectionRequiresReauthorization(db, {
       organizationId: connection.organizationId,
