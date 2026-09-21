@@ -44,6 +44,7 @@ describe("Stripe webhook lifecycle integration", () => {
       `evt_refund_late_${suffix}`,
       `evt_failed_late_${suffix}`,
       `evt_subscription_late_${suffix}`,
+      `evt_checkout_${suffix}`,
     ];
     const growthPrice = `price_growth_${suffix}`;
     const scalePrice = `price_scale_${suffix}`;
@@ -92,6 +93,13 @@ describe("Stripe webhook lifecycle integration", () => {
 
       const [account] = await db.insert(schema.billingAccounts).values({
         organizationId: organization.id,
+        metadata: {
+          stripeCheckoutAttempt: {
+            key: `checkout_attempt_${suffix}`,
+            planCode: "growth",
+            expiresAt: "2026-09-16T11:00:00.000Z",
+          },
+        },
       }).returning();
       if (!account) throw new Error("Failed to create billing account fixture");
 
@@ -138,6 +146,17 @@ describe("Stripe webhook lifecycle integration", () => {
 
       const initialSubscription = subscriptionObject("active", growthPrice);
       latestSubscriptions.set(subscriptionId, initialSubscription);
+      await service.process(stripeEvent(eventIds[13]!, "checkout.session.completed", {
+        id: `cs_${suffix}`,
+        customer: customerId,
+        subscription: subscriptionId,
+        metadata: { organizationId: organization.id },
+      }));
+      const checkoutAccount = (
+        await db.select().from(schema.billingAccounts).where(eq(schema.billingAccounts.id, account.id)).limit(1)
+      )[0];
+      expect((checkoutAccount?.metadata as Record<string, unknown> | null)?.stripeCheckoutAttempt).toBeUndefined();
+
       await service.process(stripeEvent(eventIds[0]!, "customer.subscription.created", initialSubscription));
 
       const duplicateSubscriptionId = `sub_duplicate_${suffix}`;
@@ -249,18 +268,40 @@ describe("Stripe webhook lifecycle integration", () => {
       expect(payment?.status).toBe("succeeded");
 
       const scaleSubscription = subscriptionObject("active", scalePrice);
-      latestSubscriptions.set(subscriptionId, scaleSubscription);
-      await service.process(stripeEvent(eventIds[3]!, "customer.subscription.updated", scaleSubscription));
-      subscription = (
-        await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
-      )[0];
-      expect(subscription?.planVersionId).toBe(scale.id);
+      let hydrationCall = 0;
+      let firstHydrationStartedResolve: (() => void) | null = null;
+      const firstHydrationStarted = new Promise<void>((resolve) => {
+        firstHydrationStartedResolve = resolve;
+      });
+      const concurrentService = createStripeWebhookService(db, {
+        priceRefs: { growth: growthPrice, scale: scalePrice },
+        failedPaymentGraceDays: 7,
+        now: () => now,
+        retrieveSubscription: async () => {
+          hydrationCall += 1;
+          if (hydrationCall === 1) {
+            firstHydrationStartedResolve?.();
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            return initialSubscription;
+          }
+          return scaleSubscription;
+        },
+      });
 
-      await service.process(stripeEvent(eventIds[12]!, "customer.subscription.updated", subscriptionObject("active", growthPrice)));
+      const olderUpdate = concurrentService.process(
+        stripeEvent(eventIds[12]!, "customer.subscription.updated", initialSubscription),
+      );
+      await firstHydrationStarted;
+      const newerUpdate = concurrentService.process(
+        stripeEvent(eventIds[3]!, "customer.subscription.updated", scaleSubscription),
+      );
+      await Promise.all([olderUpdate, newerUpdate]);
+      expect(hydrationCall).toBe(2);
       subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
       )[0];
       expect(subscription?.planVersionId).toBe(scale.id);
+      latestSubscriptions.set(subscriptionId, scaleSubscription);
 
       const cancelScheduledSubscription = subscriptionObject("active", scalePrice, true);
       latestSubscriptions.set(subscriptionId, cancelScheduledSubscription);
@@ -271,24 +312,21 @@ describe("Stripe webhook lifecycle integration", () => {
       expect(subscription?.cancelAtPeriodEnd).toBe(true);
 
       const firstRefundId = `re_first_${suffix}`;
-      await service.process(stripeEvent(eventIds[5]!, "refund.created", {
-        id: firstRefundId,
-        payment_intent: paymentId,
-        amount: 400,
-        status: "succeeded",
-      }));
+      await Promise.all([
+        service.process(stripeEvent(eventIds[5]!, "refund.created", {
+          id: firstRefundId,
+          payment_intent: paymentId,
+          amount: 400,
+          status: "succeeded",
+        })),
+        service.process(stripeEvent(eventIds[8]!, "refund.created", {
+          id: `re_second_${suffix}`,
+          payment_intent: paymentId,
+          amount: 600,
+          status: "succeeded",
+        })),
+      ]);
       let refundedPayment = (
-        await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
-      )[0];
-      expect(refundedPayment).toMatchObject({ status: "partially_refunded", refundedAmountMinor: 400 });
-
-      await service.process(stripeEvent(eventIds[8]!, "refund.created", {
-        id: `re_second_${suffix}`,
-        payment_intent: paymentId,
-        amount: 600,
-        status: "succeeded",
-      }));
-      refundedPayment = (
         await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
       )[0];
       expect(refundedPayment).toMatchObject({ status: "refunded", refundedAmountMinor: 1000 });
