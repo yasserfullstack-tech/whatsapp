@@ -42,6 +42,8 @@ const workerSchema = z.object({
   ...baseShape,
   DATABASE_URL: z.string().min(1),
   CREDENTIAL_ENCRYPTION_KEY: z.string().min(1),
+  CREDENTIAL_ENCRYPTION_KEY_VERSION: z.coerce.number().int().positive().default(1),
+  CREDENTIAL_ENCRYPTION_KEY_PREVIOUS: z.string().min(1).optional(),
   APP_URL: z.url().optional(),
   SMTP_HOST: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().positive().max(65_535).optional(),

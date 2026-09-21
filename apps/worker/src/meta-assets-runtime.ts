@@ -2,6 +2,7 @@ import { and, asc, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { decryptSecret } from "@wa/credentials";
 import { loadWorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
+import { workerKeyRing } from "./credential-rotation";
 import {
   extractTemplateBodyPreview,
   getWhatsAppPhoneNumber,
@@ -23,6 +24,7 @@ import {
 } from "./meta-assets";
 
 const env = loadWorkerEnv();
+const credentialKeyRing = workerKeyRing(env);
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
 type Database = typeof db;
@@ -151,6 +153,7 @@ async function loadAccessToken(input: { organizationId: string; credentialKey: s
       ciphertext: schema.credentialSecrets.ciphertext,
       iv: schema.credentialSecrets.iv,
       authTag: schema.credentialSecrets.authTag,
+      keyVersion: schema.credentialSecrets.keyVersion,
     })
     .from(schema.credentialSecrets)
     .where(and(
@@ -159,7 +162,7 @@ async function loadAccessToken(input: { organizationId: string; credentialKey: s
     ))
     .limit(1);
   if (!secret) throw new Error(`Meta credential ${input.credentialKey} was not found`);
-  return decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+  return decryptSecret(secret, credentialKeyRing);
 }
 
 type PhoneRow = {

@@ -136,6 +136,7 @@ export const credentialSecrets = pgTable(
     ciphertext: text("ciphertext").notNull(),
     iv: text("iv").notNull(),
     authTag: text("auth_tag").notNull(),
+    keyVersion: integer("key_version"),
     createdAt,
     updatedAt,
   },

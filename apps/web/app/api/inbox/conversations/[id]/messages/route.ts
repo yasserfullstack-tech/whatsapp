@@ -7,7 +7,7 @@ import { sendWhatsAppText } from "@wa/meta/messages";
 import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
 import { canSendAgentReply } from "@/lib/inbox";
-import { db, getCredentialEncryptionKey, getMetaServerConfig } from "@/lib/server";
+import { db, getCredentialKeyRing, getMetaServerConfig } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
@@ -111,7 +111,7 @@ export async function POST(request: Request, routeContext: RouteContext) {
   if (!pending) return NextResponse.json({ error: "Could not create reply" }, { status: 500 });
 
   try {
-    const accessToken = decryptSecret(secret, getCredentialEncryptionKey());
+    const accessToken = decryptSecret(secret, getCredentialKeyRing());
     const meta = getMetaServerConfig();
     const sent = await sendWhatsAppText({
       phoneNumberId: row.metaPhoneNumberId,

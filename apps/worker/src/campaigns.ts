@@ -27,6 +27,7 @@ import {
 } from "@wa/queue";
 import { claimCampaignRecipientForSend } from "./campaign-security";
 import { claimDueScheduledCampaigns } from "./campaign-scheduling";
+import { workerKeyRing } from "./credential-rotation";
 import {
   classifyMetaConnectionError,
   markConnectionRequiresReauthorization,
@@ -210,6 +211,7 @@ export function startCampaignWorkers(input: {
   env: WorkerEnv;
 }) {
   const { db, redis, env } = input;
+  const credentialKeyRing = workerKeyRing(env);
   const limiter = new PerNumberRateLimiter(redis);
   const sendQueue = createSendQueue(env.REDIS_URL);
   const dispatchQueue = createCampaignDispatchQueue(env.REDIS_URL);
@@ -223,6 +225,7 @@ export function startCampaignWorkers(input: {
         ciphertext: schema.credentialSecrets.ciphertext,
         iv: schema.credentialSecrets.iv,
         authTag: schema.credentialSecrets.authTag,
+        keyVersion: schema.credentialSecrets.keyVersion,
         updatedAt: schema.credentialSecrets.updatedAt,
       })
       .from(schema.credentialSecrets)
@@ -246,7 +249,7 @@ export function startCampaignWorkers(input: {
 
     let value: string;
     try {
-      value = decryptSecret(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+      value = decryptSecret(secret, credentialKeyRing);
     } catch {
       throw new CredentialUnavailableError(
         "credential_unreadable",

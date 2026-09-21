@@ -29,6 +29,7 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
       ciphertext: string;
       iv: string;
       authTag: string;
+      keyVersion?: number | null;
       expiresAt?: Date;
     };
   },
@@ -154,6 +155,7 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
         ciphertext: input.credential.ciphertext,
         iv: input.credential.iv,
         authTag: input.credential.authTag,
+        keyVersion: input.credential.keyVersion ?? null,
       })
       .onConflictDoUpdate({
         target: schema.credentialSecrets.key,
@@ -161,6 +163,7 @@ export async function saveVerifiedWhatsAppConnectionAtomic(
           ciphertext: input.credential.ciphertext,
           iv: input.credential.iv,
           authTag: input.credential.authTag,
+          keyVersion: input.credential.keyVersion ?? null,
           updatedAt: now,
         },
       });
