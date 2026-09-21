@@ -1,0 +1,155 @@
+name: Release Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full 40-character commit SHA already merged into main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out requested release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Verify release SHA is reviewed main history
+        id: release
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "release_sha must be a full 40-character hexadecimal Git SHA" >&2
+            exit 1
+          fi
+
+          resolved="$(git rev-parse HEAD)"
+          if [ "$resolved" != "$RELEASE_SHA" ]; then
+            echo "Checked out $resolved, expected $RELEASE_SHA" >&2
+            exit 1
+          fi
+
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            echo "Refusing to publish: $RELEASE_SHA is not in protected main history" >&2
+            exit 1
+          fi
+
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          run_tag="sha-${RELEASE_SHA}-run-${GITHUB_RUN_ID}"
+          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "run_tag=$run_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push web image
+        id: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/web.Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-web:${{ steps.release.outputs.run_tag }}
+          build-args: |
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+            IMAGE_REVISION=${{ steps.release.outputs.sha }}
+            IMAGE_VERSION=${{ steps.release.outputs.sha }}
+
+      - name: Build and push API image
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/api.Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-api:${{ steps.release.outputs.run_tag }}
+          build-args: |
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+            IMAGE_REVISION=${{ steps.release.outputs.sha }}
+            IMAGE_VERSION=${{ steps.release.outputs.sha }}
+
+      - name: Build and push worker image
+        id: worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/worker.Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-worker:${{ steps.release.outputs.run_tag }}
+          build-args: |
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+            IMAGE_REVISION=${{ steps.release.outputs.sha }}
+            IMAGE_VERSION=${{ steps.release.outputs.sha }}
+
+      - name: Build and push migrator image
+        id: migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/api.Dockerfile
+          target: migrator
+          push: true
+          tags: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-migrator:${{ steps.release.outputs.run_tag }}
+          build-args: |
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+            IMAGE_REVISION=${{ steps.release.outputs.sha }}
+            IMAGE_VERSION=${{ steps.release.outputs.sha }}
+
+      - name: Write and validate safe release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cat > release/release.env <<EOF
+          # Safe release manifest: exact source SHA and immutable image digests only.
+          RELEASE_SHA=${{ steps.release.outputs.sha }}
+          WEB_IMAGE=ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-web@${{ steps.web.outputs.digest }}
+          API_IMAGE=ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-api@${{ steps.api.outputs.digest }}
+          WORKER_IMAGE=ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-worker@${{ steps.worker.outputs.digest }}
+          MIGRATOR_IMAGE=ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-migrator@${{ steps.migrator.outputs.digest }}
+          EOF
+
+          sh infra/production/scripts/check-immutable-images.sh release/release.env
+          cat release/release.env
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-images-${{ steps.release.outputs.sha }}
+          path: release/release.env
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Summarize release images
+        shell: bash
+        run: |
+          {
+            echo '## Immutable release images'
+            echo
+            echo '```env'
+            cat release/release.env
+            echo '```'
+            echo
+            echo 'Use the @sha256: references from this manifest in the host-only staging/production env file.'
+          } >> "$GITHUB_STEP_SUMMARY"
