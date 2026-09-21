@@ -24,7 +24,6 @@ import {
 } from "./meta-assets";
 
 const env = loadWorkerEnv();
-const credentialKeyRing = workerKeyRing(env);
 const database = createDatabase(env.DATABASE_URL);
 const db = database.db;
 type Database = typeof db;
@@ -162,7 +161,7 @@ async function loadAccessToken(input: { organizationId: string; credentialKey: s
     ))
     .limit(1);
   if (!secret) throw new Error(`Meta credential ${input.credentialKey} was not found`);
-  return decryptSecret(secret, credentialKeyRing);
+  return decryptSecret(secret, workerKeyRing(env));
 }
 
 type PhoneRow = {

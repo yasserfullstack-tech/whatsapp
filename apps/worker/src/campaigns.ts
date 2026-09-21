@@ -211,7 +211,6 @@ export function startCampaignWorkers(input: {
   env: WorkerEnv;
 }) {
   const { db, redis, env } = input;
-  const credentialKeyRing = workerKeyRing(env);
   const limiter = new PerNumberRateLimiter(redis);
   const sendQueue = createSendQueue(env.REDIS_URL);
   const dispatchQueue = createCampaignDispatchQueue(env.REDIS_URL);
@@ -249,7 +248,7 @@ export function startCampaignWorkers(input: {
 
     let value: string;
     try {
-      value = decryptSecret(secret, credentialKeyRing);
+      value = decryptSecret(secret, workerKeyRing(env));
     } catch {
       throw new CredentialUnavailableError(
         "credential_unreadable",
