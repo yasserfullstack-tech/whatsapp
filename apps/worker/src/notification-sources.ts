@@ -206,7 +206,7 @@ async function emitPlatformAuditEvents(db: Database, notifications: Notification
           rejectionReason: template?.rejectionReason,
         },
         link: "/templates",
-        occurredAt: event.processedAt ?? event.createdAt,
+        occurredAt: event.createdAt,
       });
       emitted += result.notificationsCreated;
       continue;
@@ -380,7 +380,7 @@ async function emitPaymentFailures(db: Database, notifications: NotificationEmit
       userIds: await adminUserIds(db, invoice.organizationId),
       metadata: { invoiceId: invoice.id, providerInvoiceId },
       link: "/settings/billing",
-      occurredAt: event.createdAt,
+      occurredAt: event.processedAt ?? event.createdAt,
     });
     emitted += result.notificationsCreated;
   }
