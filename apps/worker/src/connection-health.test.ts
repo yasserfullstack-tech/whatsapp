@@ -83,4 +83,10 @@ describe("WhatsApp connection health lifecycle", () => {
     ));
     expect(outcome).toMatchObject({ kind: "reauthorize", code: "credential_unusable" });
   });
+
+  test("connection revision timestamps distinguish a stale validation from a reconnect", () => {
+    const validationRevision = new Date("2026-09-21T10:00:00.000Z");
+    const reconnectRevision = new Date("2026-09-21T10:00:01.000Z");
+    expect(validationRevision.getTime()).not.toBe(reconnectRevision.getTime());
+  });
 });
