@@ -67,9 +67,12 @@ publish.
 
 The workflow refuses any SHA that is not already in `origin/main`, then builds
 and pushes the web, API, worker, and migrator images to GitHub Container
-Registry. Each invocation uses a unique run tag so a repeated build does not
-silently replace the tag selected by an earlier release session. The workflow
-uploads a safe `release.env` artifact containing only:
+Registry. Each invocation uses a unique run-and-attempt tag so a workflow
+rerun cannot silently move the tag selected by an earlier attempt. After the
+push, the workflow scans the exact returned registry digests plus the checked-
+out dependency set with the same fixable HIGH/CRITICAL blocking policy used by
+Production Infra. It emits the release manifest only when that policy passes.
+The workflow uploads a safe `release.env` artifact containing only:
 
 - the exact reviewed source SHA;
 - `WEB_IMAGE`, `API_IMAGE`, `WORKER_IMAGE`, and `MIGRATOR_IMAGE` as
