@@ -1,7 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { EmbeddedSignupConflictError, verifyEmbeddedSignupPhone } from "./embedded-signup-security";
+import {
+  assertEmbeddedSignupWabaPhoneMatch,
+  EmbeddedSignupConflictError,
+  EmbeddedSignupWabaPhoneMismatchError,
+  verifyEmbeddedSignupPhone,
+} from "./embedded-signup-security";
 
 describe("embedded signup tenant boundary", () => {
+  test("requires the verified phone to belong to the WABA returned by the same signup", () => {
+    expect(() => assertEmbeddedSignupWabaPhoneMatch({
+      requestedPhoneNumberId: "phone-selected",
+      wabaPhoneNumberIds: ["phone-other"],
+    })).toThrow(EmbeddedSignupWabaPhoneMismatchError);
+
+    expect(() => assertEmbeddedSignupWabaPhoneMatch({
+      requestedPhoneNumberId: "phone-selected",
+      wabaPhoneNumberIds: ["phone-other", "phone-selected"],
+    })).not.toThrow();
+  });
+
   test("does not query local phone ownership until Meta proves control of the requested phone", async () => {
     let lookups = 0;
 

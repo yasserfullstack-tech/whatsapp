@@ -5,9 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/components/i18n-provider";
 import {
   createEmbeddedSignupLoginOptions,
+  EmbeddedSignupAttemptTracker,
   parseEmbeddedSignupMessage,
-  type EmbeddedSignupData,
+  type EmbeddedSignupAttemptOutcome,
   type EmbeddedSignupLoginOptions,
+  type EmbeddedSignupReadyAttempt,
 } from "@/lib/embedded-signup-client";
 
 type FacebookLoginResponse = { authResponse?: { code?: string }; status?: string };
@@ -21,84 +23,133 @@ type ConnectWhatsAppProps = { appId: string; configId: string; graphApiVersion: 
 export function ConnectWhatsApp({ appId, configId, graphApiVersion, buttonLabel }: ConnectWhatsAppProps) {
   const router = useRouter();
   const { messages } = useI18n();
-  const codeRef = useRef<string | null>(null);
-  const signupRef = useRef<EmbeddedSignupData | null>(null);
-  const completingRef = useRef(false);
+  const trackerRef = useRef<EmbeddedSignupAttemptTracker | null>(null);
+  if (!trackerRef.current) trackerRef.current = new EmbeddedSignupAttemptTracker();
+
   const [sdkReady, setSdkReady] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [requiresReload, setRequiresReload] = useState(false);
 
-  const complete = useCallback(async () => {
-    const code = codeRef.current;
-    const signup = signupRef.current;
-    if (!code || !signup || completingRef.current) return;
-    completingRef.current = true;
+  const complete = useCallback(async (attempt: EmbeddedSignupReadyAttempt) => {
     setStatus(messages.connect.finishing);
     setError(null);
     try {
-      const response = await fetch("/api/meta/embedded-signup/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, ...signup }) });
+      const response = await fetch("/api/meta/embedded-signup/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: attempt.code, ...attempt.signup }),
+      });
       const body = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(body?.error ?? messages.connect.failed);
+
+      trackerRef.current?.completionSucceeded(attempt.attemptId);
       setStatus(messages.connect.connected);
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : messages.connect.failed);
+      const reload = trackerRef.current?.completionFailed(attempt.attemptId) ?? false;
+      setRequiresReload(reload);
+      const baseMessage = cause instanceof Error ? cause.message : messages.connect.failed;
+      setError(reload ? `${baseMessage} ${messages.connect.reloadToRetry}` : baseMessage);
       setStatus(null);
-    } finally { completingRef.current = false; }
+    }
   }, [messages.connect, router]);
 
+  const handleOutcome = useCallback((outcome: EmbeddedSignupAttemptOutcome) => {
+    if (outcome.kind === "ignore" || outcome.kind === "pending") return;
+    if (outcome.kind === "ready") {
+      void complete(outcome);
+      return;
+    }
+
+    setStatus(null);
+    setRequiresReload(outcome.requiresReload);
+    const baseMessage = outcome.reason === "cancelled"
+      ? messages.connect.cancelled
+      : outcome.reason === "no_code"
+        ? messages.connect.noCode
+        : messages.connect.failed;
+    setError(outcome.requiresReload
+      ? `${baseMessage} ${messages.connect.reloadToRetry}`
+      : baseMessage);
+  }, [complete, messages.connect]);
+
   useEffect(() => {
-    function initialize() { if (!window.FB) return; window.FB.init({ appId, cookie: true, xfbml: false, version: graphApiVersion }); setSdkReady(true); }
+    function initialize() {
+      if (!window.FB) return;
+      window.FB.init({ appId, cookie: true, xfbml: false, version: graphApiVersion });
+      setSdkReady(true);
+    }
+
     window.fbAsyncInit = initialize;
     if (window.FB) initialize();
     else if (!document.getElementById("facebook-jssdk")) {
-      const script = document.createElement("script"); script.id = "facebook-jssdk"; script.async = true; script.defer = true; script.crossOrigin = "anonymous"; script.src = "https://connect.facebook.net/en_US/sdk.js"; document.body.appendChild(script);
+      const script = document.createElement("script");
+      script.id = "facebook-jssdk";
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = "anonymous";
+      script.src = "https://connect.facebook.net/en_US/sdk.js";
+      document.body.appendChild(script);
     }
+
     function onMessage(event: MessageEvent) {
       const message = parseEmbeddedSignupMessage(event.origin, event.data);
-      if (message.kind === "ignore") return;
-      if (message.kind === "cancel") {
-        codeRef.current = null;
-        signupRef.current = null;
-        setStatus(null);
-        setError(messages.connect.cancelled);
-        return;
-      }
-      if (message.kind === "error" || message.kind === "invalid") {
-        codeRef.current = null;
-        signupRef.current = null;
-        setStatus(null);
-        setError(messages.connect.failed);
-        return;
-      }
-
-      signupRef.current = message.data;
-      void complete();
+      const source = event.source && typeof event.source === "object" ? event.source : null;
+      handleOutcome(trackerRef.current!.acceptMessage(source, message));
     }
+
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [appId, complete, graphApiVersion, messages.connect.cancelled, messages.connect.failed]);
+  }, [appId, graphApiVersion, handleOutcome]);
 
   function connect() {
-    codeRef.current = null;
-    signupRef.current = null;
+    if (requiresReload) {
+      window.location.reload();
+      return;
+    }
+
     setError(null);
     setStatus(messages.connect.openingMeta);
-    if (!window.FB) { setError(messages.connect.metaLoading); setStatus(null); return; }
-    window.FB.login((response) => {
-      const code = response.authResponse?.code?.trim();
-      if (!code) {
-        codeRef.current = null;
-        signupRef.current = null;
-        setStatus(null);
-        setError(messages.connect.noCode);
-        return;
-      }
-      codeRef.current = code;
-      setStatus(messages.connect.authorized);
-      void complete();
-    }, createEmbeddedSignupLoginOptions(configId));
+    if (!window.FB) {
+      setError(messages.connect.metaLoading);
+      setStatus(null);
+      return;
+    }
+
+    const attemptId = trackerRef.current!.begin();
+    if (attemptId === null) {
+      setRequiresReload(true);
+      setStatus(null);
+      setError(messages.connect.reloadToRetry);
+      return;
+    }
+
+    try {
+      window.FB.login((response) => {
+        handleOutcome(trackerRef.current!.acceptLoginResponse(attemptId, response.authResponse?.code));
+      }, createEmbeddedSignupLoginOptions(configId));
+    } catch {
+      handleOutcome(trackerRef.current!.abortAttempt(attemptId));
+    }
   }
 
-  return <div className="connectActions"><button className="secondary" disabled={!sdkReady || Boolean(status)} onClick={connect} type="button">{status ?? (sdkReady ? (buttonLabel ?? messages.connect.button) : messages.connect.loadingMeta)}</button>{error ? <span className="inlineError">{error}</span> : null}</div>;
+  const buttonText = status
+    ?? (requiresReload
+      ? messages.connect.reloadToRetry
+      : sdkReady
+        ? (buttonLabel ?? messages.connect.button)
+        : messages.connect.loadingMeta);
+
+  return <div className="connectActions">
+    <button
+      className="secondary"
+      disabled={requiresReload ? false : !sdkReady || Boolean(status)}
+      onClick={connect}
+      type="button"
+    >
+      {buttonText}
+    </button>
+    {error ? <span className="inlineError">{error}</span> : null}
+  </div>;
 }
