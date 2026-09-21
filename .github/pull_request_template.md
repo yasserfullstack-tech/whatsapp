@@ -8,6 +8,7 @@ Readiness state lives in `docs/production-readiness-plan.md`; a tracking issue s
 
 - [ ] This PR does **not** complete a readiness tracking issue whose DoD still requires external evidence (production, legal, recovery, provider, capacity, operator delivery, or independent security).
 - [ ] If it does not, this PR uses `Refs #N` / `Supports #N` — **never** `Closes #N` / `Fixes #N`.
+- [ ] The PR body does not use a negated closing phrase such as `does not close #N`; use `keeps #N open` so GitHub cannot parse an accidental closing keyword.
 - [ ] If it promotes a plan checkbox to `[x]`, the same change confirms the tracking issue can be closed and that evidence links are present on the issue.
 - [ ] If it edits `docs/production-readiness-plan.md`, `bun infra/production/scripts/check-readiness-sync.ts` reports 0 mismatches.
 
