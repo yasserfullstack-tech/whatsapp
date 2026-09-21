@@ -22,6 +22,6 @@ export async function sendAuthEmail(message: AuthEmailMessage): Promise<void> {
     to: message.to,
     subject: message.subject,
     text: message.text,
-    idempotencyKey: `auth:${message.to}:${message.subject}`,
+    idempotencyKey: `auth:${message.to}:${message.subject}:${message.text}`,
   });
 }
