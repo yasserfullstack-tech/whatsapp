@@ -245,14 +245,16 @@ function assertStripeSubscriptionBinding(
   }
 }
 
-function refundAmountsFromMetadata(metadata: unknown): Record<string, number> {
+function refundAmountsFromMetadata(metadata: unknown): Map<string, number> {
   const raw = asRecord(asRecord(metadata)?.stripeRefundAmounts);
-  if (!raw) return {};
-  return Object.fromEntries(
-    Object.entries(raw)
-      .filter(([, value]) => typeof value === "number" && Number.isFinite(value) && value >= 0)
-      .map(([key, value]) => [key, Number(value)]),
-  );
+  const amounts = new Map<string, number>();
+  if (!raw) return amounts;
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      amounts.set(key, value);
+    }
+  }
+  return amounts;
 }
 
 async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject): Promise<void> {
@@ -590,10 +592,10 @@ async function syncRefund(
     const refundId = asString(refundOrCharge.id);
     const amount = asNumber(refundOrCharge.amount);
     if (!refundId || amount === null) return;
-    refundAmounts[refundId] = amount;
+    refundAmounts.set(refundId, amount);
   }
 
-  const itemizedAmount = Object.values(refundAmounts).reduce((sum, amount) => sum + amount, 0);
+  const itemizedAmount = [...refundAmounts.values()].reduce((sum, amount) => sum + amount, 0);
   const refundedAmountMinor = Math.min(payment.amountMinor, Math.max(authoritativeAmount, itemizedAmount));
   if (refundedAmountMinor <= 0) return;
 
@@ -604,7 +606,7 @@ async function syncRefund(
       status: refundedAmountMinor >= payment.amountMinor ? "refunded" : "partially_refunded",
       metadata: {
         ...metadata,
-        stripeRefundAmounts: refundAmounts,
+        stripeRefundAmounts: Object.fromEntries(refundAmounts),
         stripeChargeRefundedAmountMinor: authoritativeAmount,
         lastRefundId: eventType === "charge.refunded"
           ? metadata.lastRefundId ?? null
