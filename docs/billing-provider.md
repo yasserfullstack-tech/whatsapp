@@ -60,7 +60,9 @@ Every verified provider event is appended to `billing_provider_events` using `(p
 
 Stripe does not guarantee webhook delivery order. Subscription and invoice snapshot events are therefore reconciled against the provider's current subscription/invoice object before local state is projected. This prevents a delayed older snapshot from rolling a paid invoice back to failed state or moving a subscription back to an older plan/status. Event IDs remain the replay key; provider hydration is for current-state reconciliation, not for duplicate detection.
 
-Checkout creation uses a short deterministic idempotency window per workspace and target Price so immediate retries/double-submits reuse the same Stripe Checkout creation request. The webhook synchronizer also refuses to replace a workspace's existing non-cancelled Stripe subscription with a different active Stripe subscription ID. Conflicting events remain unprocessed for operator investigation rather than silently rebinding the local workspace.
+Checkout creation persists one random retry token on the workspace billing account and reuses it for the same in-progress plan attempt. The corresponding hosted Checkout Session is explicitly set to expire with that attempt after 45 minutes (within Stripe's documented 30-minute-to-24-hour range). A different plan cannot start while that attempt is still active, preventing concurrent hosted subscription sessions for the same workspace. The completion webhook clears the persisted attempt only when its Stripe Session metadata carries the matching attempt token. The webhook synchronizer also refuses to replace a workspace's existing non-cancelled Stripe subscription with a different active Stripe subscription ID. Conflicting events remain unprocessed for operator investigation rather than silently rebinding the local workspace.
+
+Stripe idempotency keys are used exactly as retry tokens: the same persisted key is reused for the same request parameters instead of being derived from wall-clock buckets. Stripe retains idempotent results for at least 24 hours, while this application's Checkout Session/attempt expires sooner, so all retries during the allowed attempt reuse the same provider operation.
 
 ## Refunds
 
@@ -79,7 +81,7 @@ Before enabling paid production traffic, capture redacted evidence for one Strip
 7. Cancellation-at-period-end is reflected locally.
 8. Re-sending the same Stripe event leaves exactly one provider-event row and does not duplicate subscription changes/payments.
 9. A partial refund followed by another refund updates the local cumulative refund state correctly; re-deliver the individual refund events out of order and confirm the total does not regress.
-10. Rapidly retry the initial Checkout action and confirm Stripe creates/reuses one Checkout request within the retry window rather than producing multiple subscriptions.
+10. Rapidly retry the initial Checkout action and confirm the same persisted attempt reuses one Stripe Checkout request/session. While that attempt is active, verify a request for a different paid plan is rejected locally rather than opening a second subscription Checkout session.
 11. Re-deliver an older invoice/subscription snapshot after a newer provider state exists and confirm the local state remains aligned with Stripe's current resource.
 
 Do not include Stripe secret keys, webhook secrets, customer email addresses, or full customer/payment identifiers in evidence.
@@ -87,6 +89,8 @@ Do not include Stripe secret keys, webhook secrets, customer email addresses, or
 ## Provider references
 
 - Checkout subscriptions: https://docs.stripe.com/payments/checkout/build-subscriptions
+- Checkout Session creation / expiry: https://docs.stripe.com/api/checkout/sessions/create
+- Idempotent requests: https://docs.stripe.com/api/idempotent_requests
 - Modify subscriptions: https://docs.stripe.com/billing/subscriptions/change
 - Customer Portal: https://docs.stripe.com/customer-management
 - Webhook signature verification: https://docs.stripe.com/webhooks/signature
