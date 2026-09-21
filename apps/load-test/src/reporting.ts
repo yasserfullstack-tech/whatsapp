@@ -193,3 +193,5 @@ try {
   }
   await client.end({ timeout: 10 });
 }
+
+// release-gate probe B: throwaway comment, touches the reporting path group
