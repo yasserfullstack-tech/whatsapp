@@ -14,6 +14,22 @@ export class EmbeddedSignupPhoneMismatchError extends Error {
   }
 }
 
+export class EmbeddedSignupWabaPhoneMismatchError extends Error {
+  constructor() {
+    super("Meta returned a WABA that does not contain the selected WhatsApp phone number");
+    this.name = "EmbeddedSignupWabaPhoneMismatchError";
+  }
+}
+
+export function assertEmbeddedSignupWabaPhoneMatch(input: {
+  requestedPhoneNumberId: string;
+  wabaPhoneNumberIds: readonly string[];
+}): void {
+  if (!input.wabaPhoneNumberIds.includes(input.requestedPhoneNumberId)) {
+    throw new EmbeddedSignupWabaPhoneMismatchError();
+  }
+}
+
 export async function verifyEmbeddedSignupPhone(input: {
   organizationId: string;
   requestedPhoneNumberId: string;
