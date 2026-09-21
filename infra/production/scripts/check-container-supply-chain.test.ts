@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	bunImagePinsAreFrozen,
 	composeServiceBlock,
+	composeUserOverrideRunsAsRoot,
 	dockerInstructions,
 	evaluateControls,
 	frozenInstallProblems,
@@ -40,6 +41,7 @@ function apiDockerfile(): string {
 		"RUN bun install --frozen-lockfile --ignore-scripts",
 		"FROM oven/bun:1.4.2-slim AS migrator",
 		LABELS,
+		"USER bun",
 		'CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]',
 		"FROM oven/bun:1.4.2-slim AS runtime",
 		LABELS,
@@ -66,7 +68,7 @@ const MIGRATOR_ROOT_ROW =
 const MIGRATOR_NON_ROOT_ROW =
 	"| Migrator exposure | `whatsapp-migrator` runs as non-root under `USER bun`. |";
 
-function policyDoc(migratorRow: string = MIGRATOR_ROOT_ROW): string {
+function policyDoc(migratorRow: string = MIGRATOR_NON_ROOT_ROW): string {
 	return [
 		"## Blocking severity policy",
 		"",
@@ -444,11 +446,14 @@ describe("strict scanner pinning (review thread 3)", () => {
 describe("migrator exposure documentation (review thread 4)", () => {
 	test("flags a root migrator that the doc claims is non-root", () => {
 		const source = goodSource();
-		source.policyDoc = policyDoc(MIGRATOR_NON_ROOT_ROW);
+		source.dockerfiles["infra/docker/api.Dockerfile"] = apiDockerfile().replace(
+			'USER bun\nCMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]',
+			'CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]',
+		);
 		expect(resultFor(source, "migrator-exposure-documented")).toBe(false);
 	});
 
-	test("flags a doc that omits the migrator's root exposure entirely", () => {
+	test("flags a policy doc that omits migrator exposure entirely", () => {
 		const source = goodSource();
 		source.policyDoc = policyDoc("| Owner | @yasserfullstack-tech |");
 		expect(resultFor(source, "migrator-exposure-documented")).toBe(false);
@@ -456,28 +461,42 @@ describe("migrator exposure documentation (review thread 4)", () => {
 
 	test("flags a non-root migrator that the doc still calls root", () => {
 		const source = goodSource();
-		source.dockerfiles["infra/docker/api.Dockerfile"] = apiDockerfile().replace(
-			"FROM oven/bun:1.4.2-slim AS migrator",
-			"FROM oven/bun:1.4.2-slim AS migrator\nUSER bun",
-		);
+		source.policyDoc = policyDoc(MIGRATOR_ROOT_ROW);
 		expect(resultFor(source, "migrator-exposure-documented")).toBe(false);
 	});
 
 	test("accepts a non-root migrator once the doc says so", () => {
 		const source = goodSource();
-		source.dockerfiles["infra/docker/api.Dockerfile"] = apiDockerfile().replace(
-			"FROM oven/bun:1.4.2-slim AS migrator",
-			"FROM oven/bun:1.4.2-slim AS migrator\nUSER bun",
-		);
-		source.policyDoc = policyDoc(MIGRATOR_NON_ROOT_ROW);
 		expect(resultFor(source, "migrator-exposure-documented")).toBe(true);
 	});
 
-	test("treats a compose user: override as non-root", () => {
+	test("treats an explicit non-root compose user override as non-root", () => {
 		const source = goodSource();
+		source.dockerfiles["infra/docker/api.Dockerfile"] = apiDockerfile().replace(
+			'USER bun\nCMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]',
+			'CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]',
+		);
 		source.composeProduction = COMPOSE.replace(
 			'    profiles: ["ops"]',
 			'    profiles: ["ops"]\n    user: "1001:1001"',
+		);
+		expect(resultFor(source, "migrator-exposure-documented")).toBe(true);
+	});
+
+	test("does not let a root compose override masquerade as non-root", () => {
+		const source = goodSource();
+		source.composeProduction = COMPOSE.replace(
+			'    profiles: ["ops"]',
+			'    profiles: ["ops"]\n    user: "0:0"',
+		);
+		expect(resultFor(source, "migrator-exposure-documented")).toBe(false);
+	});
+
+	test("treats variable compose user overrides as unsafe", () => {
+		const source = goodSource();
+		source.composeProduction = COMPOSE.replace(
+			'    profiles: ["ops"]',
+			'    profiles: ["ops"]\n    user: "${MIGRATOR_USER}"',
 		);
 		expect(resultFor(source, "migrator-exposure-documented")).toBe(false);
 	});
@@ -542,6 +561,15 @@ describe("check-container-supply-chain helpers", () => {
 		expect(block).not.toContain("postgres:17-alpine");
 		expect(block).not.toContain("image: example");
 		expect(composeServiceBlock(COMPOSE, "missing")).toBeUndefined();
+	});
+
+	test("composeUserOverrideRunsAsRoot distinguishes root, non-root, and absent overrides", () => {
+		expect(composeUserOverrideRunsAsRoot("    user: \"0:0\"")).toBe(true);
+		expect(composeUserOverrideRunsAsRoot("    user: root")).toBe(true);
+		expect(composeUserOverrideRunsAsRoot("    user: \"1001:1001\"")).toBe(false);
+		expect(composeUserOverrideRunsAsRoot("    user: bun")).toBe(false);
+		expect(composeUserOverrideRunsAsRoot("    user: \"${MIGRATOR_USER}\"")).toBe(true);
+		expect(composeUserOverrideRunsAsRoot("    image: example")).toBeUndefined();
 	});
 
 	test("POLICY_TARGETS covers dependencies plus every production image", () => {
