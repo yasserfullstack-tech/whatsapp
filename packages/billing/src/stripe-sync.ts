@@ -628,6 +628,18 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
       if (event.providerKey !== "stripe" || !event.verified) {
         throw new Error("Unverified or non-Stripe billing provider event");
       }
+      const existingLedger = (
+        await db
+          .select({ processedAt: schema.billingProviderEvents.processedAt })
+          .from(schema.billingProviderEvents)
+          .where(and(
+            eq(schema.billingProviderEvents.providerKey, "stripe"),
+            eq(schema.billingProviderEvents.externalEventId, event.externalId),
+          ))
+          .limit(1)
+      )[0];
+      if (existingLedger?.processedAt) return { processed: false, replay: true };
+
       const payload = asRecord(event.payload);
       let object = asRecord(asRecord(payload?.data)?.object);
       if (!payload || !object) throw new Error("Stripe webhook payload is invalid");
