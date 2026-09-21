@@ -49,7 +49,7 @@ const workerSchema = z.object({
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASSWORD: z.string().min(1).optional(),
   EMAIL_FROM: z.string().min(1).optional(),
-  EMAIL_REPLY_TO: z.string().min(1).optional(),
+  EMAIL_REPLY_TO: z.string().optional(),
   DEFAULT_META_MPS: z.coerce.number().int().positive().max(1_000).default(80),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().max(2_000).default(400),
   WEBHOOK_CONCURRENCY: z.coerce.number().int().positive().max(1_000).default(100),
