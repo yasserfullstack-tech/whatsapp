@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { decryptSecret } from "@wa/credentials";
 import { schema } from "@wa/db";
-import { db, getCredentialEncryptionKey } from "./server";
+import { db, getCredentialKeyRing } from "./server";
 
 export type ConnectedWaba = {
   wabaId: string;
@@ -59,6 +59,7 @@ export async function getWabaAccessToken(organizationId: string, wabaId: string)
       ciphertext: schema.credentialSecrets.ciphertext,
       iv: schema.credentialSecrets.iv,
       authTag: schema.credentialSecrets.authTag,
+      keyVersion: schema.credentialSecrets.keyVersion,
     })
     .from(schema.credentialSecrets)
     .where(
@@ -70,5 +71,5 @@ export async function getWabaAccessToken(organizationId: string, wabaId: string)
     .limit(1);
 
   if (!secret) throw new Error("Meta credential was not found for this WABA");
-  return decryptSecret(secret, getCredentialEncryptionKey());
+  return decryptSecret(secret, getCredentialKeyRing());
 }
