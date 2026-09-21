@@ -48,7 +48,7 @@ jobs:
           fi
 
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          run_tag="sha-${RELEASE_SHA}-run-${GITHUB_RUN_ID}"
+          run_tag="sha-${RELEASE_SHA}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
           echo "owner=$owner" >> "$GITHUB_OUTPUT"
           echo "run_tag=$run_tag" >> "$GITHUB_OUTPUT"
@@ -116,6 +116,155 @@ jobs:
             IMAGE_REVISION=${{ steps.release.outputs.sha }}
             IMAGE_VERSION=${{ steps.release.outputs.sha }}
 
+      - name: Record release dependency HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-release-dependencies.json
+          exit-code: "0"
+          vuln-type: library
+          severity: HIGH,CRITICAL
+
+      - name: Record release web image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-web@${{ steps.web.outputs.digest }}
+          format: json
+          output: trivy-release-web.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record release API image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-api@${{ steps.api.outputs.digest }}
+          format: json
+          output: trivy-release-api.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record release worker image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-worker@${{ steps.worker.outputs.digest }}
+          format: json
+          output: trivy-release-worker.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record release migrator image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-migrator@${{ steps.migrator.outputs.digest }}
+          format: json
+          output: trivy-release-migrator.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Upload release vulnerability reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-security-${{ steps.release.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: trivy-release-*.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Enforce release dependency vulnerability policy
+        id: policy_dependencies
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce release web image vulnerability policy
+        id: policy_web
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-web@${{ steps.web.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce release API image vulnerability policy
+        id: policy_api
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-api@${{ steps.api.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce release worker image vulnerability policy
+        id: policy_worker
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-worker@${{ steps.worker.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce release migrator image vulnerability policy
+        id: policy_migrator
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ steps.release.outputs.owner }}/whatsapp-migrator@${{ steps.migrator.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Require actual release digests to pass the blocking vulnerability policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "dependencies:${{ steps.policy_dependencies.outcome }}" \
+            "web:${{ steps.policy_web.outcome }}" \
+            "api:${{ steps.policy_api.outcome }}" \
+            "worker:${{ steps.policy_worker.outcome }}" \
+            "migrator:${{ steps.policy_migrator.outcome }}"; do
+            target="${result%%:*}"
+            outcome="${result#*:}"
+            if [ "$outcome" != "success" ]; then
+              echo "${target} failed the blocking HIGH/CRITICAL vulnerability policy." >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
+
       - name: Write and validate safe release manifest
         shell: bash
         run: |
@@ -136,7 +285,7 @@ jobs:
       - name: Upload release manifest
         uses: actions/upload-artifact@v4
         with:
-          name: release-images-${{ steps.release.outputs.sha }}
+          name: release-images-${{ steps.release.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release/release.env
           if-no-files-found: error
           retention-days: 90
