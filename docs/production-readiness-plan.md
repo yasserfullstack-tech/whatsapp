@@ -409,7 +409,7 @@ Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92).
 | PR-004 | `[ ]` | [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49) | OPEN | OK — **reopened**; real Meta state-transition evidence outstanding |
 | PR-005 | `[ ]` | [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50) | OPEN | OK — external Meta approvals/onboarding evidence outstanding |
 | PR-006 | `[ ]` | [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51) | OPEN | OK — **reopened**; real Stripe test-mode lifecycle evidence outstanding |
-| PR-007 | `[ ]` | [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | OPEN | OK — final entitlement evidence review outstanding |
+| PR-007 | `[ ]` | [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | OPEN | OK — repository enforcement/accounting verification complete; real Stripe-driven plan/status transition evidence outstanding with PR-006/PR-012 |
 | PR-008 | `[ ]` | [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53) | OPEN | OK — qualified legal approval outstanding |
 | PR-009 | `[ ]` | [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54) | OPEN | OK — **reopened**; real staging/production deployment evidence outstanding |
 | PR-010 | `[ ]` | [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55) | OPEN | OK — **reopened**; real backup/clean-host restore evidence outstanding |
@@ -421,9 +421,9 @@ Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92).
 | PR-016 | `[x]` | [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) | CLOSED | OK — final deterministic scheduling/worker coverage merged via #96; protected merge plus CI/Security/browser evidence reviewed |
 | PR-017 | `[x]` | [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62) | CLOSED | OK — merged via [#85](https://github.com/yasserfullstack-tech/whatsapp/pull/85) with server-enforced limits, bypass protection and automated/browser coverage |
 | PR-018 | `[x]` | [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) | CLOSED | OK — #105 production-query/performance evidence plus #97 browser/security E2E merged and reviewed |
-| PR-019 | `[ ]` | [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) | OPEN | OK — final verification evidence backfill outstanding |
-| PR-020 | `[ ]` | [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65) | OPEN | OK — final authorization/security/ops evidence review outstanding |
-| PR-021 | `[ ]` | [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66) | OPEN | OK — final scan/policy artifact link outstanding |
+| PR-019 | `[ ]` | [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) | OPEN | OK — repository/browser/security verification complete; redacted real Resend staging/production delivery evidence outstanding |
+| PR-020 | `[ ]` | [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65) | OPEN | OK — repository authorization/browser/operational verification complete; redacted real-environment admin-workflow evidence outstanding |
+| PR-021 | `[ ]` | [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66) | OPEN | OK — continuous scan/policy/non-root verification complete; explicit owner acceptance of documented unfixed upstream HIGH findings or upstream remediation outstanding |
 | PR-022 | `[ ]` | [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67) | OPEN | OK — **reopened**; independent security assessment/pentest outstanding |
 
 Reopened 2026-09-21 (checkbox correctly `[ ]`, evidence still outstanding): [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48), [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49), [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51), [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54), [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55), [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67). No checked item lacks closure evidence; no unchecked item is closed.
