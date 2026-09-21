@@ -12,13 +12,13 @@ The codebase has substantial production-readiness work merged, but the paid-laun
 
 Current audited HEAD (`main`):
 
-- Commit: [`d515e580ae5d4defaddc97b53b575a18c24dc011`](https://github.com/yasserfullstack-tech/whatsapp/commit/d515e580ae5d4defaddc97b53b575a18c24dc011) (merge of [#102](https://github.com/yasserfullstack-tech/whatsapp/pull/102))
-- CI: **success** — [run 35528830272](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830272)
-- Security: **success** — [run 35528830281](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830281)
-- Production Infra: **success** — [run 35528830290](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830290)
-- Load Smoke: **success** — [run 35528830280](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830280) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
+- Commit: [`1fd0dcab4a01afc2f979f4a7f42cde72e64ebe44`](https://github.com/yasserfullstack-tech/whatsapp/commit/1fd0dcab4a01afc2f979f4a7f42cde72e64ebe44) (merge of [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97), after [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105) and [#106](https://github.com/yasserfullstack-tech/whatsapp/pull/106))
+- CI: **success** — [run 35565167924](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167924)
+- Security: **success** — [run 35565167899](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167899)
+- Load Smoke: **success** — [run 35565167787](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167787) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
+- Production Infra: **last applicable run success** — [run 35528830290](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830290); the #97 evidence-only merge did not trigger a new Production Infra run.
 - `main` release controls: **active** — repository ruleset `main-release-controls` (id `23732752`, `enforcement: active`) requires pull requests, blocks deletion and force-push, and enforces five status checks: `checks`, `Dependency audit`, `Secret scan`, `CodeQL`, `Tenant isolation and API abuse tests`. Applied and verified 2026-09-20; runbook and evidence in [`docs/release-controls.md`](release-controls.md) §7 and §11 (issue [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91) closed 2026-09-20).
-- Readiness/issue-state alignment: **0 mismatches** — `bun infra/production/scripts/check-readiness-sync.ts` audits all 22 tracking issues against the gate checkboxes (issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92)).
+- Readiness/issue-state alignment for this reconciliation: **0 mismatches** — [PR #107 Readiness Issue Sync run 35565361191, attempt 2](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565361191) after reopening drifted external-evidence issue [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) (issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92)).
 
 ---
 
@@ -63,7 +63,7 @@ Remaining, deliberately documented gaps (runbook §12, still open on the trackin
 
 - **Reopened, evidence still outstanding (checkbox stays `[ ]`):** PR-003 [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48), PR-004 [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49), PR-006 [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51), PR-009 [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54), PR-010 [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55), PR-022 [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67).
 - **Verified complete, legitimately closed (checkbox `[x]`):** PR-001 [#46](https://github.com/yasserfullstack-tech/whatsapp/issues/46), PR-014 [#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59), PR-017 [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62).
-- **Already open, stays open until its DoD and evidence are met:** the remaining unchecked items (#47, #50, #52, #53, #56, #57, #58, #60, #61, #63, #64, #65, #66).
+- **Already open, stays open until its DoD and evidence are met:** the remaining unchecked items (#47, #50, #52, #53, #56, #57, #58, #60, #64, #65, #66).
 
 The item-by-item record is in [Readiness issue-state audit (2026-09-21)](#readiness-issue-state-audit-2026-09-21). The convention that prevents recurrence is in [Closing-keyword convention for readiness PRs](#closing-keyword-convention-for-readiness-prs), and `bun infra/production/scripts/check-readiness-sync.ts` fails on any checkbox/issue-state mismatch.
 
@@ -94,9 +94,9 @@ The repository has strong local/fake-provider regression coverage, but fake Meta
 | PR-013 Representative scale validation | 🟦 ⏳ `[ ]` | Certification/evidence controls merged via [#89](https://github.com/yasserfullstack-tech/whatsapp/pull/89) | Run representative staging/production-like load/soak/chaos/recovery on the restored green Load Smoke baseline ([#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90), closed 2026-09-20) with immutable release evidence, and attach artifacts to [#58](https://github.com/yasserfullstack-tech/whatsapp/issues/58). |
 | PR-014 Inbound inbox | ✅ `[x]` | Merged via [#82](https://github.com/yasserfullstack-tech/whatsapp/pull/82) | Maintain regression/provider validation under PR-012. |
 | PR-015 Rich WhatsApp templates | 🟦 ⏳ `[ ]` | Rich components/preview/bindings/validation merged via [#80](https://github.com/yasserfullstack-tech/whatsapp/pull/80) | Approved representative rich template + real staging send evidence in [#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60). |
-| PR-016 Campaign scheduling | 🟦 `[ ]` | Scheduling/timezone/idempotent dispatch/cancel/reschedule merged via [#83](https://github.com/yasserfullstack-tech/whatsapp/pull/83) | Backfill explicit final CI/browser evidence against the DoD before promoting the plan checkbox. |
+| PR-016 Campaign scheduling | ✅ `[x]` | Scheduling implementation merged via [#83](https://github.com/yasserfullstack-tech/whatsapp/pull/83); final deterministic scheduling/worker verification merged via [#96](https://github.com/yasserfullstack-tech/whatsapp/pull/96) | Verified complete; [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) closed after protected-merge and CI/Security/browser evidence review. |
 | PR-017 Onboarding test mode | ✅ `[x]` | Merged and verified via [#85](https://github.com/yasserfullstack-tech/whatsapp/pull/85) | Maintain regression coverage. |
-| PR-018 Contact management | 🟦 `[ ]` | CRUD/custom fields/tags/notes/import mapping/bulk/merge/pagination merged via [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84) | Backfill explicit plan verification/evidence links before promoting the checkbox. |
+| PR-018 Contact management | ✅ `[x]` | Product surface merged via [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84); production-query/performance verification via [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105) and browser/security E2E via [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97) | Verified complete; [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) closed after all acceptance/evidence requirements landed on protected `main`. |
 | PR-019 Notification runtime | 🟦 `[ ]` | Runtime event sources/dedupe/preferences/reconciliation merged via [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86) | Backfill explicit plan verification and any applicable production delivery evidence. |
 | PR-020 Platform admin tooling | 🟦 `[ ]` | Admin access/billing/Meta/queue/webhook/audit tooling merged via [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81) | Backfill final authorization/security/operational evidence before promoting the checkbox. |
 | PR-021 Container/supply-chain security | 🟦 `[ ]` | Frozen installs, provenance labels, Trivy scans and blocking policy merged via [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72) | Confirm/link final scan artifacts and policy evidence for the release; current Security/Production Infra are green on audited HEAD. |
@@ -146,9 +146,9 @@ These items do not necessarily block the first paid launch unless explicitly pro
 
 - [x] PR-014 Inbound inbox — [#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59)
 - [ ] PR-015 Rich WhatsApp templates — [#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60)
-- [ ] PR-016 Campaign scheduling/automation foundation — [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61)
+- [x] PR-016 Campaign scheduling/automation foundation — [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61)
 - [x] PR-017 Onboarding test mode — [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62)
-- [ ] PR-018 Contact management depth — [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63)
+- [x] PR-018 Contact management depth — [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63)
 - [ ] PR-019 Full notification runtime — [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64)
 - [ ] PR-020 Expanded platform admin tooling — [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65)
 - [ ] PR-021 Container/supply-chain hardening — [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66)
@@ -178,7 +178,7 @@ These items do not necessarily block the first paid launch unless explicitly pro
 ## P1 — product/security evidence backfill
 
 12. Complete PR-015 real rich-template staging send evidence.
-13. Backfill explicit final evidence/checklist review for PR-016, PR-018, PR-019, PR-020, and PR-021.
+13. Complete the remaining final evidence/checklist review for PR-019, PR-020, and PR-021.
 14. Complete PR-022 independent security assessment/pentest and remediation gate.
 
 ---
@@ -301,13 +301,11 @@ Structural text/image/video/document headers, buttons, preview, parameter mappin
 
 **Still needed:** redacted evidence for an approved representative rich template and a real staging send through Meta.
 
-## [ ] PR-016 — Campaign scheduling and automation foundation
+## [x] PR-016 — Campaign scheduling and automation foundation
 
-**Tracking:** [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) · **Implementation:** [#83](https://github.com/yasserfullstack-tech/whatsapp/pull/83)
+**Tracking:** [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) · **Implementation:** [#83](https://github.com/yasserfullstack-tech/whatsapp/pull/83) · **Final verification:** [#96](https://github.com/yasserfullstack-tech/whatsapp/pull/96)
 
-Scheduling, workspace timezone handling, no-early-dispatch behavior, idempotent claims, dispatch-time audience snapshotting, cancel/reschedule, UI state, and tests are merged.
-
-**Still needed:** explicitly link/review the final green CI/browser evidence against every DoD item before changing this checkbox to `[x]`.
+Verified complete. Scheduling, workspace timezone handling, no-early-dispatch behavior, idempotent claims, dispatch-time audience snapshotting, cancel/reschedule, UI state, deterministic clock/timezone tests, and duplicate-execution protection are on `main`. PR #96 merged through the protected-main policy after green CI/Security/browser evidence was attached to #61; the tracking issue was closed on 2026-09-21.
 
 ## [x] PR-017 — Implement real onboarding test mode
 
@@ -315,13 +313,11 @@ Scheduling, workspace timezone handling, no-early-dispatch behavior, idempotent 
 
 Verified complete with server-enforced recipient limits, direct-API bypass protection, success/failure onboarding semantics, and automated/browser coverage.
 
-## [ ] PR-018 — Complete contact management
+## [x] PR-018 — Complete contact management
 
-**Tracking:** [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) · **Implementation:** [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84)
+**Tracking:** [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) · **Implementation:** [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84) · **Final verification:** [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105), [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97)
 
-Manual CRUD, custom fields/tags/notes, import mapping, activity, bulk operations, auditable merge, permission checks, consent invariants, and keyset pagination are merged.
-
-**Still needed:** backfill the explicit final verification links/performance evidence required by the task before promoting the plan checkbox.
+Verified complete. Manual CRUD, custom fields/tags/notes, import mapping, broader activity, bulk operations, suppression behavior, auditable merge/dedupe, permission and tenant-isolation boundaries, and keyset pagination are covered on `main`. PR #105 added production-equivalent route/integration coverage and 10,000-contact `EXPLAIN (ANALYZE)` evidence; PR #97 added direct browser/API/security evidence and merged as `1fd0dcab` after CI run 35564885943 and Security run 35564885977 passed. The tracking issue was closed on 2026-09-21.
 
 ## [ ] PR-019 — Wire the full notification catalog
 
@@ -400,7 +396,7 @@ The convention is enforced at the moment drift is most likely to be introduced:
 
 # Readiness issue-state audit (2026-09-21)
 
-Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92). `bun infra/production/scripts/check-readiness-sync.ts` audited all 22 tracking issues (#46–#67) against the gate checkboxes on 2026-09-21 and reported **0 mismatches**. Rule applied: every unchecked item must have an open issue; every checked item's issue must be closed only with evidence supporting its Definition of Done.
+Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92). `bun infra/production/scripts/check-readiness-sync.ts` audits all 22 tracking issues (#46–#67) against the gate checkboxes. The 2026-09-21 reconciliation now includes verified completion of PR-016 and PR-018 and should report **0 mismatches**: every unchecked item has an open issue, and every checked item's issue is closed only with evidence supporting its Definition of Done.
 
 | Item | Checkbox | Issue | Issue state | Verdict |
 | --- | --- | --- | --- | --- |
@@ -419,9 +415,9 @@ Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92).
 | PR-013 | `[ ]` | [#58](https://github.com/yasserfullstack-tech/whatsapp/issues/58) | OPEN | OK — representative load/soak/chaos/recovery evidence outstanding |
 | PR-014 | `[x]` | [#59](https://github.com/yasserfullstack-tech/whatsapp/issues/59) | CLOSED | OK — merged via [#82](https://github.com/yasserfullstack-tech/whatsapp/pull/82) with tenant-isolation/replay tests; provider send/reply evidence explicitly carried by PR-012 [#57](https://github.com/yasserfullstack-tech/whatsapp/issues/57) |
 | PR-015 | `[ ]` | [#60](https://github.com/yasserfullstack-tech/whatsapp/issues/60) | OPEN | OK — real rich-template staging send evidence outstanding |
-| PR-016 | `[ ]` | [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) | OPEN | OK — final DoD/CI-browser evidence backfill outstanding |
+| PR-016 | `[x]` | [#61](https://github.com/yasserfullstack-tech/whatsapp/issues/61) | CLOSED | OK — final deterministic scheduling/worker coverage merged via #96; protected merge plus CI/Security/browser evidence reviewed |
 | PR-017 | `[x]` | [#62](https://github.com/yasserfullstack-tech/whatsapp/issues/62) | CLOSED | OK — merged via [#85](https://github.com/yasserfullstack-tech/whatsapp/pull/85) with server-enforced limits, bypass protection and automated/browser coverage |
-| PR-018 | `[ ]` | [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) | OPEN | OK — final verification/performance evidence backfill outstanding |
+| PR-018 | `[x]` | [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) | CLOSED | OK — #105 production-query/performance evidence plus #97 browser/security E2E merged and reviewed |
 | PR-019 | `[ ]` | [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) | OPEN | OK — final verification evidence backfill outstanding |
 | PR-020 | `[ ]` | [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65) | OPEN | OK — final authorization/security/ops evidence review outstanding |
 | PR-021 | `[ ]` | [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66) | OPEN | OK — final scan/policy artifact link outstanding |
