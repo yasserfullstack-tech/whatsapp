@@ -28,6 +28,10 @@ export type ConnectionReadiness =
 const VALIDATION_INTERVAL_MS = 15 * 60_000;
 const VALIDATION_BATCH_SIZE = 250;
 
+export function isConnectionRevisionCurrent(expected: Date, current: Date): boolean {
+  return expected.getTime() === current.getTime();
+}
+
 function metaErrorDetails(error: MetaApiError): { code: string | null; subcode: string | null } {
   if (!error.responseBody || typeof error.responseBody !== "object" || Array.isArray(error.responseBody)) {
     return { code: null, subcode: null };
@@ -235,7 +239,7 @@ export async function markConnectionRequiresReauthorization(
   if (!existing) return false;
 
   const validatedAt = input.validatedAt ?? new Date();
-  if (input.expectedUpdatedAt && input.expectedUpdatedAt.getTime() !== existing.updatedAt.getTime()) {
+  if (input.expectedUpdatedAt && !isConnectionRevisionCurrent(input.expectedUpdatedAt, existing.updatedAt)) {
     return false;
   }
   const transitioned = !existing.reauthorizationRequired ||
