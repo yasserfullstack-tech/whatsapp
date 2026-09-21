@@ -150,7 +150,10 @@ describe("Stripe webhook lifecycle integration", () => {
         id: `cs_${suffix}`,
         customer: customerId,
         subscription: subscriptionId,
-        metadata: { organizationId: organization.id },
+        metadata: {
+          organizationId: organization.id,
+          checkoutAttemptKey: `checkout_attempt_${suffix}`,
+        },
       }));
       const checkoutAccount = (
         await db.select().from(schema.billingAccounts).where(eq(schema.billingAccounts.id, account.id)).limit(1)
