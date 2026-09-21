@@ -19,7 +19,7 @@ Staging and production must not reuse:
 - authentication or credential-encryption secrets;
 - Meta app/config/verify credentials;
 - R2 bucket credentials or bucket name;
-- Resend/API mail credentials used for real customer mail;
+- SMTP mail credentials used for real customer mail (Google/Gmail is the current default);
 - Grafana administrator password.
 
 The literal `REDIS_URL=redis://valkey:6379` may be the same because `valkey` resolves inside each isolated Compose project/network. What must differ is the underlying Valkey container/volume or host.
@@ -35,7 +35,7 @@ For each environment provision and record:
 5. Environment-specific PostgreSQL and Valkey state.
 6. Environment-specific R2 bucket/credentials.
 7. Staging/test Meta assets for staging and the approved production Meta configuration for production.
-8. Email provider configuration appropriate to the environment.
+8. SMTP email provider configuration appropriate to the environment. The default examples use Gmail (`smtp.gmail.com`, TLS/465) with an App Password; another SMTP provider can be substituted through environment variables.
 9. Sentry DSN/project configuration with `SENTRY_ENVIRONMENT=staging` or `production`.
 10. Immutable application/migrator image references pinned by registry SHA-256 digest.
 

@@ -11,7 +11,7 @@ Treat these as secrets or security-sensitive configuration:
 - `CREDENTIAL_ENCRYPTION_KEY`,
 - `META_APP_SECRET`, `META_VERIFY_TOKEN`, and any Meta access token,
 - `R2_ACCESS_KEY_ID` and especially `R2_SECRET_ACCESS_KEY`,
-- `RESEND_API_KEY`,
+- `SMTP_PASSWORD` (for Gmail/Google SMTP, use an App Password rather than the account password),
 - `GRAFANA_ADMIN_PASSWORD`,
 - the private `age` identity used to decrypt database backups,
 - rclone/cloud credentials for the off-server backup destination.

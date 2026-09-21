@@ -47,7 +47,10 @@ for key in \
   APP_DOMAIN \
   POSTGRES_PASSWORD \
   BETTER_AUTH_SECRET \
-  RESEND_API_KEY \
+  SMTP_HOST \
+  SMTP_USER \
+  SMTP_PASSWORD \
+  EMAIL_FROM \
   CREDENTIAL_ENCRYPTION_KEY \
   META_APP_ID \
   META_APP_SECRET \
@@ -112,7 +115,7 @@ $services
 - [ ] Output from verify-environment-isolation.sh using the real staging and production env files.
 - [ ] R2 bucket/credential evidence, with secrets redacted.
 - [ ] Meta app/config/number evidence, with secrets/tokens redacted.
-- [ ] Email provider and Sentry project/environment evidence.
+- [ ] Email SMTP/provider and Sentry project/environment evidence.
 - [ ] Rollback drill record showing a previous immutable release was restored and smoke-tested in staging before production sign-off.
 EOF
 

@@ -43,8 +43,13 @@ const workerSchema = z.object({
   DATABASE_URL: z.string().min(1),
   CREDENTIAL_ENCRYPTION_KEY: z.string().min(1),
   APP_URL: z.url().optional(),
-  RESEND_API_KEY: z.string().min(1).optional(),
-  AUTH_EMAIL_FROM: z.string().min(1).optional(),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().positive().max(65_535).optional(),
+  SMTP_SECURITY: z.enum(["tls", "starttls"]).default("tls"),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().min(1).optional(),
+  EMAIL_REPLY_TO: z.string().optional(),
   DEFAULT_META_MPS: z.coerce.number().int().positive().max(1_000).default(80),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().max(2_000).default(400),
   WEBHOOK_CONCURRENCY: z.coerce.number().int().positive().max(1_000).default(100),
@@ -59,7 +64,7 @@ const workerSchema = z.object({
   validateProductionRedis(value, ctx);
   if (value.NODE_ENV !== "production") return;
 
-  for (const name of ["APP_URL", "RESEND_API_KEY", "AUTH_EMAIL_FROM"] as const) {
+  for (const name of ["APP_URL", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"] as const) {
     if (!value[name]) {
       ctx.addIssue({
         code: "custom",

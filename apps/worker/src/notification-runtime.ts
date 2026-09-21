@@ -4,8 +4,10 @@ import { createDatabase } from "@wa/db";
 import {
   ConsoleEmailProvider,
   NotificationService,
+  SmtpEmailProvider,
   deliverNotificationEmail,
   getPendingEmailDeliveryIds,
+  loadSmtpEmailConfig,
   type EmailProvider,
 } from "@wa/notifications";
 import { createLogger } from "@wa/observability";
@@ -26,37 +28,6 @@ import {
   reconcileWithPersistentSourceCursor,
 } from "./notification-reconciliation-cursor";
 
-class ResendEmailProvider implements EmailProvider {
-  constructor(
-    private readonly apiKey: string,
-    private readonly from: string,
-  ) {}
-
-  async send(input: Parameters<EmailProvider["send"]>[0]): Promise<{ messageId?: string }> {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": input.idempotencyKey,
-      },
-      body: JSON.stringify({
-        from: this.from,
-        to: [input.to],
-        subject: input.subject,
-        html: input.html,
-        text: input.text,
-      }),
-    });
-
-    const body = await response.json().catch(() => null) as { id?: unknown } | null;
-    if (!response.ok) {
-      throw new Error(`Notification email provider rejected the request (${response.status})`);
-    }
-    return typeof body?.id === "string" ? { messageId: body.id } : {};
-  }
-}
-
 function requiredProductionValue(name: string, value: string | undefined): string {
   if (!value) throw new Error(`${name} is required in production`);
   return value;
@@ -69,13 +40,13 @@ const log = createLogger({ service: "notification-worker" });
 const emailQueue = createNotificationEmailQueue(env.REDIS_URL);
 const contactImportQueue = createContactImportQueue(env.REDIS_URL);
 const sourceCursorRedis = createRedisClient(env.REDIS_URL);
-const provider: EmailProvider = env.NODE_ENV === "production"
-  ? new ResendEmailProvider(
-      requiredProductionValue("RESEND_API_KEY", env.RESEND_API_KEY),
-      requiredProductionValue("AUTH_EMAIL_FROM", env.AUTH_EMAIL_FROM),
-    )
+const smtpConfig = loadSmtpEmailConfig(process.env, {
+  required: env.NODE_ENV === "production",
+});
+const provider: EmailProvider = smtpConfig
+  ? new SmtpEmailProvider(smtpConfig)
   : new ConsoleEmailProvider();
-const providerName = env.NODE_ENV === "production" ? "resend" : "console";
+const providerName = smtpConfig ? "smtp" : "console";
 const appUrl = env.NODE_ENV === "production"
   ? requiredProductionValue("APP_URL", env.APP_URL)
   : env.APP_URL ?? "http://127.0.0.1:3000";
