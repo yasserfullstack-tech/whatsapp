@@ -198,8 +198,10 @@ describe("Stripe webhook lifecycle integration", () => {
       expect(subscription?.status).toBe("grace_period");
       expect(subscription?.graceEndsAt?.toISOString()).toBe("2026-09-23T10:00:00.000Z");
 
+      latestInvoices.delete(invoiceId);
       const replay = await service.process(stripeEvent(eventIds[1]!, "invoice.payment_failed", failedInvoice));
       expect(replay).toEqual({ processed: false, replay: true });
+      latestInvoices.set(invoiceId, failedInvoice);
       const eventCount = await db
         .select({ total: count() })
         .from(schema.billingProviderEvents)
