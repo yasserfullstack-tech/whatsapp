@@ -14,11 +14,11 @@ Audited application baseline (latest runtime-affecting `main` commit at this rec
 
 Evidence-only/documentation merges may move `main` beyond this SHA without changing the audited runtime baseline. Advance this baseline again whenever runtime-affecting code/configuration changes merge.
 
-- Commit: [`473a0ee74fea9c408861cbb92d72f1900ce14967`](https://github.com/yasserfullstack-tech/whatsapp/commit/473a0ee74fea9c408861cbb92d72f1900ce14967) (merge of [#114](https://github.com/yasserfullstack-tech/whatsapp/pull/114), after immutable release-image publishing [#113](https://github.com/yasserfullstack-tech/whatsapp/pull/113))
-- CI: **success** — [run 35585948946](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35585948946), including EN/AR desktop/tablet/mobile browser E2E.
-- Security: **success** — [run 35585949035](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35585949035)
-- Load Smoke: **success** — [run 35585949013](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35585949013) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
-- Production Infra: **success** — [run 35585949105](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35585949105), including immutable image metadata, vulnerability policy, migrations, application startup, and production-shape health smoke with the SMTP configuration.
+- Commit: [`4c0f9a4dfb777a7ae03b97ea4a08772161c06449`](https://github.com/yasserfullstack-tech/whatsapp/commit/4c0f9a4dfb777a7ae03b97ea4a08772161c06449) (squash merge of [#116](https://github.com/yasserfullstack-tech/whatsapp/pull/116)). Its tree `0730cbd629e8d583c391001657c0d006be480406` is identical to the final validated PR head `da205521cc55cb99515b979cfd597d99c6f9be9f`.
+- CI: **success** — [run 35593707367](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35593707367) on exact `main` commit `4c0f9a4`, including unit tests, typecheck, production build, and EN/AR desktop/tablet/mobile browser E2E.
+- Security: **success** — [run 35593707375](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35593707375) on exact `main` commit `4c0f9a4`, including dependency audit, secret scan, CodeQL, container/supply-chain controls, and tenant-isolation/API-abuse E2E.
+- Load Smoke: **success** — [run 35593707473](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35593707473) on exact `main` commit `4c0f9a4` (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20).
+- Production Infra: **success** — [run 35593707389](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35593707389) on exact `main` commit `4c0f9a4`, including immutable image metadata, vulnerability policy, migrations, application startup, and production-shape health smoke with the SMTP configuration.
 - `main` release controls: **active** — repository ruleset `main-release-controls` (id `23732752`, `enforcement: active`) requires pull requests, blocks deletion and force-push, and enforces five status checks: `checks`, `Dependency audit`, `Secret scan`, `CodeQL`, `Tenant isolation and API abuse tests`. Applied and verified 2026-09-20; runbook and evidence in [`docs/release-controls.md`](release-controls.md) §7 and §11 (issue [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91) closed 2026-09-20).
 - Readiness/issue-state alignment for this reconciliation: **0 mismatches** — [Readiness Issue Sync run 35585949037](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35585949037). External-evidence issue [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64) remains open after the Google-first SMTP migration; the closing-keyword guard/convention remains enforced under issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92).
 
@@ -82,7 +82,7 @@ The repository has strong local/fake-provider regression coverage, but fake Meta
 | Task | Readiness | Repository implementation | What is still required |
 | --- | --- | --- | --- |
 | PR-001 Production readiness tracking | ✅ `[x]` | Merged via [#68](https://github.com/yasserfullstack-tech/whatsapp/pull/68) | Keep this plan current and keep merge gates accurate. |
-| PR-002 Current Meta Embedded Signup | 🟦 ⏳ `[ ]` | v4/config-driven flow merged via [#70](https://github.com/yasserfullstack-tech/whatsapp/pull/70) | Verify current production/test Meta config ID and complete a real Meta test-business onboarding with redacted evidence in [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47). |
+| PR-002 Current Meta Embedded Signup | 🟦 ⏳ `[ ]` | v4/config-driven flow merged via [#70](https://github.com/yasserfullstack-tech/whatsapp/pull/70); retry isolation, WABA/phone binding, and final repository verification merged via [#116](https://github.com/yasserfullstack-tech/whatsapp/pull/116) | Verify current production/test Meta config ID and complete a real Meta test-business onboarding with redacted evidence in [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47). |
 | PR-003 Connection health / reauthorization | 🟦 ⏳ `[ ]` | Lifecycle/validation/reconnect work merged via [#79](https://github.com/yasserfullstack-tech/whatsapp/pull/79) | Attach real staging reconnect/credential-replacement evidence to the reopened [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48). |
 | PR-004 Meta asset/account synchronization | 🟦 ⏳ `[ ]` | Webhook/reconciliation/audit/metrics work merged via [#78](https://github.com/yasserfullstack-tech/whatsapp/pull/78) | Capture a real Meta state transition or reconciliation repair in staging and attach it to the reopened [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49). |
 | PR-005 External Meta prerequisites | ⏳ `[ ]` | Evidence runbook merged via [#69](https://github.com/yasserfullstack-tech/whatsapp/pull/69) | Production Meta approvals/access, webhook/configuration, real WABA/phone onboarding, and sanitized proof in [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50). |
@@ -197,9 +197,9 @@ Verified complete. Continue maintaining this plan and release-gate accuracy.
 
 ## [ ] PR-002 — Migrate Embedded Signup to the current Meta flow
 
-**Tracking:** [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47) · **Implementation:** [#70](https://github.com/yasserfullstack-tech/whatsapp/pull/70)
+**Tracking:** [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47) · **Implementation:** [#70](https://github.com/yasserfullstack-tech/whatsapp/pull/70) · **Repository hardening/verification:** [#116](https://github.com/yasserfullstack-tech/whatsapp/pull/116)
 
-Repository-side v4/config-driven signup, safe callback validation, cancellation/error handling, and automated tests are merged.
+Repository-side v4/config-driven signup, safe callback validation, cancellation/error handling, and automated tests are merged. PR #116 additionally isolates retries by attempt generation and Meta message source, rejects stale callbacks/events, verifies the selected phone belongs to the submitted WABA before saving, and updates the fake Meta contract so protected browser E2E covers the hardened flow. The final PR head passed CI, Security, Production Infra, and the full browser matrix before protected squash merge as `4c0f9a4`; post-merge Load Smoke is green on that exact commit.
 
 **Still needed:** current Meta configuration proof plus one real Meta test/business onboarding with sanitized evidence.
 
@@ -404,7 +404,7 @@ Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92).
 | Item | Checkbox | Issue | Issue state | Verdict |
 | --- | --- | --- | --- | --- |
 | PR-001 | `[x]` | [#46](https://github.com/yasserfullstack-tech/whatsapp/issues/46) | CLOSED | OK — tracking task; verified CI/E2E baseline recorded on the issue, plan links all #46–#67 |
-| PR-002 | `[ ]` | [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47) | OPEN | OK — real Meta onboarding evidence outstanding |
+| PR-002 | `[ ]` | [#47](https://github.com/yasserfullstack-tech/whatsapp/issues/47) | OPEN | OK — repository hardening/verification merged via #116; real Meta configuration/onboarding evidence outstanding |
 | PR-003 | `[ ]` | [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) | OPEN | OK — **reopened**; real staging reconnect evidence outstanding |
 | PR-004 | `[ ]` | [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49) | OPEN | OK — **reopened**; real Meta state-transition evidence outstanding |
 | PR-005 | `[ ]` | [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50) | OPEN | OK — external Meta approvals/onboarding evidence outstanding |
