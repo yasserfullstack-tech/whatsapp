@@ -12,6 +12,8 @@ export type StripeWebhookServiceOptions = {
   priceRefs: StripePriceRefs;
   failedPaymentGraceDays?: number;
   now?: () => Date;
+  retrieveSubscription?: (subscriptionExternalId: string) => Promise<StripeObject>;
+  retrieveInvoice?: (invoiceExternalId: string) => Promise<StripeObject>;
 };
 
 export type StripeWebhookProcessResult = {
@@ -493,8 +495,8 @@ async function syncInvoice(
   if (!localInvoice) throw new Error("Could not synchronize Stripe invoice");
 
   const providerPaymentId = invoicePaymentId(invoice);
-  const failed = eventType === "invoice.payment_failed";
-  const succeeded = eventType === "invoice.paid" || eventType === "invoice.payment_succeeded" || status === "paid";
+  const failed = eventType === "invoice.payment_failed" && status !== "paid";
+  const succeeded = status === "paid" || eventType === "invoice.paid" || eventType === "invoice.payment_succeeded";
   if (providerPaymentId && (failed || succeeded)) {
     const paymentStatus = failed ? "failed" as const : "succeeded" as const;
     const paymentAmount = succeeded ? Math.max(amountPaidMinor, totalMinor) : Math.max(amountDueMinor, totalMinor);
@@ -513,11 +515,15 @@ async function syncInvoice(
         .update(schema.billingPayments)
         .set({
           invoiceId: localInvoice.id,
-          status: paymentStatus,
+          status: existingPayment.refundedAmountMinor >= paymentAmount
+            ? "refunded"
+            : existingPayment.refundedAmountMinor > 0
+              ? "partially_refunded"
+              : paymentStatus,
           currency,
           amountMinor: paymentAmount,
           paidAt: succeeded ? paidAt ?? now : null,
-          metadata: { providerInvoiceId },
+          metadata: { ...(asRecord(existingPayment.metadata) ?? {}), providerInvoiceId },
         })
         .where(eq(schema.billingPayments.id, existingPayment.id));
     } else {
@@ -613,6 +619,8 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
     priceRefs: options.priceRefs,
     failedPaymentGraceDays: options.failedPaymentGraceDays ?? 7,
     now: options.now ?? (() => new Date()),
+    retrieveSubscription: options.retrieveSubscription,
+    retrieveInvoice: options.retrieveInvoice,
   };
 
   return {
@@ -621,8 +629,19 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
         throw new Error("Unverified or non-Stripe billing provider event");
       }
       const payload = asRecord(event.payload);
-      const object = asRecord(asRecord(payload?.data)?.object);
+      let object = asRecord(asRecord(payload?.data)?.object);
       if (!payload || !object) throw new Error("Stripe webhook payload is invalid");
+
+      if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.eventType)
+        && normalized.retrieveSubscription) {
+        const subscriptionId = asString(object.id);
+        if (!subscriptionId) throw new Error("Stripe subscription event is missing id");
+        object = await normalized.retrieveSubscription(subscriptionId);
+      } else if (event.eventType.startsWith("invoice.") && normalized.retrieveInvoice) {
+        const invoiceId = asString(object.id);
+        if (!invoiceId) throw new Error("Stripe invoice event is missing id");
+        object = await normalized.retrieveInvoice(invoiceId);
+      }
 
       await db
         .insert(schema.billingProviderEvents)
