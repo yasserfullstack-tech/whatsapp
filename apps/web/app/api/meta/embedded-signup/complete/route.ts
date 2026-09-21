@@ -7,13 +7,16 @@ import {
   exchangeEmbeddedSignupCode,
   getWhatsAppPhoneNumber,
   inferThroughputMps,
+  listWhatsAppBusinessAccountPhoneNumberIds,
   MetaApiError,
   subscribeAppToWaba,
 } from "@wa/meta";
 import { getAuthContext } from "@/lib/auth-context";
 import {
+  assertEmbeddedSignupWabaPhoneMatch,
   EmbeddedSignupConflictError,
   EmbeddedSignupPhoneMismatchError,
+  EmbeddedSignupWabaPhoneMismatchError,
   verifyEmbeddedSignupPhone,
 } from "@/lib/embedded-signup-security";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
@@ -70,6 +73,16 @@ export async function POST(request: Request) {
           .where(eq(schema.whatsappPhoneNumbers.phoneNumberId, phoneNumberId))
           .limit(1)
       )[0]?.organizationId ?? null,
+    });
+
+    const wabaPhoneNumberIds = await listWhatsAppBusinessAccountPhoneNumberIds({
+      wabaId: parsed.data.wabaId,
+      accessToken: token.accessToken,
+      graphApiVersion: meta.graphApiVersion,
+    });
+    assertEmbeddedSignupWabaPhoneMatch({
+      requestedPhoneNumberId: phone.id,
+      wabaPhoneNumberIds,
     });
 
     const [existingPhone] = await db
@@ -148,6 +161,10 @@ export async function POST(request: Request) {
 
     if (error instanceof EmbeddedSignupPhoneMismatchError) {
       return NextResponse.json({ error: "Meta returned a different WhatsApp phone number" }, { status: 400 });
+    }
+
+    if (error instanceof EmbeddedSignupWabaPhoneMismatchError) {
+      return NextResponse.json({ error: "Meta returned mismatched WhatsApp account assets" }, { status: 400 });
     }
 
     if (error instanceof MetaApiError) {
