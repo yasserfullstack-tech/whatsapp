@@ -31,11 +31,22 @@ Inbound-message notifications are the only catalog entry without a durable recon
 
 Import failures are deliberately not replayed. `processContactImport` writes `status = "failed"` before rethrowing on *every* attempt, so a failed row is not terminal while the contact-import queue still has retries left (4 attempts with backoff). A scan cannot tell a transient failure write from a terminal one, so `import_failed` is emitted only by the queue hook, which compares `attemptsMade` against `attempts`. Replaying a transient row would announce a failure that a later retry turns into a success.
 
-### Reconciliation window
+### Reconciliation cursor and window
 
-The durable pass rereads a short overlap window (`SOURCE_REPLAY_OVERLAP_MS`, 2 minutes) and initialises its scan anchor at process start, so it replays terminal transitions that happened within roughly two minutes before the notification worker started. A transition older than that when the worker restarts is not replayed, for any source in the pass — this is the pre-existing anchor behaviour, not specific to the campaign/import scans.
+The durable pass stores its last successful scan start in Valkey under
+`notification:sources:cursor:v1`. On every pass it rereads a two-minute overlap
+(`SOURCE_REPLAY_OVERLAP_MS`) before that persisted cursor, so deployment/restart
+gaps longer than two minutes no longer drop durable source events.
 
-That window is a deliberate bound: dedupe keys are stable, so widening it would be idempotent, but it would also deliver stale notifications for every terminal transition during a long outage. Widening it is an operational decision that needs an explicit retention bound, so it is left as documented behaviour rather than an unbounded backfill.
+The cursor advances only after every source reconciler succeeds. If the pass
+throws or the worker exits before the cursor write, the previous cursor is kept
+and the next pass safely replays the same range through stable dedupe keys.
+
+When the key is missing or malformed (for example on the first deployment of
+this control), the worker uses a bounded 24-hour bootstrap lookback
+(`SOURCE_CURSOR_BOOTSTRAP_LOOKBACK_MS`) plus the normal overlap. This recovers a
+reasonable outage/deployment window without doing an unbounded historical
+backfill that could surface very old notifications.
 
 ## Replay and deduplication
 
@@ -73,7 +84,7 @@ Suppressed channels are persisted as `notification_deliveries.status = suppresse
 
 Email delivery is durable in `notification_deliveries`. Provider attempts update attempt count, retry time, failure text, and terminal/dead-letter state. The notification worker logs queue failures and periodically reconciles pending email deliveries, so a successful notification insert is not lost if queue publication fails.
 
-Durable source reconciliation also logs failures and only advances its scan anchor after a successful pass. A failed pass is replayed on the next run with the same stable dedupe keys.
+Durable source reconciliation also logs failures and only advances its persisted Valkey cursor after a successful pass. A failed pass is replayed on the next run with the same stable dedupe keys.
 
 ## Operational checks
 

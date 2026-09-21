@@ -185,4 +185,58 @@ describe("notification durable source reconciliation", () => {
       await database.client.end({ timeout: 5 });
     }
   });
+
+  test("replays a delayed payment failure using processing time rather than event creation time", async () => {
+    const database = createDatabase(databaseUrl);
+    const db = database.db;
+    const suffix = randomUUID().slice(0, 8);
+    const { organizationId, ownerId } = await seedOrganization(db, suffix);
+    const notifications = new NotificationService({ db });
+    const externalEventId = `evt-notification-${suffix}`;
+
+    try {
+      const [account] = await db
+        .insert(schema.billingAccounts)
+        .values({ organizationId })
+        .returning({ id: schema.billingAccounts.id });
+      if (!account) throw new Error("Could not create billing account fixture");
+
+      const providerInvoiceId = `in-notification-${suffix}`;
+      await db.insert(schema.billingInvoices).values({
+        organizationId,
+        billingAccountId: account.id,
+        providerKey: "stripe",
+        providerInvoiceId,
+        status: "open",
+      });
+
+      const processedAt = new Date();
+      const createdAt = new Date(processedAt.getTime() - 10 * 60_000);
+      const [providerEvent] = await db
+        .insert(schema.billingProviderEvents)
+        .values({
+          providerKey: "stripe",
+          externalEventId,
+          eventType: "invoice.payment_failed",
+          payload: { data: { object: { id: providerInvoiceId } } },
+          verifiedAt: processedAt,
+          processedAt,
+          createdAt,
+        })
+        .returning({ id: schema.billingProviderEvents.id });
+      if (!providerEvent) throw new Error("Could not create provider event fixture");
+
+      const since = new Date(processedAt.getTime() - 60_000);
+      const result = await reconcileNotificationSources({ db, notifications, since });
+
+      expect(result.payments).toBeGreaterThan(0);
+      expect(await notificationCount(db, `billing-provider:${providerEvent.id}`)).toBe(1);
+    } finally {
+      await db.delete(schema.billingProviderEvents).where(eq(schema.billingProviderEvents.externalEventId, externalEventId));
+      await db.delete(schema.organizations).where(eq(schema.organizations.id, organizationId));
+      await db.delete(schema.users).where(eq(schema.users.id, ownerId));
+      await database.client.end({ timeout: 5 });
+    }
+  });
+
 });

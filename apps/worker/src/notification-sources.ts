@@ -345,13 +345,14 @@ async function emitPaymentFailures(db: Database, notifications: NotificationEmit
       id: schema.billingProviderEvents.id,
       providerKey: schema.billingProviderEvents.providerKey,
       payload: schema.billingProviderEvents.payload,
+      processedAt: schema.billingProviderEvents.processedAt,
       createdAt: schema.billingProviderEvents.createdAt,
     })
     .from(schema.billingProviderEvents)
     .where(and(
       eq(schema.billingProviderEvents.eventType, "invoice.payment_failed"),
       isNotNull(schema.billingProviderEvents.processedAt),
-      gte(schema.billingProviderEvents.createdAt, since),
+      gte(schema.billingProviderEvents.processedAt, since),
     ));
 
   let emitted = 0;
@@ -379,7 +380,7 @@ async function emitPaymentFailures(db: Database, notifications: NotificationEmit
       userIds: await adminUserIds(db, invoice.organizationId),
       metadata: { invoiceId: invoice.id, providerInvoiceId },
       link: "/settings/billing",
-      occurredAt: event.createdAt,
+      occurredAt: event.processedAt ?? event.createdAt,
     });
     emitted += result.notificationsCreated;
   }

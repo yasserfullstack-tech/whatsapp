@@ -15,10 +15,16 @@ import {
   NOTIFICATION_EMAIL_QUEUE_NAME,
   createBullConnection,
   createContactImportQueue,
+  createRedisClient,
   createNotificationEmailQueue,
   type NotificationEmailJob,
 } from "@wa/queue";
 import { reconcileNotificationSources, emitCampaignTerminalNotification, emitImportTerminalNotification } from "./notification-sources";
+import {
+  SOURCE_CURSOR_BOOTSTRAP_LOOKBACK_MS,
+  SOURCE_REPLAY_OVERLAP_MS,
+  reconcileWithPersistentSourceCursor,
+} from "./notification-reconciliation-cursor";
 
 class ResendEmailProvider implements EmailProvider {
   constructor(
@@ -62,6 +68,7 @@ const db = database.db;
 const log = createLogger({ service: "notification-worker" });
 const emailQueue = createNotificationEmailQueue(env.REDIS_URL);
 const contactImportQueue = createContactImportQueue(env.REDIS_URL);
+const sourceCursorRedis = createRedisClient(env.REDIS_URL);
 const provider: EmailProvider = env.NODE_ENV === "production"
   ? new ResendEmailProvider(
       requiredProductionValue("RESEND_API_KEY", env.RESEND_API_KEY),
@@ -166,15 +173,25 @@ async function reconcilePendingEmailDeliveries() {
   log.info("notification_email_reconciled", { count: deliveryIds.length });
 }
 
-const SOURCE_REPLAY_OVERLAP_MS = 2 * 60_000;
-let sourceScanAnchor = new Date();
 async function reconcileDurableSources() {
-  const scanStartedAt = new Date();
-  const since = new Date(sourceScanAnchor.getTime() - SOURCE_REPLAY_OVERLAP_MS);
-  const result = await reconcileNotificationSources({ db, notifications: notificationService, since });
-  sourceScanAnchor = scanStartedAt;
+  const { result, since, cursor, bootstrapped } = await reconcileWithPersistentSourceCursor({
+    store: sourceCursorRedis,
+    reconcile: (sourceSince) => reconcileNotificationSources({
+      db,
+      notifications: notificationService,
+      since: sourceSince,
+    }),
+  });
   const created = Object.values(result).reduce((sum, count) => sum + count, 0);
-  if (created > 0) log.info("notification_sources_reconciled", { created, ...result });
+  if (created > 0 || bootstrapped) {
+    log.info("notification_sources_reconciled", {
+      created,
+      since: since.toISOString(),
+      cursor: cursor.toISOString(),
+      bootstrapped,
+      ...result,
+    });
+  }
 }
 
 await Promise.all([campaignEvents.waitUntilReady(), importEvents.waitUntilReady()]);
@@ -195,6 +212,7 @@ log.info("notification_runtime_started", {
   emailProvider: providerName,
   emailConcurrency: 8,
   sourceReplayOverlapSeconds: SOURCE_REPLAY_OVERLAP_MS / 1_000,
+  sourceCursorBootstrapLookbackSeconds: SOURCE_CURSOR_BOOTSTRAP_LOOKBACK_MS / 1_000,
 });
 
 const shutdown = async () => {
@@ -206,6 +224,7 @@ const shutdown = async () => {
     importEvents.close(),
     emailQueue.close(),
     contactImportQueue.close(),
+    sourceCursorRedis.quit(),
   ]);
   await database.client.end();
 };
