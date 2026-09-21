@@ -12,13 +12,13 @@ The codebase has substantial production-readiness work merged, but the paid-laun
 
 Current audited HEAD (`main`):
 
-- Commit: [`1fd0dcab4a01afc2f979f4a7f42cde72e64ebe44`](https://github.com/yasserfullstack-tech/whatsapp/commit/1fd0dcab4a01afc2f979f4a7f42cde72e64ebe44) (merge of [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97), after [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105) and [#106](https://github.com/yasserfullstack-tech/whatsapp/pull/106))
-- CI: **success** — [run 35565167924](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167924)
-- Security: **success** — [run 35565167899](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167899)
-- Load Smoke: **success** — [run 35565167787](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167787) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
-- Production Infra: **last applicable run success** — [run 35528830290](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830290); the #97 evidence-only merge did not trigger a new Production Infra run.
+- Commit: [`3c60db8614aef2a9c12995d0dc8d3525a6fd5f25`](https://github.com/yasserfullstack-tech/whatsapp/commit/3c60db8614aef2a9c12995d0dc8d3525a6fd5f25) (merge of [#110](https://github.com/yasserfullstack-tech/whatsapp/pull/110), after the coordinated Meta evidence runbook [#109](https://github.com/yasserfullstack-tech/whatsapp/pull/109))
+- CI: **success** — [run 35571593352](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35571593352)
+- Security: **success** — [run 35571593356](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35571593356)
+- Load Smoke: **success** — [run 35571593339](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35571593339) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
+- Production Infra: **success** — [run 35571593382](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35571593382), including the current image vulnerability policy and production smoke path.
 - `main` release controls: **active** — repository ruleset `main-release-controls` (id `23732752`, `enforcement: active`) requires pull requests, blocks deletion and force-push, and enforces five status checks: `checks`, `Dependency audit`, `Secret scan`, `CodeQL`, `Tenant isolation and API abuse tests`. Applied and verified 2026-09-20; runbook and evidence in [`docs/release-controls.md`](release-controls.md) §7 and §11 (issue [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91) closed 2026-09-20).
-- Readiness/issue-state alignment for this reconciliation: **0 mismatches** — [PR #107 Readiness Issue Sync run 35565361191, attempt 2](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565361191) after reopening drifted external-evidence issue [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) (issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92)).
+- Readiness/issue-state alignment for this reconciliation: **0 mismatches** — [Readiness Issue Sync run 35571764525](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35571764525) after the guard caught and corrected the accidental auto-close of external-evidence issue [#64](https://github.com/yasserfullstack-tech/whatsapp/issues/64). The PR template/convention now also forbids negated closing phrases such as `does not close #N`, which GitHub can still parse as a closing keyword (issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92)).
 
 ---
 
