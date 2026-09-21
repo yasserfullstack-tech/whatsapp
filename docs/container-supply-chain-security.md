@@ -86,6 +86,9 @@ retained scan artifacts, the blocking policy (including `ignore-unfixed` and the
 aggregating failure step), the commit-pinned scanner action, the OCI provenance
 labels, and this document's severity/exception sections are all still present.
 It fails, with a GitHub annotation, when one is removed or weakened.
+The guard also validates the migrator runtime identity: explicit Compose `user:`
+overrides that resolve to root, or whose variable value cannot be proven non-root
+in CI, cannot satisfy the non-root control.
 
 The `Container and supply-chain controls` job in `.github/workflows/security.yml`
 runs the same check on every pull request and on pushes to `main`, so the control
