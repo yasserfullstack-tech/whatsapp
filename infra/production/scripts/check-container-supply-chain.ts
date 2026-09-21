@@ -172,6 +172,24 @@ export function composeServiceBlock(content: string, name: string): string | und
 	return body.join("\n");
 }
 
+/**
+ * Returns whether an explicit Compose `user:` override runs as root.
+ * No override returns undefined so the Dockerfile USER remains authoritative.
+ * Variable-based overrides are treated as root/unsafe because CI cannot prove
+ * they resolve to a non-root identity.
+ */
+export function composeUserOverrideRunsAsRoot(
+	serviceBlock: string | undefined,
+): boolean | undefined {
+	if (!serviceBlock) return undefined;
+	const match = serviceBlock.match(/^\s*user:\s*(.+?)\s*$/m);
+	if (!match) return undefined;
+	const value = match[1].trim().replace(/^["']|["']$/g, "");
+	const user = value.split(":")[0]?.trim().toLowerCase() ?? "";
+	if (!user || user.startsWith("$")) return true;
+	return user === "root" || user === "0";
+}
+
 /** Every `aquasecurity/trivy-action@<ref>` reference in a workflow. */
 export function trivyActionRefs(content: string): string[] {
 	return [...content.matchAll(/aquasecurity\/trivy-action@([^\s#]+)/g)].map((match) => match[1]);
@@ -500,9 +518,10 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 		source.dockerfiles["infra/docker/api.Dockerfile"] ?? "",
 	).find((stage) => stage.name === "migrator");
 	const migrateService = composeServiceBlock(source.composeProduction, "migrate");
+	const composeUserOverrideIsRoot = composeUserOverrideRunsAsRoot(migrateService);
 	const migratorRunsAsRoot =
-		(migratorStage ? stageRunsAsRoot(migratorStage.body) : true) &&
-		!(migrateService && /^\s*user:\s*\S/m.test(migrateService));
+		composeUserOverrideIsRoot ??
+		(migratorStage ? stageRunsAsRoot(migratorStage.body) : true);
 
 	const docClaimsMigratorRoot = /whatsapp-migrator[^\n]*runs as root/i.test(source.policyDoc);
 	const docClaimsMigratorNonRoot = /whatsapp-migrator[^\n]*runs as non-root/i.test(
