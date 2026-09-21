@@ -93,3 +93,5 @@ export function loadApiEnv(source: Record<string, string | undefined> = process.
 export function loadWorkerEnv(source: Record<string, string | undefined> = process.env): WorkerEnv {
   return workerSchema.parse(source);
 }
+
+// release-gate probe RED-2: throwaway comment so the infra gate is applicable

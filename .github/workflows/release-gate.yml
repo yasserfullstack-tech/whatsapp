@@ -153,6 +153,15 @@ jobs:
           printf '  %s\n' "${changed[@]}"
           echo "Path groups: infra=$infra backup=$backup reporting=$reporting"
 
+      # PROBE RED-2 ONLY (throwaway branch, never merged). Runs after the outputs
+      # are written, so the gate jobs would be applicable but are skipped because
+      # this job failed. release-gate must still fail.
+      - name: Deliberate probe failure
+        shell: bash
+        run: |
+          echo "release-gate probe RED-2: forcing the changes job to error." >&2
+          exit 1
+
   production-infra:
     name: Production Infra validation
     needs: changes
