@@ -5,8 +5,10 @@ import {
   createKeyRing,
   decryptSecret,
   encryptSecret,
+  inspectStoredKeyVersions,
   rotateSecret,
   rotateStoredSecrets,
+  summarizeKeyVersions,
   type EncryptedSecret,
   type StoredSecret,
 } from "./index";
@@ -161,5 +163,99 @@ describe("versioned credential encryption", () => {
     expect(() => createKeyRing({ currentKey: key(), currentVersion: 2, previousKey: "not-32-bytes" })).toThrow(
       "CREDENTIAL_ENCRYPTION_KEY must decode to exactly 32 bytes",
     );
+  });
+});
+
+describe("credential key version reporting", () => {
+  function secretAt(version: number, keyMaterial: string, plaintext: string): EncryptedSecret {
+    return encryptSecret(plaintext, createKeyRing({ currentKey: keyMaterial, currentVersion: version }));
+  }
+
+  test("counts rows per key version and reports the predecessor as referenced", () => {
+    const v1 = key();
+    const v2 = key();
+    const legacy: EncryptedSecret = { ...secretAt(1, v1, "legacy"), keyVersion: null };
+
+    const summary = summarizeKeyVersions([secretAt(2, v2, "current"), secretAt(1, v1, "old"), legacy], 2, 1);
+
+    expect(summary.total).toBe(3);
+    expect(summary.outdated).toBe(2);
+    expect(summary.referencingPreviousKey).toBe(2);
+    expect(summary.byVersion).toEqual([
+      { version: 1, count: 2 },
+      { version: 2, count: 1 },
+    ]);
+    expect(summary.safeToRetirePreviousKey).toBe(false);
+  });
+
+  test("does not count rows already at the current version as referencing the predecessor", () => {
+    const v1 = key();
+    const v2 = key();
+    const summary = summarizeKeyVersions([secretAt(2, v2, "a"), secretAt(2, v2, "b")], 2, 1);
+
+    expect(summary.total).toBe(2);
+    expect(summary.outdated).toBe(0);
+    expect(summary.referencingPreviousKey).toBe(0);
+    expect(summary.byVersion).toEqual([{ version: 2, count: 2 }]);
+    expect(summary.safeToRetirePreviousKey).toBe(true);
+  });
+
+  test("flips to safe once every row has been rotated", async () => {
+    const v1 = key();
+    const v2 = key();
+    const ring = createKeyRing({ currentKey: v2, currentVersion: 2, previousKey: v1 });
+    const rows = new Map<string, StoredSecret>([
+      ["row-old", { id: "row-old", secret: secretAt(1, v1, "old") }],
+      [
+        "row-legacy",
+        {
+          id: "row-legacy",
+          secret: { ...secretAt(1, v1, "legacy"), keyVersion: null } satisfies EncryptedSecret,
+        },
+      ],
+    ]);
+    const store = {
+      listSecrets: async () => [...rows.values()],
+      updateSecret: async (id: string, secret: EncryptedSecret) => {
+        rows.set(id, { id, secret });
+      },
+    };
+
+    const before = await inspectStoredKeyVersions(store, 2, 1);
+    expect(before.outdated).toBe(2);
+    expect(before.referencingPreviousKey).toBe(2);
+    expect(before.safeToRetirePreviousKey).toBe(false);
+
+    await rotateStoredSecrets(store, ring);
+
+    const after = await inspectStoredKeyVersions(store, 2, 1);
+    expect(after.outdated).toBe(0);
+    expect(after.referencingPreviousKey).toBe(0);
+    expect(after.byVersion).toEqual([{ version: 2, count: 2 }]);
+    expect(after.safeToRetirePreviousKey).toBe(true);
+  });
+
+  test("reports no predecessor reference when the ring carries no previous key", () => {
+    const v2 = key();
+    const summary = summarizeKeyVersions([secretAt(2, v2, "current")], 2);
+
+    expect(summary.previousVersion).toBeNull();
+    expect(summary.referencingPreviousKey).toBe(0);
+    expect(summary.safeToRetirePreviousKey).toBe(true);
+  });
+
+  test("treats a legacy row without a version as version 1", () => {
+    const v1 = key();
+    const legacy: EncryptedSecret = { ...secretAt(1, v1, "legacy"), keyVersion: null };
+
+    const atV1 = summarizeKeyVersions([legacy], DEFAULT_KEY_VERSION, 1);
+    expect(atV1.outdated).toBe(0);
+    expect(atV1.byVersion).toEqual([{ version: 1, count: 1 }]);
+    expect(atV1.safeToRetirePreviousKey).toBe(true);
+
+    const atV2 = summarizeKeyVersions([legacy], 2, 1);
+    expect(atV2.outdated).toBe(1);
+    expect(atV2.referencingPreviousKey).toBe(1);
+    expect(atV2.safeToRetirePreviousKey).toBe(false);
   });
 });

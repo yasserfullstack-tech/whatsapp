@@ -169,3 +169,88 @@ export async function rotateStoredSecrets(store: RotationStore, ring: Encryption
   }
   return { scanned: stored.length, rotated, skipped: stored.length - rotated };
 }
+
+/**
+ * Read-only view over stored secrets. Rotation needs `updateSecret`; the
+ * predecessor-key check only ever reads.
+ */
+export type SecretVersionStore = {
+  listSecrets: () => Promise<StoredSecret[]>;
+};
+
+export type KeyVersionCount = {
+  version: number;
+  count: number;
+};
+
+export type KeyVersionSummary = {
+  /** Version new ciphertext is written under. Every other version still needs a key in the ring. */
+  currentVersion: number;
+  /** Configured predecessor version, or null when the ring carries no previous key. */
+  previousVersion: number | null;
+  total: number;
+  /** Rows encrypted under a version other than the current one. */
+  outdated: number;
+  /** Rows still encrypted under the configured predecessor version. */
+  referencingPreviousKey: number;
+  /** Row counts per stored version, ascending; a missing version is reported as version 1. */
+  byVersion: KeyVersionCount[];
+  /**
+   * True only when no row references a version other than the current one, so
+   * the predecessor key can be dropped from the ring without losing access.
+   */
+  safeToRetirePreviousKey: boolean;
+};
+
+/**
+ * Counts stored ciphertexts per key version and decides whether the predecessor
+ * key is still referenced. This is the check an operator runs before removing
+ * `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` at the end of a rotation window.
+ */
+export function summarizeKeyVersions(
+  secrets: readonly EncryptedSecret[],
+  currentVersion: number,
+  previousVersion?: number,
+): KeyVersionSummary {
+  const counts = new Map<number, number>();
+  let outdated = 0;
+  let referencingPreviousKey = 0;
+
+  for (const secret of secrets) {
+    const version = secret.keyVersion ?? DEFAULT_KEY_VERSION;
+    counts.set(version, (counts.get(version) ?? 0) + 1);
+    if (version !== currentVersion) outdated += 1;
+    if (previousVersion !== undefined && version === previousVersion) referencingPreviousKey += 1;
+  }
+
+  const byVersion = [...counts.entries()]
+    .map(([version, count]) => ({ version, count }))
+    .sort((left, right) => left.version - right.version);
+
+  return {
+    currentVersion,
+    previousVersion: previousVersion ?? null,
+    total: secrets.length,
+    outdated,
+    referencingPreviousKey,
+    byVersion,
+    safeToRetirePreviousKey: outdated === 0,
+  };
+}
+
+/**
+ * Store-backed variant of {@link summarizeKeyVersions}, so a caller can run the
+ * predecessor-key check without loading ciphertext into application code.
+ */
+export async function inspectStoredKeyVersions(
+  store: SecretVersionStore,
+  currentVersion: number,
+  previousVersion?: number,
+): Promise<KeyVersionSummary> {
+  const stored = await store.listSecrets();
+  return summarizeKeyVersions(
+    stored.map((entry) => entry.secret),
+    currentVersion,
+    previousVersion,
+  );
+}
