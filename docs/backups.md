@@ -102,7 +102,7 @@ The collector fails unless the timer is enabled/active, the last success metric 
 
 ## Clean-host recovery drill
 
-Nightly isolated restore verification is necessary but does not replace a clean-host recovery exercise. At least quarterly, and before PR-010 is marked complete for launch, perform a drill on a newly provisioned recovery host with no reused application/database volumes.
+Nightly isolated restore verification is necessary but does not replace a clean host recovery exercise. At least quarterly, and before PR-010 is marked complete for launch, perform a drill on a newly provisioned recovery host with no reused application/database volumes.
 
 On the clean host:
 
@@ -120,7 +120,7 @@ The database-artifact drill command is:
 sudo -E sh infra/production/scripts/recovery-drill.sh
 ```
 
-`recovery-drill.sh` selects the newest off-server `postgres-*.dump.age`, downloads it and its checksum, validates SHA-256 independently of the original host path, restores it into an isolated clean PostgreSQL container, and emits a redacted Markdown evidence file. Attach that record together with clean-host provisioning evidence and the application smoke-test result to issue #55.
+`recovery-drill.sh` selects the newest off-server `postgres-*.dump.age`, downloads it and its checksum, validates SHA-256 independently of the original host path, restores it into an isolated clean PostgreSQL container, and emits a redacted Markdown evidence file. Attach that record together with clean host provisioning evidence and the application smoke-test result to issue #55.
 
 For a manual artifact check, downloaded checksum files are portable and may also be verified from their download directory:
 
