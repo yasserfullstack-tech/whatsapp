@@ -48,8 +48,8 @@ Document the owner and rotation procedure for each credential. Favor rotations t
 - `CREDENTIAL_ENCRYPTION_KEY`: stored Meta credentials record the key version that encrypted them (`credential_secrets.key_version`; a row without a version is read as version 1, so pre-versioning rows keep decrypting with the original key and need no data migration). Rotate with a rolling window rather than a big-bang replacement:
   1. set `CREDENTIAL_ENCRYPTION_KEY` to the replacement key, set `CREDENTIAL_ENCRYPTION_KEY_VERSION` to the next integer, and keep the outgoing key in `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` so both versions decrypt;
   2. deploy and confirm that new writes use the new version while existing rows still read;
-  3. run `bun run credentials:rotate` (optionally with an organization id to rotate one tenant) to decrypt each row with its recorded key and re-encrypt it under the current version;
-  4. confirm no rows still reference the previous version, then remove `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` and retire the old key.
+  3. run `bun run credentials:rotate` (optionally with an organization id to rotate one tenant) to decrypt each row with its recorded key and re-encrypt it under the current version; re-encryption runs in bounded transactions that row-lock each batch, so a batch commits or rolls back as a unit and the command is safe to re-run if interrupted;
+  4. run `bun run credentials:key-versions` (optionally with an organization id) to confirm no rows still reference the previous version — it exits non-zero while any do — then remove `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` and retire the old key.
   Do not remove the previous key before step 3 has completed for every row, and keep an independently secured recovery copy of every key in the ring: losing all copies of a key can make the credentials encrypted under it unrecoverable.
 
 After any suspected leak, rotate rather than merely deleting the value from the repository history.
