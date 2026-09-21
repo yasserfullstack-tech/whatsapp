@@ -69,8 +69,9 @@ export function loadSmtpEmailConfig(
 }
 
 function assertHeaderSafe(value: string, name: string): string {
-  if (/[
-]/.test(value)) throw new Error(`${name} must not contain CR/LF characters`);
+  if (value.includes(String.fromCharCode(13)) || value.includes(String.fromCharCode(10))) {
+    throw new Error(`${name} must not contain CR/LF characters`);
+  }
   return value;
 }
 
