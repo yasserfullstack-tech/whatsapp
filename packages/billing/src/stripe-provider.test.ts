@@ -35,6 +35,8 @@ describe("StripeBillingProvider", () => {
       planExternalRef: "price_growth",
       successUrl: "https://app.test/success",
       cancelUrl: "https://app.test/cancel",
+      idempotencyKey: "checkout-attempt-123",
+      expiresAt: new Date("2026-09-21T12:45:00.000Z"),
       metadata: { planCode: "growth" },
     });
     await provider.createCheckout({
@@ -43,6 +45,8 @@ describe("StripeBillingProvider", () => {
       planExternalRef: "price_growth",
       successUrl: "https://app.test/success",
       cancelUrl: "https://app.test/cancel",
+      idempotencyKey: "checkout-attempt-123",
+      expiresAt: new Date("2026-09-21T12:45:00.000Z"),
       metadata: { planCode: "growth" },
     });
 
@@ -53,6 +57,7 @@ describe("StripeBillingProvider", () => {
     expect(checkoutBody).toContain("line_items%5B0%5D%5Bprice%5D=price_growth");
     expect(checkoutBody).toContain("metadata%5BorganizationId%5D=org_123");
     expect(checkoutBody).toContain("subscription_data%5Bmetadata%5D%5BorganizationId%5D=org_123");
+    expect(checkoutBody).toContain("expires_at=1789994700");
     const firstCheckoutKey = new Headers(requests[1]?.init?.headers).get("Idempotency-Key");
     const retryCheckoutKey = new Headers(requests[2]?.init?.headers).get("Idempotency-Key");
     expect(firstCheckoutKey).toBeTruthy();
