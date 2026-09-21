@@ -85,10 +85,13 @@ Run the session in this order so the same evidence can satisfy multiple issues:
      path is a dedicated test message-template lifecycle change because its
      provider state is observable without affecting customer traffic;
    - capture the provider state/time, resulting local template/account state,
-     corresponding audit record, and successful webhook or reconciliation
-     evidence;
-   - if the webhook is intentionally not used for the test, prove that periodic
-     reconciliation repairs the local state instead.
+     and corresponding audit record;
+   - capture successful periodic reconciliation evidence for the deployed
+     credential in every #49 run, including the reconciliation metric/timestamp
+     or equivalent sanitized operational proof;
+   - when the webhook path is exercised, capture the successful webhook
+     delivery/processing evidence as additional proof. Webhook success does not
+     replace the required reconciliation evidence.
 6. **Final review**
    - map every artifact/reference to #47, #48, #49 and #50;
    - verify screenshots/comments contain no access token, OAuth code, app secret,
@@ -262,7 +265,8 @@ Provider state transition/reconciliation case:
 Provider timestamp/reference:
 Local state updated correctly: YES
 Audit record present: YES
-Webhook or reconciliation success evidence:
+Webhook delivery/processing evidence (when exercised):
+Periodic reconciliation success evidence (required):
 No credential/customer message content exposed: YES
 Evidence references:
 Remaining blockers: none / <list>
