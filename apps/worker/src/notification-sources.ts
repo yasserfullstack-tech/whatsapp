@@ -206,7 +206,7 @@ async function emitPlatformAuditEvents(db: Database, notifications: Notification
           rejectionReason: template?.rejectionReason,
         },
         link: "/templates",
-        occurredAt: event.createdAt,
+        occurredAt: event.processedAt ?? event.createdAt,
       });
       emitted += result.notificationsCreated;
       continue;
@@ -345,13 +345,14 @@ async function emitPaymentFailures(db: Database, notifications: NotificationEmit
       id: schema.billingProviderEvents.id,
       providerKey: schema.billingProviderEvents.providerKey,
       payload: schema.billingProviderEvents.payload,
+      processedAt: schema.billingProviderEvents.processedAt,
       createdAt: schema.billingProviderEvents.createdAt,
     })
     .from(schema.billingProviderEvents)
     .where(and(
       eq(schema.billingProviderEvents.eventType, "invoice.payment_failed"),
       isNotNull(schema.billingProviderEvents.processedAt),
-      gte(schema.billingProviderEvents.createdAt, since),
+      gte(schema.billingProviderEvents.processedAt, since),
     ));
 
   let emitted = 0;
