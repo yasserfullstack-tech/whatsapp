@@ -1,8 +1,109 @@
-# Meta production prerequisite evidence
+# Meta real-environment validation evidence
 
-This document is the evidence runbook for **PR-005 — Complete external Meta production prerequisites** in `docs/production-readiness-plan.md` and tracking issue #50.
+This document is the coordinated evidence runbook for the external Meta gates in
+`docs/production-readiness-plan.md`:
 
-PR-005 is an **external-evidence launch gate**. Repository configuration, tests, or documentation are not sufficient proof that the Meta-side production prerequisites are active. Keep PR-005 unchecked until every required item below is verified against the production Meta app/business configuration and the evidence is attached to issue #50 or the related pull request.
+- **PR-002 / #47** — current Embedded Signup flow and real onboarding;
+- **PR-003 / #48** — broken-credential detection and safe reauthorization;
+- **PR-004 / #49** — real Meta asset/account state synchronization;
+- **PR-005 / #50** — production Meta app/business prerequisites.
+
+These are **external-evidence launch gates**. Repository configuration, tests, or
+documentation are not sufficient proof that the Meta-side state is active.
+Keep each corresponding readiness checkbox unchecked until its required
+real-environment evidence is attached to the tracking issue and reviewed.
+
+The implementation baselines already merged to `main` are:
+
+- PR-002: #70, merge commit `3ea70b038c30810a3f7d48871220070c5e297b16`;
+- PR-003: #79, merge commit `3707022761cd0fe3f5970b178ddb49488ebbfc75`;
+- PR-004: #78, merge commit `ed1f803e9b525447f57ae823693fb1d9e53b9e4d`;
+- PR-005 evidence controls: #69, merge commit `e5eb7b743c66bf937a08f485aa1436c639dcaf87`.
+
+Always record the **actual deployed release commit** used for the validation
+session; the implementation commits above are provenance, not a substitute for
+testing the deployed release.
+
+## Current Meta references
+
+Verified 2026-09-21 against Meta's official WhatsApp Business Platform Postman
+collection:
+
+- Embedded Signup overview / required onboarding endpoints:
+  https://www.postman.com/meta/whatsapp-business-platform/documentation/du6gzjv/embedded-signup
+- Embedded Signup step 1 / embedding the signup flow:
+  https://www.postman.com/meta/whatsapp-business-platform/folder/b1a1oq8/step-1-embed-the-signup-flow
+- Webhook component/event families:
+  https://www.postman.com/meta/whatsapp-business-platform/request/j09tht8/components
+- WhatsApp Cloud API permissions:
+  https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api
+
+Meta's current collection documents `whatsapp_business_management` and
+`whatsapp_business_messaging` as the core WhatsApp permissions, with
+`business_management` needed for business-portfolio operations used by some
+Embedded Signup / Tech Provider flows. Validate the exact Advanced Access/App
+Review state required by the selected production integration model rather than
+assuming a development token proves production access.
+
+## Coordinated validation session for #47–#50
+
+Use a dedicated Meta test/staging business, WABA, and phone-number asset whenever
+possible. Do not deliberately break credentials or create provider-state churn
+on an active customer production asset merely to collect evidence.
+
+Run the session in this order so the same evidence can satisfy multiple issues:
+
+1. **Preflight / release traceability**
+   - record date/time, environment, deployed release commit and verifier;
+   - verify the deployment points at the intended production/staging
+     `META_APP_ID` and `META_CONFIG_ID` in the approved secret/config store;
+   - confirm no token/secret value will be copied into screenshots, logs or issue comments.
+2. **Meta app/configuration prerequisites (#50, feeds #47)**
+   - capture redacted app mode/status, applicable business/provider verification,
+     required permission/App Review/Advanced Access state, Embedded Signup
+     configuration, and webhook/WABA subscription state;
+   - confirm the deployed `META_CONFIG_ID` corresponds to the configuration
+     being shown, using a secure internal reference rather than pasting the ID.
+3. **Real Embedded Signup onboarding (#47, also #50)**
+   - onboard the dedicated test business/WABA through the deployed application;
+   - verify the server-side code exchange completes;
+   - verify the WABA is subscribed and the expected phone-number asset appears
+     locally;
+   - capture only redacted IDs or internal evidence references.
+4. **Connection-health / reauthorization exercise (#48)**
+   - on the dedicated staging/test asset, create a controlled unusable-credential
+     condition using the Meta-side test/admin mechanism appropriate to the account
+     (for example revoking/removing the test app authorization);
+   - verify the application moves the connection to
+     `reauthorization_required`, blocks unsafe sends, and does not enter an
+     uncontrolled retry loop;
+   - run the normal reconnect/Embedded Signup flow;
+   - verify the connection returns to `healthy`, the safe failure state clears,
+     and credential metadata/version changes without exposing token material.
+5. **Real provider state synchronization (#49)**
+   - use a low-risk provider state transition on the test WABA. The preferred
+     path is a dedicated test message-template lifecycle change because its
+     provider state is observable without affecting customer traffic;
+   - capture the provider state/time, resulting local template/account state,
+     corresponding audit record, and successful webhook or reconciliation
+     evidence;
+   - if the webhook is intentionally not used for the test, prove that periodic
+     reconciliation repairs the local state instead.
+6. **Final review**
+   - map every artifact/reference to #47, #48, #49 and #50;
+   - verify screenshots/comments contain no access token, OAuth code, app secret,
+     verify token, customer phone number, raw webhook payload or customer PII;
+   - close only the issue(s) whose complete evidence requirements are satisfied.
+
+### Cross-issue evidence matrix
+
+| Issue | Real-environment proof required | Can share evidence with |
+| --- | --- | --- |
+| #47 / PR-002 | Current Embedded Signup configuration + successful real test-business onboarding | #50 |
+| #48 / PR-003 | Real broken-credential detection + safe reconnect restoring healthy state | #47, #50 |
+| #49 / PR-004 | At least one real Meta state transition or reconciliation repair reflected locally and audited | #50, #57 |
+| #50 / PR-005 | App/business prerequisites, permissions/access, webhook subscription, Embedded Signup configuration, real WABA + phone onboarding, release traceability | #47, #49, #57 |
+
 
 ## Evidence handling rules
 
@@ -100,6 +201,72 @@ Record only a redacted identifier or evidence reference sufficient to correlate 
 ### 6. Final evidence review
 
 Before closing issue #50 or marking PR-005 complete, verify that every row in the gate checklist has evidence or an explicit, justified not-applicable determination. The evidence set must include the verification date, production environment, and tested release commit.
+
+## Issue-specific evidence records
+
+Use the following minimal records after the coordinated session. A single
+redacted attachment/reference can be linked from more than one issue when it
+actually proves both requirements.
+
+### #47 / PR-002
+
+```text
+PR-002 real Embedded Signup verification
+
+Date/time:
+Environment:
+Tested release commit:
+Verifier:
+
+Current Embedded Signup configuration verified: YES
+Required permission/access state verified: YES
+Real test-business/WABA onboarding completed: YES
+Phone-number asset synchronized locally: YES
+Evidence references:
+Secrets/customer data reviewed and redacted: YES
+Remaining blockers: none / <list>
+```
+
+### #48 / PR-003
+
+```text
+PR-003 real reauthorization verification
+
+Date/time:
+Environment:
+Tested release commit:
+Verifier:
+
+Controlled unusable-credential condition observed: YES
+Application state became reauthorization_required: YES
+Unsafe sends blocked / no uncontrolled retry loop: YES
+Normal reconnect flow completed: YES
+Application state returned to healthy: YES
+Credential metadata/version changed without token exposure: YES
+Evidence references:
+Secrets/customer data reviewed and redacted: YES
+Remaining blockers: none / <list>
+```
+
+### #49 / PR-004
+
+```text
+PR-004 real Meta state synchronization verification
+
+Date/time:
+Environment:
+Tested release commit:
+Verifier:
+
+Provider state transition/reconciliation case:
+Provider timestamp/reference:
+Local state updated correctly: YES
+Audit record present: YES
+Webhook or reconciliation success evidence:
+No credential/customer message content exposed: YES
+Evidence references:
+Remaining blockers: none / <list>
+```
 
 ## Evidence comment template
 
