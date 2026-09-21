@@ -1,6 +1,7 @@
 import { redisStorage } from "@better-auth/redis-storage";
 import { Redis } from "ioredis";
 import { createAppAuth } from "@wa/auth";
+import { createKeyRing, type EncryptionKeyRing } from "@wa/credentials";
 import { createDatabase } from "@wa/db";
 import {
   createCampaignDispatchQueue,
@@ -77,8 +78,12 @@ export function getMetaServerConfig() {
   };
 }
 
-export function getCredentialEncryptionKey(): string {
-  return requiredEnv("CREDENTIAL_ENCRYPTION_KEY");
+export function getCredentialKeyRing(): EncryptionKeyRing {
+  return createKeyRing({
+    currentKey: requiredEnv("CREDENTIAL_ENCRYPTION_KEY"),
+    currentVersion: optionalPositiveIntegerEnv("CREDENTIAL_ENCRYPTION_KEY_VERSION"),
+    previousKey: process.env.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS,
+  });
 }
 
 export function getR2ServerConfig() {

@@ -20,7 +20,7 @@ import {
   verifyEmbeddedSignupPhone,
 } from "@/lib/embedded-signup-security";
 import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
-import { db, getCredentialEncryptionKey, getMetaServerConfig } from "@/lib/server";
+import { db, getCredentialKeyRing, getMetaServerConfig } from "@/lib/server";
 import {
   saveVerifiedWhatsAppConnectionAtomic,
   WhatsAppConnectionConflictError,
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     });
 
     const credentialKey = `org/${context.workspace.organizationId}/whatsapp/${phone.id}/access-token`;
-    const encrypted = encryptSecret(token.accessToken, getCredentialEncryptionKey());
+    const encrypted = encryptSecret(token.accessToken, getCredentialKeyRing());
     const throughputMps = inferThroughputMps(phone.throughputLevel);
     const credentialExpiresAt = typeof token.expiresIn === "number" && token.expiresIn > 0
       ? new Date(Date.now() + token.expiresIn * 1_000)

@@ -370,7 +370,36 @@ These are deliberate, documented gaps. They are **not** reasons to leave the rul
    **Still outstanding:** `release-gate` is **not** in the required-check list. Promoting it (and deciding whether it replaces `validate`, section 4) is the repository owner's decision and was deliberately out of scope for the change that added the workflow; it needs the `PUT` in section 7. Until that happens `Production Infra` etc. still run only **after** merge on `main`, and the aggregator's result is advisory rather than blocking.
 2. **`CodeQL` is reported by two apps.** Required by name, so both the Actions job and the code-scanning default setup must pass. Optional hardening: pin the required check to the GitHub Actions app by adding `"integration_id"` (the app id is visible as `app.id` in the check-runs API; the Actions app is `15368`) once verified in this repository, which prevents name spoofing by a third-party app.
 3. **Approvals are 0 (section 9).** Raise to `1` with `require_last_push_approval: true` once a second human reviewer is reliably active, and re-apply with the `PUT` command.
-4. **No `CODEOWNERS` file.** Add one, then enable `require_code_owner_review`.
+4. **`CODEOWNERS` added (2026-09-21, [PR #126](https://github.com/yasserfullstack-tech/whatsapp/pull/126)); `require_code_owner_review` deliberately still off.** A root `CODEOWNERS` now exists. GitHub reads only the first file it finds, in the order `CODEOWNERS` → `.github/CODEOWNERS` → `docs/CODEOWNERS`, so this repository uses the root file and a second copy must not be added. There is exactly one maintainer, `@yasserfullstack-tech`, so every pattern resolves to the same account: the explicit entries are not multi-team routing, they make ownership of the sensitive areas visible in review and keep the mapping correct if a second maintainer is ever added.
+
+   | Pattern | Area |
+   | --- | --- |
+   | `*` | default owner for the whole repository |
+   | `/.github/` | CI workflows, branch-protection rulesets, PR template |
+   | `/infra/`, `/docker-compose.yml`, `/docker-compose.production.yml`, `/docker-compose.load.yml`, `/docker-compose.load-chaos.yml` | deployment and production infrastructure |
+   | `/packages/db/` | database schema and migrations |
+   | `/packages/billing/`, `/packages/credentials/`, `/packages/auth/`, `/packages/storage/` | money, identity, secret handling, object storage |
+   | `/.env.example`, `/.env.production.example`, `/.env.staging.example` | which secrets exist (no secret values) |
+   | `/docs/legal/`, `/docs/release-controls.md`, `/docs/production-readiness-plan.md` | legal, compliance and release-control documentation |
+
+   Verified, not assumed. Every pattern was matched against `git ls-files` so that no pattern resolves to an empty set, and GitHub parses the file with zero errors on the branch that adds it:
+
+   ```text
+   $ gh api 'repos/yasserfullstack-tech/whatsapp/codeowners/errors?ref=chore/add-codeowners'
+   {"errors":[]}
+   ```
+
+   That endpoint is not vacuous: a deliberately bogus owner on a throwaway branch returned `{"kind":"Unknown owner","line":2,...}`, so an empty `errors` array also confirms `@yasserfullstack-tech` is a recognised owner with write access. (There is no `repos/.../codeowners` endpoint — it returns 404; `codeowners/errors` is the one to use.)
+
+   `require_code_owner_review` remains **`false`** in [`.github/rulesets/main.json`](../.github/rulesets/main.json). Enabling it changes who can merge, so it is an owner decision rather than part of adding the file, and with a single maintainer it is unlikely to add a working control yet: GitHub never requests review from the author of a pull request, and the only code owner is the account that opens every PR. To enable it once a second human reviewer is active, set `"require_code_owner_review": true` in the `pull_request` rule of `.github/rulesets/main.json`, commit the file, then re-apply with the `PUT` command in section 7:
+
+   ```bash
+   gh api --method PUT repos/yasserfullstack-tech/whatsapp/rulesets/23732752 \
+     --input .github/rulesets/main.json
+   ```
+
+   - Section 9's table row for `require_code_owner_review` describes the state **before** this file existed ("No `CODEOWNERS` file exists in this repository ... all absent"). That clause is now historical; the value it records, `false`, is still correct. It is left as written because section 9 is a record of the decision made at the time.
+   - Optional, documented and **not applied** — see item 2: the required `CodeQL` check can be pinned to the GitHub Actions app by adding `"integration_id": 15368` to that check in the ruleset, which prevents a third-party app from spoofing the check name. Confirm the check run's `app.id` in this repository before applying.
 5. **`Load Smoke` is red on `main` and is not a merge gate.** Issue #90 owns the fix. If a per-PR load gate is wanted afterwards, add it as a guarded job in the `release-gate.yml` aggregator from item 1 (a new path group plus `if: needs.changes.outputs.<group> == 'true'`) rather than by requiring `smoke`. If a merge queue is ever enabled, every required workflow — `release-gate.yml` included — must also add the `merge_group` event, or required checks will never report on queued PRs.
 6. **Linear history is not enforced (section 8).** Revisit only if the merge strategy changes; `required_linear_history` would block the merge commits currently used on `main`.
 7. **Readiness documentation.** After the ruleset is active and both test PRs are recorded, the owner updates `docs/production-readiness-plan.md` (the `main` branch-protection status line, section 2, and the P0 work-queue item) and checks off the issue #91 acceptance criteria. Those are intentionally left untouched until enforcement is verifiable, in line with the repository's "verified, not merged" checkbox rule.

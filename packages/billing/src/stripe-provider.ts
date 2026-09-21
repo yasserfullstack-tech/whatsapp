@@ -22,6 +22,7 @@ export type StripeBillingProviderConfig = {
   now?: () => Date;
 };
 
+
 const capabilities: BillingProviderCapabilities = {
   customer: true,
   checkout: true,
@@ -163,10 +164,11 @@ export class StripeBillingProvider extends BaseBillingProvider {
     if (input.customerExternalId) body.set("customer", input.customerExternalId);
     appendMetadata(body, "metadata", input.metadata);
     appendMetadata(body, "subscription_data[metadata]", input.metadata);
+    if (input.expiresAt) body.set("expires_at", String(Math.floor(input.expiresAt.getTime() / 1_000)));
     const session = await this.request("/v1/checkout/sessions", {
       method: "POST",
       body,
-      idempotencyKey: `checkout:${input.organizationId}:${input.planExternalRef}:${randomUUID()}`,
+      idempotencyKey: input.idempotencyKey ?? `checkout:${input.organizationId}:${input.planExternalRef}:${randomUUID()}`,
     });
     const externalId = asString(session.id);
     const url = asString(session.url);
@@ -196,6 +198,14 @@ export class StripeBillingProvider extends BaseBillingProvider {
     const externalId = asString(subscription.id);
     if (!externalId) throw new Error("Stripe subscription response is missing id");
     return this.subscriptionReference(subscription, externalId);
+  }
+
+  async retrieveSubscription(subscriptionExternalId: string): Promise<Record<string, unknown>> {
+    return this.request(`/v1/subscriptions/${encodeURIComponent(subscriptionExternalId)}`);
+  }
+
+  async retrieveInvoice(invoiceExternalId: string): Promise<Record<string, unknown>> {
+    return this.request(`/v1/invoices/${encodeURIComponent(invoiceExternalId)}`);
   }
 
   override async changePlan(input: Parameters<BaseBillingProvider["changePlan"]>[0]): Promise<BillingProviderSubscription> {
