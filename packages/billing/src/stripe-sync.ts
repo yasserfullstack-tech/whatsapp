@@ -136,8 +136,20 @@ async function resolveOrganizationId(
   object: StripeObject,
   subscriptionExternalId?: string | null,
 ): Promise<string> {
-  const fromMetadata = metadataOrganizationId(object);
-  if (fromMetadata) return fromMetadata;
+  const externalSubscriptionId = subscriptionExternalId ?? idFrom(object.subscription);
+  if (externalSubscriptionId) {
+    const subscription = (
+      await tx
+        .select({ organizationId: schema.billingSubscriptions.organizationId })
+        .from(schema.billingSubscriptions)
+        .where(and(
+          eq(schema.billingSubscriptions.providerKey, "stripe"),
+          eq(schema.billingSubscriptions.providerSubscriptionId, externalSubscriptionId),
+        ))
+        .limit(1)
+    )[0];
+    if (subscription) return subscription.organizationId;
+  }
 
   const customerExternalId = idFrom(object.customer);
   if (customerExternalId) {
@@ -154,20 +166,8 @@ async function resolveOrganizationId(
     if (account) return account.organizationId;
   }
 
-  const externalSubscriptionId = subscriptionExternalId ?? idFrom(object.subscription);
-  if (externalSubscriptionId) {
-    const subscription = (
-      await tx
-        .select({ organizationId: schema.billingSubscriptions.organizationId })
-        .from(schema.billingSubscriptions)
-        .where(and(
-          eq(schema.billingSubscriptions.providerKey, "stripe"),
-          eq(schema.billingSubscriptions.providerSubscriptionId, externalSubscriptionId),
-        ))
-        .limit(1)
-    )[0];
-    if (subscription) return subscription.organizationId;
-  }
+  const fromMetadata = metadataOrganizationId(object);
+  if (fromMetadata) return fromMetadata;
 
   throw new Error("Could not resolve workspace for Stripe event");
 }
@@ -218,12 +218,48 @@ async function resolvePlanVersionId(
   return planVersion.id;
 }
 
+function assertStripeAccountBinding(
+  account: { providerKey: string | null; providerCustomerId: string | null },
+  customerExternalId: string | null,
+): void {
+  if (account.providerKey && account.providerKey !== "stripe") {
+    throw new Error(`Billing account is already linked to provider ${account.providerKey}`);
+  }
+  if (customerExternalId && account.providerCustomerId && account.providerCustomerId !== customerExternalId) {
+    throw new Error("Stripe customer does not match the workspace billing account");
+  }
+}
+
+function assertStripeSubscriptionBinding(
+  current: { providerKey: string | null; providerSubscriptionId: string | null; status: string } | null | undefined,
+  providerSubscriptionId: string,
+): void {
+  if (!current || current.status === "cancelled") return;
+  if (current.providerKey && current.providerKey !== "stripe") {
+    throw new Error(`Workspace already has an active ${current.providerKey} subscription`);
+  }
+  if (current.providerSubscriptionId && current.providerSubscriptionId !== providerSubscriptionId) {
+    throw new Error("Workspace already has a different active Stripe subscription");
+  }
+}
+
+function refundAmountsFromMetadata(metadata: unknown): Record<string, number> {
+  const raw = asRecord(asRecord(metadata)?.stripeRefundAmounts);
+  if (!raw) return {};
+  return Object.fromEntries(
+    Object.entries(raw)
+      .filter(([, value]) => typeof value === "number" && Number.isFinite(value) && value >= 0)
+      .map(([key, value]) => [key, Number(value)]),
+  );
+}
+
 async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject): Promise<void> {
   const organizationId = metadataOrganizationId(session) ?? asString(session.client_reference_id);
   if (!organizationId) throw new Error("Stripe Checkout session is missing organization metadata");
   const customerExternalId = idFrom(session.customer);
   const providerSubscriptionId = idFrom(session.subscription);
   const account = await billingAccountFor(tx, organizationId);
+  assertStripeAccountBinding(account, customerExternalId);
 
   if (customerExternalId) {
     await tx
@@ -234,12 +270,18 @@ async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject
   if (providerSubscriptionId) {
     const current = (
       await tx
-        .select({ id: schema.billingSubscriptions.id })
+        .select({
+          id: schema.billingSubscriptions.id,
+          providerKey: schema.billingSubscriptions.providerKey,
+          providerSubscriptionId: schema.billingSubscriptions.providerSubscriptionId,
+          status: schema.billingSubscriptions.status,
+        })
         .from(schema.billingSubscriptions)
         .where(eq(schema.billingSubscriptions.organizationId, organizationId))
         .orderBy(desc(schema.billingSubscriptions.createdAt))
         .limit(1)
     )[0];
+    assertStripeSubscriptionBinding(current, providerSubscriptionId);
     if (current) {
       await tx
         .update(schema.billingSubscriptions)
@@ -263,6 +305,7 @@ async function syncSubscription(
   const customerExternalId = idFrom(subscription.customer);
   const planVersionId = await resolvePlanVersionId(tx, priceId, options.priceRefs);
   const account = await billingAccountFor(tx, organizationId);
+  assertStripeAccountBinding(account, customerExternalId);
   if (customerExternalId) {
     await tx
       .update(schema.billingAccounts)
@@ -280,6 +323,9 @@ async function syncSubscription(
       ))
       .limit(1)
   )[0];
+  if (byProvider && byProvider.organizationId !== organizationId) {
+    throw new Error("Stripe subscription is already linked to a different workspace");
+  }
   const current = byProvider ?? (
     await tx
       .select()
@@ -288,6 +334,7 @@ async function syncSubscription(
       .orderBy(desc(schema.billingSubscriptions.createdAt))
       .limit(1)
   )[0];
+  assertStripeSubscriptionBinding(current, providerSubscriptionId);
 
   const now = options.now();
   const mapped = mapStripeSubscriptionStatus(providerStatus, now, options.failedPaymentGraceDays, current?.graceEndsAt);
@@ -505,7 +552,11 @@ async function syncInvoice(
   }
 }
 
-async function syncRefund(tx: BillingTransaction, refundOrCharge: StripeObject): Promise<void> {
+async function syncRefund(
+  tx: BillingTransaction,
+  refundOrCharge: StripeObject,
+  eventType: string,
+): Promise<void> {
   const paymentExternalId = idFrom(refundOrCharge.payment_intent) ?? idFrom(refundOrCharge.charge) ?? asString(refundOrCharge.id);
   if (!paymentExternalId) return;
   const payment = (
@@ -520,13 +571,39 @@ async function syncRefund(tx: BillingTransaction, refundOrCharge: StripeObject):
   )[0];
   if (!payment) return;
 
-  const refundedAmountMinor = asNumber(refundOrCharge.amount_refunded) ?? asNumber(refundOrCharge.amount) ?? payment.amountMinor;
+  const metadata = asRecord(payment.metadata) ?? {};
+  const refundAmounts = refundAmountsFromMetadata(metadata);
+  let authoritativeAmount = asNumber(metadata.stripeChargeRefundedAmountMinor) ?? 0;
+
+  if (eventType === "charge.refunded") {
+    const amountRefunded = asNumber(refundOrCharge.amount_refunded);
+    if (amountRefunded === null) return;
+    authoritativeAmount = Math.max(authoritativeAmount, amountRefunded);
+  } else {
+    if (asString(refundOrCharge.status) !== "succeeded") return;
+    const refundId = asString(refundOrCharge.id);
+    const amount = asNumber(refundOrCharge.amount);
+    if (!refundId || amount === null) return;
+    refundAmounts[refundId] = amount;
+  }
+
+  const itemizedAmount = Object.values(refundAmounts).reduce((sum, amount) => sum + amount, 0);
+  const refundedAmountMinor = Math.min(payment.amountMinor, Math.max(authoritativeAmount, itemizedAmount));
+  if (refundedAmountMinor <= 0) return;
+
   await tx
     .update(schema.billingPayments)
     .set({
       refundedAmountMinor,
       status: refundedAmountMinor >= payment.amountMinor ? "refunded" : "partially_refunded",
-      metadata: { ...(asRecord(payment.metadata) ?? {}), lastRefundId: asString(refundOrCharge.id) },
+      metadata: {
+        ...metadata,
+        stripeRefundAmounts: refundAmounts,
+        stripeChargeRefundedAmountMinor: authoritativeAmount,
+        lastRefundId: eventType === "charge.refunded"
+          ? metadata.lastRefundId ?? null
+          : asString(refundOrCharge.id),
+      },
     })
     .where(eq(schema.billingPayments.id, payment.id));
 }
@@ -588,7 +665,7 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
         } else if (event.eventType.startsWith("invoice.")) {
           await syncInvoice(tx, object, event.eventType, normalized);
         } else if (["charge.refunded", "refund.created", "refund.updated"].includes(event.eventType)) {
-          await syncRefund(tx, object);
+          await syncRefund(tx, object, event.eventType);
         }
 
         await tx
