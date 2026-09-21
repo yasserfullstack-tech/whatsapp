@@ -19,13 +19,25 @@ describe("StripeBillingProvider", () => {
       if (url.endsWith("/v1/checkout/sessions")) return jsonResponse({ id: "cs_123", url: "https://checkout.stripe.test/session" });
       throw new Error(`Unexpected request ${url}`);
     }) as typeof fetch;
-    const provider = new StripeBillingProvider({ secretKey: "sk_test_123", fetchImpl });
+    const provider = new StripeBillingProvider({
+      secretKey: "sk_test_123",
+      fetchImpl,
+      now: () => new Date("2026-09-21T12:00:00.000Z"),
+    });
 
     const customer = await provider.createCustomer({
       organizationId: "org_123",
       email: "owner@example.com",
     });
     const checkout = await provider.createCheckout({
+      organizationId: "org_123",
+      customerExternalId: customer.externalId,
+      planExternalRef: "price_growth",
+      successUrl: "https://app.test/success",
+      cancelUrl: "https://app.test/cancel",
+      metadata: { planCode: "growth" },
+    });
+    await provider.createCheckout({
       organizationId: "org_123",
       customerExternalId: customer.externalId,
       planExternalRef: "price_growth",
@@ -41,6 +53,10 @@ describe("StripeBillingProvider", () => {
     expect(checkoutBody).toContain("line_items%5B0%5D%5Bprice%5D=price_growth");
     expect(checkoutBody).toContain("metadata%5BorganizationId%5D=org_123");
     expect(checkoutBody).toContain("subscription_data%5Bmetadata%5D%5BorganizationId%5D=org_123");
+    const firstCheckoutKey = new Headers(requests[1]?.init?.headers).get("Idempotency-Key");
+    const retryCheckoutKey = new Headers(requests[2]?.init?.headers).get("Idempotency-Key");
+    expect(firstCheckoutKey).toBeTruthy();
+    expect(retryCheckoutKey).toBe(firstCheckoutKey);
   });
 
   test("changes plan, schedules cancellation, opens portal, and refunds", async () => {
