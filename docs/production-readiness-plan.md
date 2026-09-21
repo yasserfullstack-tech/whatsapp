@@ -10,7 +10,9 @@ This document is the source of truth for production-readiness and product-comple
 
 The codebase has substantial production-readiness work merged, but the paid-launch gate is still open because real Meta/provider/production/legal/recovery/capacity/independent-security evidence is incomplete. The two P0 release-health blockers from the 2026-09-17 audit — the red Load Smoke workflow and unprotected `main` — are now **closed and verified**. The remaining blockers are the external-evidence items in the launch gate below.
 
-Current audited HEAD (`main`):
+Audited application baseline (latest runtime-affecting `main` commit at this reconciliation):
+
+Evidence-only/documentation merges may move `main` beyond this SHA without changing the audited runtime baseline. Advance this baseline again whenever runtime-affecting code/configuration changes merge.
 
 - Commit: [`3c60db8614aef2a9c12995d0dc8d3525a6fd5f25`](https://github.com/yasserfullstack-tech/whatsapp/commit/3c60db8614aef2a9c12995d0dc8d3525a6fd5f25) (merge of [#110](https://github.com/yasserfullstack-tech/whatsapp/pull/110), after the coordinated Meta evidence runbook [#109](https://github.com/yasserfullstack-tech/whatsapp/pull/109))
 - CI: **success** — [run 35571593352](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35571593352)
@@ -85,7 +87,7 @@ The repository has strong local/fake-provider regression coverage, but fake Meta
 | PR-004 Meta asset/account synchronization | 🟦 ⏳ `[ ]` | Webhook/reconciliation/audit/metrics work merged via [#78](https://github.com/yasserfullstack-tech/whatsapp/pull/78) | Capture a real Meta state transition or reconciliation repair in staging and attach it to the reopened [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49). |
 | PR-005 External Meta prerequisites | ⏳ `[ ]` | Evidence runbook merged via [#69](https://github.com/yasserfullstack-tech/whatsapp/pull/69) | Production Meta approvals/access, webhook/configuration, real WABA/phone onboarding, and sanitized proof in [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50). |
 | PR-006 Real billing provider | 🟦 ⏳ `[ ]` | Stripe provider/lifecycle/webhook code merged via [#73](https://github.com/yasserfullstack-tech/whatsapp/pull/73) | Run the documented real Stripe test-mode lifecycle: Checkout, webhooks, upgrade/downgrade, portal, failed-payment recovery, cancel, replay, refund. Attach the evidence to the reopened [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51). |
-| PR-007 Server-side entitlements | 🟦 `[ ]` | Enforcement/accounting merged via [#76](https://github.com/yasserfullstack-tech/whatsapp/pull/76) | Backfill/confirm final task evidence against the DoD and provider-linked billing behavior; keep paid-launch verification tied to PR-006/PR-012. |
+| PR-007 Server-side entitlements | 🟦 ⏳ `[ ]` | Enforcement/accounting merged via [#76](https://github.com/yasserfullstack-tech/whatsapp/pull/76); repository verification recorded on [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | Repository enforcement/usage-accounting evidence is complete; prove real Stripe-driven plan/status transitions through the same paths with PR-006/PR-012. |
 | PR-008 Legal/compliance | 🟦 ⏳ `[ ]` | Versioned drafts, acceptance storage, and runbooks merged via [#74](https://github.com/yasserfullstack-tech/whatsapp/pull/74) | Qualified legal review/approval, final entity/jurisdiction/vendor details, and approval evidence in [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53). |
 | PR-009 Staging/production infrastructure | 🟦 ⏳ `[ ]` | Isolation/immutable release/evidence/rollback tooling merged via [#71](https://github.com/yasserfullstack-tech/whatsapp/pull/71) | Real staging + production deployment proof, DNS/TLS/firewall, environment isolation, email/Sentry/Meta config, and actual rollback drill — attach to the reopened [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54). |
 | PR-010 Backup/recovery | 🟦 ⏳ `[ ]` | Backup scheduling, off-server validation, restore drill tooling merged via [#77](https://github.com/yasserfullstack-tech/whatsapp/pull/77) | Real production timer/backup, freshness monitoring, clean-host restore + app smoke test, measured recovery, and accepted RPO/RTO/R2 strategy — attach to the reopened [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55). |
@@ -98,8 +100,8 @@ The repository has strong local/fake-provider regression coverage, but fake Meta
 | PR-017 Onboarding test mode | ✅ `[x]` | Merged and verified via [#85](https://github.com/yasserfullstack-tech/whatsapp/pull/85) | Maintain regression coverage. |
 | PR-018 Contact management | ✅ `[x]` | Product surface merged via [#84](https://github.com/yasserfullstack-tech/whatsapp/pull/84); production-query/performance verification via [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105) and browser/security E2E via [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97) | Verified complete; [#63](https://github.com/yasserfullstack-tech/whatsapp/issues/63) closed after all acceptance/evidence requirements landed on protected `main`. |
 | PR-019 Notification runtime | 🟦 ⏳ `[ ]` | Runtime event sources/dedupe/preferences/reconciliation merged via [#86](https://github.com/yasserfullstack-tech/whatsapp/pull/86); source mapping/replay hardening via [#103](https://github.com/yasserfullstack-tech/whatsapp/pull/103) and [#110](https://github.com/yasserfullstack-tech/whatsapp/pull/110) | Repository verification and browser/security evidence are complete; attach redacted real Resend staging/production delivery evidence before promoting the checkbox. |
-| PR-020 Platform admin tooling | 🟦 `[ ]` | Admin access/billing/Meta/queue/webhook/audit tooling merged via [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81) | Backfill final authorization/security/operational evidence before promoting the checkbox. |
-| PR-021 Container/supply-chain security | 🟦 `[ ]` | Frozen installs, provenance labels, Trivy scans and blocking policy merged via [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72) | Confirm/link final scan artifacts and policy evidence for the release; current Security/Production Infra are green on audited HEAD. |
+| PR-020 Platform admin tooling | 🟦 ⏳ `[ ]` | Admin tooling merged via [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81); operational/browser/security verification completed via [#98](https://github.com/yasserfullstack-tech/whatsapp/pull/98) and [#106](https://github.com/yasserfullstack-tech/whatsapp/pull/106) | Attach redacted admin-workflow evidence from a real environment before promoting the checkbox. |
+| PR-021 Container/supply-chain security | 🟦 ⏳ `[ ]` | Core controls merged via [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72); continuous guard/evidence via [#102](https://github.com/yasserfullstack-tech/whatsapp/pull/102); non-root migrator hardening via [#108](https://github.com/yasserfullstack-tech/whatsapp/pull/108) | Explicit owner acceptance of the documented unfixed upstream HIGH findings through the stated review window, or replacement/remediation when a fixed base/package is available. |
 | PR-022 Application security / independent testing | 🟦 ⏳ `[ ]` | IDOR/object-storage/rotation/RLS/admin hardening merged via [#88](https://github.com/yasserfullstack-tech/whatsapp/pull/88) | Independent assessment/pentest plus remediation/retest or formal acceptance of critical/high findings — attach to the reopened [#67](https://github.com/yasserfullstack-tech/whatsapp/issues/67). |
 
 ---
@@ -235,9 +237,9 @@ Stripe customer/Checkout/subscription changes/cancellation/portal/invoice/paymen
 
 **Tracking:** [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) · **Implementation:** [#76](https://github.com/yasserfullstack-tech/whatsapp/pull/76)
 
-Server/worker enforcement for paid limits and idempotent usage accounting is implemented.
+Server/worker enforcement for paid limits and idempotent usage accounting is implemented. Repository verification on #52 covers direct API/service bypass protection, duplicate/replay-safe accounting, period rollover, tenant isolation, upgrade/downgrade behavior, and the server/worker enforcement boundaries.
 
-**Still needed:** explicit release evidence review showing all paid limits and billing-state transitions satisfy the DoD; provider-dependent behavior must be proven together with PR-006/PR-012.
+**Still needed:** prove the real Stripe test-mode subscription/payment lifecycle drives these same entitlement paths correctly, together with PR-006/PR-012 provider validation.
 
 ## [ ] PR-008 — Finalize legal documents and compliance procedures
 
@@ -329,19 +331,19 @@ Runtime event sources, preference/mandatory-category handling, replay-safe dedup
 
 ## [ ] PR-020 — Expand platform admin tooling
 
-**Tracking:** [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65) · **Implementation:** [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81)
+**Tracking:** [#65](https://github.com/yasserfullstack-tech/whatsapp/issues/65) · **Implementation:** [#81](https://github.com/yasserfullstack-tech/whatsapp/pull/81) · **Repository verification:** [#98](https://github.com/yasserfullstack-tech/whatsapp/pull/98), [#106](https://github.com/yasserfullstack-tech/whatsapp/pull/106)
 
-Platform-admin access, membership support, billing/Meta visibility, safe queue retry, webhook operations, pagination/search, and audit export are merged without adding impersonation.
+Platform-admin access, membership support, billing/Meta visibility, safe queue retry, webhook operations, pagination/search, and audit export are merged without adding impersonation. Repository verification covers privileged authorization/audit boundaries plus real browser operational flows, including queue/dead-letter and webhook retry behavior.
 
-**Still needed:** explicit final authorization/security/operational evidence review against the task DoD.
+**Still needed:** attach redacted admin-workflow evidence from a real staging/production-like environment. Repository CI/browser evidence does not substitute for that external operational proof.
 
 ## [ ] PR-021 — Container and supply-chain security hardening
 
-**Tracking:** [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66) · **Implementation:** [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72)
+**Tracking:** [#66](https://github.com/yasserfullstack-tech/whatsapp/issues/66) · **Implementation:** [#72](https://github.com/yasserfullstack-tech/whatsapp/pull/72) · **Continuous verification:** [#102](https://github.com/yasserfullstack-tech/whatsapp/pull/102), [#108](https://github.com/yasserfullstack-tech/whatsapp/pull/108)
 
-Frozen Bun installs, lockfile repair after reproduced failure, OCI source/revision/version labels, Trivy scanning, report artifacts, and HIGH/CRITICAL blocking policy are merged.
+Frozen Bun installs, OCI source/revision/version labels, Trivy scanning, report artifacts, HIGH/CRITICAL blocking policy, continuous policy-drift checks, and non-root production/migrator execution are merged and green. No finding is suppressed and the severity policy was not weakened.
 
-**Still needed:** ensure the release evidence contains the scan artifacts/policy outcome and any approved exception rationale. Keep the control continuous even after this checkbox is eventually verified.
+**Still needed:** the owner must explicitly accept the documented unfixed upstream HIGH findings for the stated review window (currently through 2026-10-20), or replace/remediate the affected base/package once a fix is available. Record that decision/rationale on #66 and keep the continuous scans green.
 
 ## [ ] PR-022 — Application security hardening and independent testing
 
