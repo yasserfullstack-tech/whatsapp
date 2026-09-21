@@ -3,6 +3,7 @@ import { MetaApiError } from "@wa/meta";
 import {
   classifyMetaConnectionError,
   connectionReadiness,
+  isConnectionRevisionCurrent,
   nextConnectionHealth,
   type ConnectionHealthState,
 } from "./connection-health";
@@ -82,5 +83,14 @@ describe("WhatsApp connection health lifecycle", () => {
       { error: { code: 200 } },
     ));
     expect(outcome).toMatchObject({ kind: "reauthorize", code: "credential_unusable" });
+  });
+
+  test("a validation result is rejected after a reconnect advances the connection revision", () => {
+    const validationRevision = new Date("2026-09-21T10:00:00.000Z");
+    const sameRevision = new Date("2026-09-21T10:00:00.000Z");
+    const reconnectRevision = new Date("2026-09-21T10:00:01.000Z");
+
+    expect(isConnectionRevisionCurrent(validationRevision, sameRevision)).toBe(true);
+    expect(isConnectionRevisionCurrent(validationRevision, reconnectRevision)).toBe(false);
   });
 });
