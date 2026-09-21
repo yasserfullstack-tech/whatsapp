@@ -12,13 +12,13 @@ The codebase has substantial production-readiness work merged, but the paid-laun
 
 Current audited HEAD (`main`):
 
-- Commit: [`d515e580ae5d4defaddc97b53b575a18c24dc011`](https://github.com/yasserfullstack-tech/whatsapp/commit/d515e580ae5d4defaddc97b53b575a18c24dc011) (merge of [#102](https://github.com/yasserfullstack-tech/whatsapp/pull/102))
-- CI: **success** — [run 35528830272](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830272)
-- Security: **success** — [run 35528830281](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830281)
-- Production Infra: **success** — [run 35528830290](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830290)
-- Load Smoke: **success** — [run 35528830280](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830280) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
+- Commit: [`1fd0dcab4a01afc2f979f4a7f42cde72e64ebe44`](https://github.com/yasserfullstack-tech/whatsapp/commit/1fd0dcab4a01afc2f979f4a7f42cde72e64ebe44) (merge of [#97](https://github.com/yasserfullstack-tech/whatsapp/pull/97), after [#105](https://github.com/yasserfullstack-tech/whatsapp/pull/105) and [#106](https://github.com/yasserfullstack-tech/whatsapp/pull/106))
+- CI: **success** — [run 35565167924](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167924)
+- Security: **success** — [run 35565167899](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167899)
+- Load Smoke: **success** — [run 35565167787](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565167787) (issue [#90](https://github.com/yasserfullstack-tech/whatsapp/issues/90) closed 2026-09-20)
+- Production Infra: **last applicable run success** — [run 35528830290](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35528830290); the #97 evidence-only merge did not trigger a new Production Infra run.
 - `main` release controls: **active** — repository ruleset `main-release-controls` (id `23732752`, `enforcement: active`) requires pull requests, blocks deletion and force-push, and enforces five status checks: `checks`, `Dependency audit`, `Secret scan`, `CodeQL`, `Tenant isolation and API abuse tests`. Applied and verified 2026-09-20; runbook and evidence in [`docs/release-controls.md`](release-controls.md) §7 and §11 (issue [#91](https://github.com/yasserfullstack-tech/whatsapp/issues/91) closed 2026-09-20).
-- Readiness/issue-state alignment: **0 mismatches** — `bun infra/production/scripts/check-readiness-sync.ts` audits all 22 tracking issues against the gate checkboxes (issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92)).
+- Readiness/issue-state alignment for this reconciliation: **0 mismatches** — [PR #107 Readiness Issue Sync run 35565361191, attempt 2](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35565361191) after reopening drifted external-evidence issue [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) (issue [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92)).
 
 ---
 
