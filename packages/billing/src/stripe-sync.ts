@@ -257,6 +257,25 @@ function refundAmountsFromMetadata(metadata: unknown): Map<string, number> {
   return amounts;
 }
 
+function stripeResourceLockKey(eventType: string, object: StripeObject): string | null {
+  if (
+    eventType === "checkout.session.completed"
+    || eventType.startsWith("customer.subscription.")
+    || eventType.startsWith("invoice.")
+  ) {
+    const customerExternalId = idFrom(object.customer);
+    if (customerExternalId) return `stripe:customer:${customerExternalId}`;
+
+    const subscriptionExternalId = eventType.startsWith("customer.subscription.")
+      ? asString(object.id)
+      : eventType.startsWith("invoice.")
+        ? invoiceSubscriptionId(object)
+        : idFrom(object.subscription);
+    if (subscriptionExternalId) return `stripe:subscription:${subscriptionExternalId}`;
+  }
+  return null;
+}
+
 async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject): Promise<void> {
   const organizationId = metadataOrganizationId(session) ?? asString(session.client_reference_id);
   if (!organizationId) throw new Error("Stripe Checkout session is missing organization metadata");
@@ -265,12 +284,16 @@ async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject
   const account = await billingAccountFor(tx, organizationId);
   assertStripeAccountBinding(account, customerExternalId);
 
-  if (customerExternalId) {
-    await tx
-      .update(schema.billingAccounts)
-      .set({ providerKey: "stripe", providerCustomerId: customerExternalId, updatedAt: new Date() })
-      .where(eq(schema.billingAccounts.id, account.id));
-  }
+  const accountMetadata = { ...(asRecord(account.metadata) ?? {}) };
+  delete accountMetadata.stripeCheckoutAttempt;
+  await tx
+    .update(schema.billingAccounts)
+    .set({
+      ...(customerExternalId ? { providerKey: "stripe", providerCustomerId: customerExternalId } : {}),
+      metadata: accountMetadata,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.billingAccounts.id, account.id));
   if (providerSubscriptionId) {
     const current = (
       await tx
@@ -567,6 +590,13 @@ async function syncRefund(
 ): Promise<void> {
   const paymentExternalId = idFrom(refundOrCharge.payment_intent) ?? idFrom(refundOrCharge.charge) ?? asString(refundOrCharge.id);
   if (!paymentExternalId) return;
+  await tx.execute(sql`
+    SELECT ${schema.billingPayments.id}
+    FROM ${schema.billingPayments}
+    WHERE ${schema.billingPayments.providerKey} = 'stripe'
+      AND ${schema.billingPayments.providerPaymentId} = ${paymentExternalId}
+    FOR UPDATE
+  `);
   const payment = (
     await tx
       .select()
@@ -646,17 +676,6 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
       let object = asRecord(asRecord(payload?.data)?.object);
       if (!payload || !object) throw new Error("Stripe webhook payload is invalid");
 
-      if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.eventType)
-        && normalized.retrieveSubscription) {
-        const subscriptionId = asString(object.id);
-        if (!subscriptionId) throw new Error("Stripe subscription event is missing id");
-        object = await normalized.retrieveSubscription(subscriptionId);
-      } else if (event.eventType.startsWith("invoice.") && normalized.retrieveInvoice) {
-        const invoiceId = asString(object.id);
-        if (!invoiceId) throw new Error("Stripe invoice event is missing id");
-        object = await normalized.retrieveInvoice(invoiceId);
-      }
-
       await db
         .insert(schema.billingProviderEvents)
         .values({
@@ -690,6 +709,22 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
         )[0];
         if (!ledger) throw new Error("Stripe provider event ledger row is missing");
         if (ledger.processedAt) return { processed: false, replay: true };
+
+        const resourceLockKey = stripeResourceLockKey(event.eventType, object);
+        if (resourceLockKey) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${resourceLockKey})::bigint)`);
+        }
+
+        if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.eventType)
+          && normalized.retrieveSubscription) {
+          const subscriptionId = asString(object.id);
+          if (!subscriptionId) throw new Error("Stripe subscription event is missing id");
+          object = await normalized.retrieveSubscription(subscriptionId);
+        } else if (event.eventType.startsWith("invoice.") && normalized.retrieveInvoice) {
+          const invoiceId = asString(object.id);
+          if (!invoiceId) throw new Error("Stripe invoice event is missing id");
+          object = await normalized.retrieveInvoice(invoiceId);
+        }
 
         if (event.eventType === "checkout.session.completed") {
           await syncCheckoutSession(tx, object);
