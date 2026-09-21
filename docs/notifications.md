@@ -84,6 +84,22 @@ Suppressed channels are persisted as `notification_deliveries.status = suppresse
 
 Email delivery is durable in `notification_deliveries`. Provider attempts update attempt count, retry time, failure text, and terminal/dead-letter state. The notification worker logs queue failures and periodically reconciles pending email deliveries, so a successful notification insert is not lost if queue publication fails.
 
+### Email transport
+
+Authentication and notification email use the same provider-neutral SMTP transport. The deployment examples are Google-first:
+
+- `SMTP_HOST=smtp.gmail.com`
+- `SMTP_PORT=465`
+- `SMTP_SECURITY=tls`
+- `SMTP_USER=<google-account-email>`
+- `SMTP_PASSWORD=<google-app-password>`
+- `EMAIL_FROM="WhatsApp Campaigns <google-account-email>"`
+- optional `EMAIL_REPLY_TO`
+
+The transport also supports `SMTP_SECURITY=starttls` (default port 587) for providers that use STARTTLS. No application code is tied to Google or Resend; changing providers is an environment/configuration change as long as the provider supports authenticated SMTP.
+
+For Google accounts, use a dedicated App Password with 2-Step Verification rather than the account password. Staging and production should use separate SMTP credentials where practical. The application emits a stable RFC Message-ID for a notification retry, while the database remains the authoritative deduplication barrier. SMTP itself does not provide Resend-style provider idempotency keys, so ambiguous network failures after server acceptance can still require operator review.
+
 Durable source reconciliation also logs failures and only advances its persisted Valkey cursor after a successful pass. A failed pass is replayed on the next run with the same stable dedupe keys.
 
 ## Operational checks
