@@ -18,8 +18,12 @@ RUN NODE_ENV=production \
     REDIS_URL=redis://127.0.0.1:6379 \
     BETTER_AUTH_URL=https://example.invalid \
     BETTER_AUTH_SECRET=build-only-secret-that-is-long-enough-not-for-runtime \
-    RESEND_API_KEY=build-only \
-    AUTH_EMAIL_FROM=security@example.invalid \
+    SMTP_HOST=smtp.example.invalid \
+    SMTP_PORT=465 \
+    SMTP_SECURITY=tls \
+    SMTP_USER=security@example.invalid \
+    SMTP_PASSWORD=build-only \
+    EMAIL_FROM=security@example.invalid \
     CREDENTIAL_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
     META_APP_ID=build-only \
     META_APP_SECRET=build-only \
