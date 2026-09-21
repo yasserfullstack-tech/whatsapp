@@ -31,6 +31,7 @@ LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
       org.opencontainers.image.revision="$IMAGE_REVISION" \
       org.opencontainers.image.version="$IMAGE_VERSION"
 ENV NODE_ENV=production
+USER bun
 CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]
 
 FROM oven/bun:1.4.2-slim AS runtime
