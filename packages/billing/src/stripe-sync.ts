@@ -677,8 +677,8 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
       if (existingLedger?.processedAt) return { processed: false, replay: true };
 
       const payload = asRecord(event.payload);
-      let object = asRecord(asRecord(payload?.data)?.object);
-      if (!payload || !object) throw new Error("Stripe webhook payload is invalid");
+      const snapshotObject = asRecord(asRecord(payload?.data)?.object);
+      if (!payload || !snapshotObject) throw new Error("Stripe webhook payload is invalid");
 
       await db
         .insert(schema.billingProviderEvents)
@@ -714,6 +714,7 @@ export function createStripeWebhookService(db: BillingDb, options: StripeWebhook
         if (!ledger) throw new Error("Stripe provider event ledger row is missing");
         if (ledger.processedAt) return { processed: false, replay: true };
 
+        let object: StripeObject = snapshotObject;
         const resourceLockKey = stripeResourceLockKey(event.eventType, object);
         if (resourceLockKey) {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${resourceLockKey})::bigint)`);
