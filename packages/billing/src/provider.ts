@@ -77,6 +77,8 @@ export interface BillingProvider {
     planExternalRef?: string;
     successUrl: string;
     cancelUrl: string;
+    idempotencyKey?: string;
+    expiresAt?: Date;
     metadata?: Record<string, unknown>;
   }): Promise<BillingProviderCheckout>;
 
