@@ -641,6 +641,23 @@ export function startCampaignWorkers(input: {
         continue;
       }
 
+      const currentConnection = await prepareConnectionForSend(db, {
+        organizationId: record.organizationId,
+        phoneNumberId: record.phoneNumberId,
+        credentialKey: record.credentialKey,
+      });
+      if (!currentConnection.sendable) {
+        const failedAt = new Date();
+        await db
+          .update(schema.campaigns)
+          .set({ status: "failed", updatedAt: failedAt })
+          .where(and(
+            eq(schema.campaigns.id, record.campaignId),
+            eq(schema.campaigns.organizationId, record.organizationId),
+          ));
+        return { terminal: "failed", reason: "connection-unavailable" };
+      }
+
       const [queuedRow] = await db
         .select({ total: count() })
         .from(schema.campaignRecipients)
