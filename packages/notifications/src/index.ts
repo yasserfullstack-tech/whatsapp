@@ -29,3 +29,14 @@ export {
   markNotificationRead,
   markAllNotificationsRead,
 } from "./queries";
+
+export {
+  SmtpEmailProvider,
+  buildSmtpMessage,
+  envelopeAddress,
+  loadSmtpEmailConfig,
+  sendSmtpEmail,
+  type SmtpEmailConfig,
+  type SmtpMailInput,
+  type SmtpSecurity,
+} from "./smtp";
