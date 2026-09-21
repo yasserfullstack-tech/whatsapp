@@ -212,6 +212,7 @@ export async function markConnectionRequiresReauthorization(
     code: string;
     reason: string;
     validatedAt?: Date;
+    expectedUpdatedAt?: Date;
   },
 ): Promise<boolean> {
   const existing = (
@@ -234,11 +235,14 @@ export async function markConnectionRequiresReauthorization(
   if (!existing) return false;
 
   const validatedAt = input.validatedAt ?? new Date();
+  if (input.expectedUpdatedAt && input.expectedUpdatedAt.getTime() !== existing.updatedAt.getTime()) {
+    return false;
+  }
   const transitioned = !existing.reauthorizationRequired ||
     existing.healthStatus !== "reauthorization_required" ||
     existing.failureCode !== input.code;
 
-  await db
+  const [updated] = await db
     .update(schema.whatsappPhoneNumbers)
     .set({
       healthStatus: "reauthorization_required",
@@ -251,7 +255,11 @@ export async function markConnectionRequiresReauthorization(
     .where(and(
       eq(schema.whatsappPhoneNumbers.id, existing.id),
       eq(schema.whatsappPhoneNumbers.organizationId, input.organizationId),
-    ));
+      eq(schema.whatsappPhoneNumbers.updatedAt, existing.updatedAt),
+    ))
+    .returning({ id: schema.whatsappPhoneNumbers.id });
+
+  if (!updated) return false;
 
   if (transitioned) {
     await notifyWorkspaceAdmins(db, {
@@ -360,6 +368,7 @@ async function validateConnection(
     reauthorizationRequired: boolean;
     failureCode: string | null;
     failureReason: string | null;
+    updatedAt: Date;
   },
 ) {
   const validatedAt = new Date();
@@ -377,6 +386,7 @@ async function validateConnection(
       code: "credential_expired",
       reason: "The Meta credential has expired. Reconnect WhatsApp to resume sending.",
       validatedAt,
+      expectedUpdatedAt: connection.updatedAt,
     });
     return;
   }
@@ -402,6 +412,7 @@ async function validateConnection(
       code: "credential_missing",
       reason: "The Meta credential is missing. Reconnect WhatsApp to resume sending.",
       validatedAt,
+      expectedUpdatedAt: connection.updatedAt,
     });
     return;
   }
@@ -416,6 +427,7 @@ async function validateConnection(
       code: "credential_unreadable",
       reason: "The Meta credential cannot be read. Reconnect WhatsApp to resume sending.",
       validatedAt,
+      expectedUpdatedAt: connection.updatedAt,
     });
     return;
   }
@@ -438,6 +450,7 @@ async function validateConnection(
       code: outcome.code,
       reason: outcome.reason,
       validatedAt,
+      expectedUpdatedAt: connection.updatedAt,
     });
     return;
   }
@@ -456,6 +469,7 @@ async function validateConnection(
     .where(and(
       eq(schema.whatsappPhoneNumbers.organizationId, connection.organizationId),
       eq(schema.whatsappPhoneNumbers.phoneNumberId, connection.phoneNumberId),
+      eq(schema.whatsappPhoneNumbers.updatedAt, connection.updatedAt),
     ));
 }
 
@@ -475,6 +489,7 @@ export function startConnectionHealthMonitor(input: {
         reauthorizationRequired: schema.whatsappPhoneNumbers.reauthorizationRequired,
         failureCode: schema.whatsappPhoneNumbers.failureCode,
         failureReason: schema.whatsappPhoneNumbers.failureReason,
+        updatedAt: schema.whatsappPhoneNumbers.updatedAt,
       })
       .from(schema.whatsappPhoneNumbers)
       .where(and(
