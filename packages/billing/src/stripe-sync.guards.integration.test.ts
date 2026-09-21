@@ -197,6 +197,137 @@ describe("Stripe webhook hardening guards", () => {
     }
   });
 
+  test("rejects a Stripe subscription event whose metadata claims a workspace other than the one that owns it", async () => {
+    if (!db) return;
+    const suffix = randomUUID();
+    const eventId = `evt_cross_workspace_reject_${suffix}`;
+    const growthPrice = `price_growth_${suffix}`;
+    const providerSubscriptionId = `sub_owned_${suffix}`;
+    const ownerCustomerId = `cus_owner_${suffix}`;
+    let ownerOrganizationId: string | null = null;
+    let otherOrganizationId: string | null = null;
+    let growthVersionId: string | null = null;
+    let originalGrowthPrice: string | null = null;
+    try {
+      const owner = await createOrganization(db, `${suffix}-owner`, {
+        providerKey: "stripe",
+        providerCustomerId: ownerCustomerId,
+      });
+      ownerOrganizationId = owner.organization.id;
+      const other = await createOrganization(db, `${suffix}-other`, { providerKey: "stripe" });
+      otherOrganizationId = other.organization.id;
+
+      const growth = await configureGrowthPrice(db, growthPrice);
+      growthVersionId = growth.id;
+      originalGrowthPrice = growth.original;
+
+      await db.insert(schema.billingSubscriptions).values({
+        organizationId: owner.organization.id,
+        billingAccountId: owner.billingAccount.id,
+        planVersionId: growth.id,
+        providerKey: "stripe",
+        providerSubscriptionId,
+        status: "active",
+        currentPeriodStart: new Date("2026-09-01T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
+      });
+
+      const service = createStripeWebhookService(db, { priceRefs: { growth: growthPrice } });
+      await expect(
+        service.process(stripeEvent(eventId, "customer.subscription.updated", {
+          id: providerSubscriptionId,
+          customer: ownerCustomerId,
+          status: "past_due",
+          metadata: { organizationId: other.organization.id },
+          items: { data: [{ id: `si_${suffix}`, price: growthPrice }] },
+        })),
+      ).rejects.toThrow("Stripe subscription is already linked to a different workspace");
+
+      // The owning workspace keeps its state: "past_due" would have moved the
+      // row to grace_period had the mis-routed event been applied.
+      const owned = (
+        await db
+          .select()
+          .from(schema.billingSubscriptions)
+          .where(eq(schema.billingSubscriptions.providerSubscriptionId, providerSubscriptionId))
+          .limit(1)
+      )[0];
+      expect(owned).toMatchObject({
+        organizationId: owner.organization.id,
+        providerKey: "stripe",
+        providerSubscriptionId,
+        status: "active",
+        planVersionId: growth.id,
+      });
+      expect(owned?.graceEndsAt).toBeNull();
+    } finally {
+      if (growthVersionId) await restorePlanPrice(db, growthVersionId, originalGrowthPrice);
+      await cleanup(db, ownerOrganizationId, [eventId]);
+      await cleanup(db, otherOrganizationId, []);
+    }
+  });
+
+  test("applies a Stripe subscription event when the metadata claim matches the owning workspace", async () => {
+    if (!db) return;
+    const suffix = randomUUID();
+    const eventId = `evt_cross_workspace_apply_${suffix}`;
+    const growthPrice = `price_growth_${suffix}`;
+    const providerSubscriptionId = `sub_owned_${suffix}`;
+    const ownerCustomerId = `cus_owner_${suffix}`;
+    let ownerOrganizationId: string | null = null;
+    let growthVersionId: string | null = null;
+    let originalGrowthPrice: string | null = null;
+    try {
+      const owner = await createOrganization(db, `${suffix}-owner`, {
+        providerKey: "stripe",
+        providerCustomerId: ownerCustomerId,
+      });
+      ownerOrganizationId = owner.organization.id;
+
+      const growth = await configureGrowthPrice(db, growthPrice);
+      growthVersionId = growth.id;
+      originalGrowthPrice = growth.original;
+
+      await db.insert(schema.billingSubscriptions).values({
+        organizationId: owner.organization.id,
+        billingAccountId: owner.billingAccount.id,
+        planVersionId: growth.id,
+        providerKey: "stripe",
+        providerSubscriptionId,
+        status: "active",
+        currentPeriodStart: new Date("2026-09-01T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-10-01T00:00:00.000Z"),
+      });
+
+      const service = createStripeWebhookService(db, { priceRefs: { growth: growthPrice } });
+      await service.process(stripeEvent(eventId, "customer.subscription.updated", {
+        id: providerSubscriptionId,
+        customer: ownerCustomerId,
+        status: "past_due",
+        metadata: { organizationId: owner.organization.id },
+        items: { data: [{ id: `si_${suffix}`, price: growthPrice }] },
+      }));
+
+      const owned = (
+        await db
+          .select()
+          .from(schema.billingSubscriptions)
+          .where(eq(schema.billingSubscriptions.providerSubscriptionId, providerSubscriptionId))
+          .limit(1)
+      )[0];
+      expect(owned).toMatchObject({
+        organizationId: owner.organization.id,
+        providerKey: "stripe",
+        status: "grace_period",
+        planVersionId: growth.id,
+      });
+      expect(owned?.graceEndsAt).not.toBeNull();
+    } finally {
+      if (growthVersionId) await restorePlanPrice(db, growthVersionId, originalGrowthPrice);
+      await cleanup(db, ownerOrganizationId, [eventId]);
+    }
+  });
+
   test("keeps a newer persisted Checkout attempt when an older delayed completion arrives", async () => {
     if (!db) return;
     const suffix = randomUUID();

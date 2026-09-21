@@ -354,7 +354,8 @@ async function syncSubscription(
       ))
       .limit(1)
   )[0];
-  if (byProvider && byProvider.organizationId !== organizationId) {
+  const claimedOrganizationId = metadataOrganizationId(subscription);
+  if (claimedOrganizationId && claimedOrganizationId !== organizationId) {
     throw new Error("Stripe subscription is already linked to a different workspace");
   }
   const current = byProvider ?? (
