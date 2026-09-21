@@ -38,6 +38,10 @@ describe("Stripe webhook lifecycle integration", () => {
       `evt_cancel_schedule_${suffix}`,
       `evt_refund_${suffix}`,
       `evt_cancelled_${suffix}`,
+      `evt_duplicate_subscription_${suffix}`,
+      `evt_refund_second_${suffix}`,
+      `evt_charge_refund_${suffix}`,
+      `evt_refund_late_${suffix}`,
     ];
     const growthPrice = `price_growth_${suffix}`;
     const scalePrice = `price_scale_${suffix}`;
@@ -121,6 +125,12 @@ describe("Stripe webhook lifecycle integration", () => {
 
       await service.process(stripeEvent(eventIds[0]!, "customer.subscription.created", subscriptionObject("active", growthPrice)));
 
+      const duplicateSubscriptionId = `sub_duplicate_${suffix}`;
+      await expect(service.process(stripeEvent(eventIds[7]!, "customer.subscription.created", {
+        ...subscriptionObject("active", growthPrice),
+        id: duplicateSubscriptionId,
+      }))).rejects.toThrow("Workspace already has a different active Stripe subscription");
+
       let subscription = (
         await db.select().from(schema.billingSubscriptions).where(eq(schema.billingSubscriptions.id, localSubscription.id)).limit(1)
       )[0];
@@ -135,6 +145,15 @@ describe("Stripe webhook lifecycle integration", () => {
         await db.select().from(schema.billingAccounts).where(eq(schema.billingAccounts.id, account.id)).limit(1)
       )[0];
       expect(linkedAccount).toMatchObject({ providerKey: "stripe", providerCustomerId: customerId });
+      const duplicateEvent = (
+        await db
+          .select({ processedAt: schema.billingProviderEvents.processedAt })
+          .from(schema.billingProviderEvents)
+          .where(eq(schema.billingProviderEvents.externalEventId, eventIds[7]!))
+          .limit(1)
+      )[0];
+      expect(duplicateEvent?.processedAt).toBeNull();
+      expect(subscription?.providerSubscriptionId).toBe(subscriptionId);
 
       const failedInvoice: StripeObject = {
         id: invoiceId,
@@ -208,12 +227,41 @@ describe("Stripe webhook lifecycle integration", () => {
       )[0];
       expect(subscription?.cancelAtPeriodEnd).toBe(true);
 
-      await service.process(stripeEvent(eventIds[5]!, "refund.updated", {
-        id: `re_${suffix}`,
+      const firstRefundId = `re_first_${suffix}`;
+      await service.process(stripeEvent(eventIds[5]!, "refund.created", {
+        id: firstRefundId,
         payment_intent: paymentId,
-        amount: 1000,
+        amount: 400,
+        status: "succeeded",
       }));
-      const refundedPayment = (
+      let refundedPayment = (
+        await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
+      )[0];
+      expect(refundedPayment).toMatchObject({ status: "partially_refunded", refundedAmountMinor: 400 });
+
+      await service.process(stripeEvent(eventIds[8]!, "refund.created", {
+        id: `re_second_${suffix}`,
+        payment_intent: paymentId,
+        amount: 600,
+        status: "succeeded",
+      }));
+      refundedPayment = (
+        await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
+      )[0];
+      expect(refundedPayment).toMatchObject({ status: "refunded", refundedAmountMinor: 1000 });
+
+      await service.process(stripeEvent(eventIds[9]!, "charge.refunded", {
+        id: `ch_${suffix}`,
+        payment_intent: paymentId,
+        amount_refunded: 1000,
+      }));
+      await service.process(stripeEvent(eventIds[10]!, "refund.updated", {
+        id: firstRefundId,
+        payment_intent: paymentId,
+        amount: 400,
+        status: "succeeded",
+      }));
+      refundedPayment = (
         await db.select().from(schema.billingPayments).where(eq(schema.billingPayments.providerPaymentId, paymentId)).limit(1)
       )[0];
       expect(refundedPayment).toMatchObject({ status: "refunded", refundedAmountMinor: 1000 });
