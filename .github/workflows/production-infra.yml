@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/production-infra.yml"
+      - ".github/workflows/release-images.yml"
       - ".dockerignore"
       - ".env.production.example"
       - ".env.staging.example"
@@ -23,6 +24,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/production-infra.yml"
+      - ".github/workflows/release-images.yml"
       - ".dockerignore"
       - ".env.production.example"
       - ".env.staging.example"
