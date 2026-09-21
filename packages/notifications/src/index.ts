@@ -11,6 +11,11 @@ export {
   isNotificationMandatory,
   resolveNotificationChannels,
 } from "./definitions";
+export {
+  NOTIFICATION_EVENT_SOURCES,
+  NOTIFICATION_RECONCILE_MODULE,
+  type NotificationEventSource,
+} from "./event-sources";
 export { NotificationService } from "./service";
 export {
   ConsoleEmailProvider,
