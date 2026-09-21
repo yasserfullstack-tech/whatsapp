@@ -1,0 +1,630 @@
+name: Release Gate
+
+# Always-on aggregator for the three path-filtered release gates. This implements
+# section 12 item 1 of docs/release-controls.md.
+#
+# Why this exists: `Production Infra`, `Backup Recovery` and `Reporting Scale` are
+# real release gates, but their `pull_request` triggers are `paths:`-filtered. A
+# workflow skipped by path filtering leaves its checks in `Pending` forever, so
+# none of them can be a required status check without blocking every unrelated
+# pull request. This workflow runs on every pull request to `main` with no path
+# filter, works out which path groups actually changed, runs only the matching
+# gates, and reports a single always-reported check named `release-gate` that
+# fails unless every applicable gate succeeded.
+#
+# The three gate jobs below are copies of the `validate` / `reporting-scale` jobs
+# of .github/workflows/{production-infra,backup-recovery,reporting-scale}.yml and
+# are kept step-for-step identical to them. They are copied rather than called as
+# reusable `workflow_call` workflows deliberately: a reusable call would require
+# adding a `workflow_call:` trigger to those three files, and that edit is itself
+# a change to their own `paths:` groups, so any branch carrying this aggregator
+# would report all three gates as applicable and the "an unrelated pull request
+# runs nothing" behaviour could not be exercised. Copying leaves the three
+# existing workflows byte-for-byte unchanged, including their triggers, job names
+# and post-merge behaviour.
+#
+# KEEP IN SYNC: if a step changes in one of the three source workflows, change it
+# here too, or the pre-merge gate will silently validate stale logic.
+#
+# `release-gate` is deliberately NOT in the required-check list of
+# .github/rulesets/main.json; promoting it is the repository owner's decision.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changed path groups
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      infra: ${{ steps.classify.outputs.infra }}
+      backup: ${{ steps.classify.outputs.backup }}
+      reporting: ${{ steps.classify.outputs.reporting }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the merge base of base..head can be computed.
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # The same changed-file set the `paths:` filters of the three gates see:
+          # the diff from the merge base of the pull request to its head.
+          if ! merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)"; then
+            git fetch --no-tags --quiet origin "$BASE_SHA"
+            merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          fi
+
+          if ! diff_output="$(git diff --name-only "$merge_base" "$HEAD_SHA")"; then
+            echo "Could not compute the changed-file list for ${merge_base}..${HEAD_SHA}." >&2
+            exit 1
+          fi
+
+          changed=()
+          while IFS= read -r path; do
+            [ -n "$path" ] && changed+=("$path")
+          done <<< "$diff_output"
+
+          infra=false
+          backup=false
+          reporting=false
+
+          # Each pattern list below is exactly the `paths:` entries of the
+          # corresponding gate, with `**` written as `*` because a bash glob
+          # already matches `/`. The one deliberate, safe-direction difference
+          # from GitHub's filters is that bash `*` also crosses `/`, so
+          # `apps/web/lib/reporting*.ts` can match a file one directory deeper
+          # than GitHub's filter would; that can only make a gate run where
+          # GitHub would have skipped it.
+          #
+          # A change to this file alone matches no group. That is intended: this
+          # aggregator's own behaviour is reported by the `release-gate` job, and
+          # the three gates are unchanged by it.
+          for path in "${changed[@]}"; do
+            case "$path" in
+              .github/workflows/production-infra.yml | \
+              .github/workflows/release-images.yml | \
+              .dockerignore | \
+              .env.production.example | \
+              .env.staging.example | \
+              package.json | \
+              bun.lock | \
+              apps/web/next.config.ts | \
+              apps/web/* | \
+              apps/api/* | \
+              apps/worker/* | \
+              packages/* | \
+              docker-compose.production.yml | \
+              docs/deployment.md | \
+              docs/production-infrastructure.md | \
+              infra/docker/* | \
+              infra/production/*)
+                infra=true
+                ;;
+            esac
+
+            case "$path" in
+              .github/workflows/backup-recovery.yml | \
+              docs/backups.md | \
+              docs/disaster-recovery.md | \
+              infra/production/backup.env.example | \
+              infra/production/scripts/backup-postgres.sh | \
+              infra/production/scripts/verify-postgres-backup.sh | \
+              infra/production/scripts/install-backup-schedule.sh | \
+              infra/production/scripts/recovery-drill.sh | \
+              infra/production/scripts/collect-backup-recovery-evidence.sh | \
+              infra/production/systemd/*)
+                backup=true
+                ;;
+            esac
+
+            case "$path" in
+              apps/web/app/reports/* | \
+              apps/web/app/api/reports/* | \
+              apps/web/components/reporting-view.tsx | \
+              apps/web/lib/reporting*.ts | \
+              apps/load-test/src/reporting.ts | \
+              packages/db/* | \
+              .github/workflows/reporting-scale.yml)
+                reporting=true
+                ;;
+            esac
+          done
+
+          {
+            echo "infra=$infra"
+            echo "backup=$backup"
+            echo "reporting=$reporting"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Changed files (${#changed[@]}):"
+          printf '  %s\n' "${changed[@]}"
+          echo "Path groups: infra=$infra backup=$backup reporting=$reporting"
+
+  production-infra:
+    name: Production Infra validation
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare placeholder deployment environments
+        run: |
+          cp .env.production.example .env.production.ci
+          cp .env.staging.example .env.staging.ci
+
+          for file in .env.production.ci .env.staging.ci; do
+            sed -i \
+              -e "s|^RELEASE_SHA=.*|RELEASE_SHA=${GITHUB_SHA}|" \
+              -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
+              -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
+              -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
+              -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
+              "$file"
+          done
+
+          sh infra/production/scripts/render-monitoring-config.sh .env.production.ci
+          printf '%s\n' 'http://127.0.0.1:65535/alerts' > .runtime/monitoring/alertmanager-webhook-url
+          chmod 0600 .runtime/monitoring/alertmanager-webhook-url
+
+      - name: Validate shell scripts
+        run: |
+          sh -n infra/production/scripts/backup-postgres.sh
+          sh -n infra/production/scripts/verify-postgres-backup.sh
+          sh -n infra/production/scripts/smoke-test.sh
+          sh -n infra/production/scripts/check-immutable-images.sh
+          sh -n infra/production/scripts/verify-environment-isolation.sh
+          sh -n infra/production/scripts/write-release-manifest.sh
+          sh -n infra/production/scripts/collect-infrastructure-evidence.sh
+          sh -n infra/production/scripts/rollback-release.sh
+          sh -n infra/production/scripts/render-monitoring-config.sh
+          sh -n infra/production/scripts/test-alert-delivery.sh
+
+      - name: Validate environment isolation examples
+        run: sh infra/production/scripts/verify-environment-isolation.sh .env.staging.example .env.production.example
+
+      - name: Validate immutable image guardrails
+        run: |
+          cp .env.production.example .env.production.release-ci
+          cp .env.staging.example .env.staging.release-ci
+          digest=1111111111111111111111111111111111111111111111111111111111111111
+          for file in .env.production.release-ci .env.staging.release-ci; do
+            sed -i "s|sha256:0000000000000000000000000000000000000000000000000000000000000000|sha256:${digest}|g" "$file"
+            sh infra/production/scripts/check-immutable-images.sh "$file"
+          done
+
+      - name: Validate production Compose configuration
+        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml config --quiet
+
+      - name: Validate staging Compose configuration
+        run: docker compose --env-file .env.staging.ci -f docker-compose.production.yml config --quiet
+
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            -e APP_DOMAIN=example.test \
+            -e CADDY_EMAIL=ops@example.test \
+            -e CADDY_MAX_REQUEST_BODY=16MB \
+            -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Validate Prometheus configuration and alert rules
+        run: |
+          docker run --rm --entrypoint /bin/promtool \
+            -v "$PWD/infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
+            -v "$PWD/.runtime/monitoring:/runtime/monitoring:ro" \
+            prom/prometheus:v3.13.3 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint /bin/promtool \
+            -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
+            prom/prometheus:v3.13.3 \
+            check rules /etc/prometheus/alerts/whatsapp.rules.yml
+
+      - name: Validate Alertmanager configuration
+        run: |
+          docker run --rm --entrypoint /bin/amtool \
+            -v "$PWD/infra/production/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            prom/alertmanager:v0.28.1 \
+            check-config /etc/alertmanager/alertmanager.yml
+
+      - name: Build production images with immutable revision metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_args=(
+            --build-arg "IMAGE_SOURCE=https://github.com/${GITHUB_REPOSITORY}"
+            --build-arg "IMAGE_REVISION=${GITHUB_SHA}"
+            --build-arg "IMAGE_VERSION=${GITHUB_SHA}"
+          )
+          docker build -f infra/docker/web.Dockerfile "${build_args[@]}" -t whatsapp-web:local -t "whatsapp-web:${GITHUB_SHA}" .
+          docker build -f infra/docker/api.Dockerfile "${build_args[@]}" -t whatsapp-api:local -t "whatsapp-api:${GITHUB_SHA}" .
+          docker build -f infra/docker/worker.Dockerfile "${build_args[@]}" -t whatsapp-worker:local -t "whatsapp-worker:${GITHUB_SHA}" .
+          docker build -f infra/docker/api.Dockerfile --target migrator "${build_args[@]}" -t whatsapp-migrator:local -t "whatsapp-migrator:${GITHUB_SHA}" .
+
+      - name: Verify image revision and source labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_source="https://github.com/${GITHUB_REPOSITORY}"
+          for image in whatsapp-web whatsapp-api whatsapp-worker whatsapp-migrator; do
+            ref="${image}:${GITHUB_SHA}"
+            revision="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            source="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.source" }}')"
+            version="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')"
+            test "$revision" = "$GITHUB_SHA"
+            test "$version" = "$GITHUB_SHA"
+            test "$source" = "$expected_source"
+          done
+
+      - name: Record production dependency HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-dependencies.json
+          exit-code: "0"
+          vuln-type: library
+          severity: HIGH,CRITICAL
+
+      - name: Record web image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-web:${{ github.sha }}
+          format: json
+          output: trivy-web.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record API image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-api:${{ github.sha }}
+          format: json
+          output: trivy-api.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record worker image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-worker:${{ github.sha }}
+          format: json
+          output: trivy-worker.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record migrator image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-migrator:${{ github.sha }}
+          format: json
+          output: trivy-migrator.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Upload production vulnerability reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-production-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: trivy-*.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce production dependency vulnerability policy
+        id: policy_dependencies
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce web image vulnerability policy
+        id: policy_web
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-web:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce API image vulnerability policy
+        id: policy_api
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-api:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce worker image vulnerability policy
+        id: policy_worker
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-worker:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce migrator image vulnerability policy
+        id: policy_migrator
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-migrator:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Require production dependencies and images to pass the blocking vulnerability policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "dependencies:${{ steps.policy_dependencies.outcome }}" \
+            "web:${{ steps.policy_web.outcome }}" \
+            "api:${{ steps.policy_api.outcome }}" \
+            "worker:${{ steps.policy_worker.outcome }}" \
+            "migrator:${{ steps.policy_migrator.outcome }}"; do
+            target="${result%%:*}"
+            outcome="${result#*:}"
+            if [ "$outcome" != "success" ]; then
+              echo "${target} failed the blocking HIGH/CRITICAL vulnerability policy." >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Start production dependencies
+        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml up -d --no-build postgres valkey
+
+      - name: Run migrations before application startup
+        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml --profile ops run --rm migrate
+
+      - name: Start web API and one worker
+        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml up -d --no-build web api worker
+
+      - name: Health endpoint smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          retry() {
+            local name=$1
+            shift
+            for attempt in $(seq 1 40); do
+              if "$@"; then
+                echo "$name is ready"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "$name did not become ready" >&2
+            docker compose --env-file .env.production.ci -f docker-compose.production.yml ps
+            return 1
+          }
+
+          retry web docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T web \
+            node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+          retry api docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T api \
+            bun -e "fetch('http://127.0.0.1:4000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+          retry worker docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T worker \
+            bun -e "fetch('http://127.0.0.1:9464/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+          docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T api \
+            bun -e "fetch('http://127.0.0.1:4000/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_http_requests_total')&&t.includes('whatsapp_application_errors_total')?0:1)).catch(()=>process.exit(1))"
+
+          docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T worker \
+            bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')&&t.includes('whatsapp_r2_up')&&t.includes('whatsapp_email_delivery_backlog')?0:1)).catch(()=>process.exit(1))"
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml logs --no-color --tail=200
+
+      - name: Cleanup
+        if: always()
+        run: docker compose --env-file .env.production.ci -f docker-compose.production.yml --profile ops down -v --remove-orphans
+  backup-recovery:
+    name: Backup Recovery validation
+    needs: changes
+    if: needs.changes.outputs.backup == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate backup and recovery shell scripts
+        run: |
+          sh -n infra/production/scripts/backup-postgres.sh
+          sh -n infra/production/scripts/verify-postgres-backup.sh
+          sh -n infra/production/scripts/install-backup-schedule.sh
+          sh -n infra/production/scripts/recovery-drill.sh
+          sh -n infra/production/scripts/collect-backup-recovery-evidence.sh
+
+      - name: Validate systemd backup units
+        shell: bash
+        run: |
+          set -euo pipefail
+          stub_dir="$(mktemp -d)"
+          cat > "$stub_dir/docker.service" <<'EOF'
+          [Unit]
+          Description=CI stub for Docker dependency
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/true
+          EOF
+          SYSTEMD_UNIT_PATH="infra/production/systemd:${stub_dir}:/usr/lib/systemd/system:/lib/systemd/system" \
+            systemd-analyze verify \
+              infra/production/systemd/whatsapp-backup.service \
+              infra/production/systemd/whatsapp-backup.timer \
+              "$stub_dir/docker.service"
+          systemd-analyze calendar '*-*-* 02:17:00 UTC' >/dev/null
+
+      - name: Validate backup environment template is placeholder-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^BACKUP_AGE_RECIPIENT=age1replace-with-public-recipient$' infra/production/backup.env.example
+          grep -q '^BACKUP_RCLONE_REMOTE=encrypted-backups:whatsapp/postgres$' infra/production/backup.env.example
+          ! grep -Eq '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AGE-SECRET-KEY-|AKIA[0-9A-Z]{16})' infra/production/backup.env.example
+
+      - name: Verify recovery documentation keeps PR-010 evidence external
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'not considered business-accepted until the owner records acceptance in issue #55' docs/backups.md
+          grep -q 'clean-host' docs/backups.md
+          grep -q 'recovery-drill.sh' docs/backups.md
+  reporting-scale:
+    needs: changes
+    if: needs.changes.outputs.reporting == 'true'
+    name: ${{ matrix.name }} reporting dataset (release gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: small
+            recipients: 1000
+            campaigns: 1
+            phone_numbers: 1
+          - name: 100k
+            recipients: 100000
+            campaigns: 5
+            phone_numbers: 2
+          - name: 500k
+            recipients: 500000
+            campaigns: 10
+            phone_numbers: 3
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: whatsapp
+          POSTGRES_USER: whatsapp
+          POSTGRES_PASSWORD: whatsapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatsapp -d whatsapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://whatsapp:whatsapp@localhost:5432/whatsapp
+      REPORT_RECIPIENTS: ${{ matrix.recipients }}
+      REPORT_CAMPAIGNS: ${{ matrix.campaigns }}
+      REPORT_PHONE_NUMBERS: ${{ matrix.phone_numbers }}
+      # Each matrix job owns a disposable PostgreSQL service container, so
+      # cascading fixture deletion only wastes CI time after measurements.
+      REPORT_KEEP_DATA: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install
+      - name: Apply migrations
+        run: bun run db:migrate
+      - name: Benchmark reporting aggregation
+        run: bun run --filter @wa/load-test reporting
+  release-gate:
+    name: release-gate
+    needs:
+      - changes
+      - production-infra
+      - backup-recovery
+      - reporting-scale
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert every applicable release gate succeeded
+        shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          INFRA_APPLICABLE: ${{ needs.changes.outputs.infra }}
+          INFRA_RESULT: ${{ needs.production-infra.result }}
+          BACKUP_APPLICABLE: ${{ needs.changes.outputs.backup }}
+          BACKUP_RESULT: ${{ needs.backup-recovery.result }}
+          REPORTING_APPLICABLE: ${{ needs.changes.outputs.reporting }}
+          REPORTING_RESULT: ${{ needs.reporting-scale.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+
+          # `success` always passes. `skipped` only passes when the gate was not
+          # applicable; an applicable gate that somehow did not run is a failure,
+          # not a silent pass.
+          assert_gate() {
+            local name="$1" applicable="$2" result="$3"
+            if [ "$result" = "success" ]; then
+              echo "ok       ${name}: applicable=${applicable} result=${result}"
+              return 0
+            fi
+            if [ "$result" = "skipped" ] && [ "$applicable" != "true" ]; then
+              echo "ok       ${name}: applicable=${applicable} result=${result}"
+              return 0
+            fi
+            echo "FAILED   ${name}: applicable=${applicable} result=${result}" >&2
+            return 1
+          }
+
+          assert_gate changes "${CHANGES_RESULT}" "${CHANGES_RESULT}" || failed=1
+          assert_gate production-infra "${INFRA_APPLICABLE}" "${INFRA_RESULT}" || failed=1
+          assert_gate backup-recovery "${BACKUP_APPLICABLE}" "${BACKUP_RESULT}" || failed=1
+          assert_gate reporting-scale "${REPORTING_APPLICABLE}" "${REPORTING_RESULT}" || failed=1
+
+          if [ "$failed" -ne 0 ]; then
+            echo "release-gate: at least one applicable gate did not succeed." >&2
+            exit 1
+          fi
+          echo "release-gate: every applicable gate succeeded."
