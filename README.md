@@ -105,3 +105,5 @@ Never commit real Meta tokens or production secrets.
 The source-of-truth launch and product-completeness checklist is [`docs/production-readiness-plan.md`](docs/production-readiness-plan.md). It tracks ownership, dependencies, acceptance criteria, evidence requirements, and verified completion for every readiness task.
 
 Near-term priorities include real-provider Meta validation, representative load/soak evidence, production infrastructure and recovery proof, alerting, billing, and entitlement enforcement. Use the readiness plan rather than this summary to determine launch status.
+
+<!-- release-gate probe A: throwaway, unrelated path (README.md is in no gate path group) -->
