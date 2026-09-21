@@ -87,6 +87,19 @@ describe("StripeBillingProvider", () => {
     expect(String(requests[4]?.init?.body)).toContain("payment_intent=pi_123");
   });
 
+  test("retrieves current subscription and invoice resources", async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/v1/subscriptions/sub_123")) return jsonResponse({ id: "sub_123", status: "active" });
+      if (url.endsWith("/v1/invoices/in_123")) return jsonResponse({ id: "in_123", status: "paid" });
+      throw new Error(`Unexpected request ${url}`);
+    }) as typeof fetch;
+    const provider = new StripeBillingProvider({ secretKey: "sk_test_123", fetchImpl });
+
+    await expect(provider.retrieveSubscription("sub_123")).resolves.toMatchObject({ id: "sub_123", status: "active" });
+    await expect(provider.retrieveInvoice("in_123")).resolves.toMatchObject({ id: "in_123", status: "paid" });
+  });
+
   test("verifies signed webhook payloads and rejects tampering", async () => {
     const now = new Date("2026-09-16T10:00:00.000Z");
     const timestamp = Math.floor(now.getTime() / 1000);
