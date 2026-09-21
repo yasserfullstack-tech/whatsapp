@@ -285,7 +285,11 @@ async function syncCheckoutSession(tx: BillingTransaction, session: StripeObject
   assertStripeAccountBinding(account, customerExternalId);
 
   const accountMetadata = { ...(asRecord(account.metadata) ?? {}) };
-  delete accountMetadata.stripeCheckoutAttempt;
+  const persistedAttempt = asRecord(accountMetadata.stripeCheckoutAttempt);
+  const completedAttemptKey = asString(asRecord(session.metadata)?.checkoutAttemptKey);
+  if (completedAttemptKey && asString(persistedAttempt?.key) === completedAttemptKey) {
+    delete accountMetadata.stripeCheckoutAttempt;
+  }
   await tx
     .update(schema.billingAccounts)
     .set({
