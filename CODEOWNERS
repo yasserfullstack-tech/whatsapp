@@ -1,0 +1,48 @@
+# CODEOWNERS
+#
+# @yasserfullstack-tech is the only maintainer on this repository, so every
+# pattern below resolves to the same account. The explicit entries are not
+# multi-team routing: they make ownership of sensitive areas visible during
+# review, and keep the mapping correct if a second maintainer is ever added.
+#
+# GitHub reads only one CODEOWNERS file, using the first of these that exists:
+#   CODEOWNERS  ->  .github/CODEOWNERS  ->  docs/CODEOWNERS
+# This repository uses the root file; do not add a second copy.
+#
+# Related: docs/release-controls.md section 12 item 4. Note that
+# `require_code_owner_review` is deliberately still OFF in
+# .github/rulesets/main.json - turning it on changes who can merge, so it is an
+# owner decision, not part of this file.
+
+# Default owner for everything in the repository.
+*                                  @yasserfullstack-tech
+
+# Release controls: CI workflows, branch-protection rulesets, PR template.
+/.github/                          @yasserfullstack-tech
+
+# Deployment and production infrastructure.
+/infra/                            @yasserfullstack-tech
+/docker-compose.yml                @yasserfullstack-tech
+/docker-compose.production.yml     @yasserfullstack-tech
+/docker-compose.load.yml           @yasserfullstack-tech
+/docker-compose.load-chaos.yml     @yasserfullstack-tech
+
+# Database schema and migrations.
+/packages/db/                      @yasserfullstack-tech
+
+# Money, identity, secrets and object storage.
+/packages/billing/                 @yasserfullstack-tech
+/packages/credentials/             @yasserfullstack-tech
+/packages/auth/                    @yasserfullstack-tech
+/packages/storage/                 @yasserfullstack-tech
+
+# Environment templates - they do not contain secrets, but they define which
+# secrets exist, so changes here are reviewed too.
+/.env.example                      @yasserfullstack-tech
+/.env.production.example           @yasserfullstack-tech
+/.env.staging.example              @yasserfullstack-tech
+
+# Legal, compliance and release-control documentation.
+/docs/legal/                       @yasserfullstack-tech
+/docs/release-controls.md          @yasserfullstack-tech
+/docs/production-readiness-plan.md @yasserfullstack-tech
