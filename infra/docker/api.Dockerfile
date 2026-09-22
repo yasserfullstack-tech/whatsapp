@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2-slim AS deps
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS deps
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 COPY packages ./packages
@@ -12,7 +12,7 @@ COPY apps/api ./apps/api
 FROM deps AS build
 RUN bun build apps/api/src/index.ts --target=bun --minify --outfile=/out/api.js
 
-FROM oven/bun:1.4.2-slim AS migrator
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS migrator
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 COPY packages ./packages
@@ -20,9 +20,7 @@ COPY apps/api/package.json ./apps/api/package.json
 COPY apps/load-test/package.json ./apps/load-test/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY apps/worker/package.json ./apps/worker/package.json
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/* \
+RUN apk upgrade --no-cache \
     && bun install --production --frozen-lockfile --ignore-scripts --filter "!./" --filter @wa/db
 ARG IMAGE_SOURCE="https://github.com/yasserfullstack-tech/whatsapp"
 ARG IMAGE_REVISION="unknown"
@@ -34,7 +32,7 @@ ENV NODE_ENV=production
 USER bun
 CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]
 
-FROM oven/bun:1.4.2-slim AS runtime
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS runtime
 WORKDIR /app
 ARG IMAGE_SOURCE="https://github.com/yasserfullstack-tech/whatsapp"
 ARG IMAGE_REVISION="unknown"
@@ -43,9 +41,7 @@ LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
       org.opencontainers.image.revision="$IMAGE_REVISION" \
       org.opencontainers.image.version="$IMAGE_VERSION"
 ENV NODE_ENV=production
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk upgrade --no-cache
 COPY --from=build --chown=bun:bun /out/api.js ./api.js
 USER bun
 EXPOSE 4000

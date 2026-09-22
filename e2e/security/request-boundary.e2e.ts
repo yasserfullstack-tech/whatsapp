@@ -82,6 +82,18 @@ test.describe.serial("request security boundary", () => {
     expect(response.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
     expect(response.headers()["permissions-policy"]).toContain("camera=()");
     expect(response.headers()["strict-transport-security"]).toContain("max-age=63072000");
-    expect(response.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+    const csp = response.headers()["content-security-policy"] ?? "";
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp).toMatch(/script-src[^;]*'nonce-[A-Za-z0-9+/_-]+'/);
+
+    const second = await anonymous.get("/sign-in");
+    const secondCsp = second.headers()["content-security-policy"] ?? "";
+    const firstNonce = csp.match(/'nonce-([^']+)'/)?.[1];
+    const secondNonce = secondCsp.match(/'nonce-([^']+)'/)?.[1];
+    expect(firstNonce).toBeTruthy();
+    expect(secondNonce).toBeTruthy();
+    expect(secondNonce).not.toBe(firstNonce);
   });
 });

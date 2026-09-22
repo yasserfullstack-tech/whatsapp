@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
-import { requirePlatformAdmin } from "./platform-admin";
+import { requirePlatformAdminMutation } from "./platform-admin";
 import { campaignDispatchQueue, contactImportQueue, db } from "./server";
 
 const retryableQueues = {
@@ -19,7 +19,7 @@ function requiredText(formData: FormData, key: string): string {
 }
 
 export async function retryQueueJobAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const queueName = requiredText(formData, "queueName") as RetryableQueueName;
   const jobId = requiredText(formData, "jobId");
   const queue = retryableQueues[queueName];

@@ -41,10 +41,21 @@ export function createR2Client(config: R2Config): S3Client {
   });
 }
 
-export async function createPresignedCsvUpload(input: { client: S3Client; bucket: string; key: string; expiresInSeconds?: number }): Promise<string> {
-  return getSignedUrl(input.client, new PutObjectCommand({ Bucket: input.bucket, Key: input.key, ContentType: "text/csv" }), {
+export async function createPresignedCsvUpload(input: {
+  client: S3Client;
+  bucket: string;
+  key: string;
+  contentLength: number;
+  expiresInSeconds?: number;
+}): Promise<string> {
+  return getSignedUrl(input.client, new PutObjectCommand({
+    Bucket: input.bucket,
+    Key: input.key,
+    ContentType: "text/csv",
+    ContentLength: input.contentLength,
+  }), {
     expiresIn: input.expiresInSeconds ?? 900,
-    signableHeaders: new Set(["content-type"]),
+    signableHeaders: new Set(["content-type", "content-length"]),
   });
 }
 

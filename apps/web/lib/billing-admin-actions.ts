@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { createBillingAdminService } from "@wa/billing";
 import { schema } from "@wa/db";
-import { requirePlatformAdmin } from "./platform-admin";
+import { requirePlatformAdminMutation } from "./platform-admin";
 import { db } from "./server";
 
 function requiredText(formData: FormData, key: string): string {
@@ -25,7 +25,7 @@ function refreshBilling(organizationId: string) {
 }
 
 export async function changeBillingPlanAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const organizationId = requiredText(formData, "organizationId");
   const subscriptionId = requiredText(formData, "subscriptionId");
   const planVersionId = requiredText(formData, "planVersionId");
@@ -74,7 +74,7 @@ export async function changeBillingPlanAction(formData: FormData) {
 }
 
 export async function suspendBillingSubscriptionAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const organizationId = requiredText(formData, "organizationId");
   const subscriptionId = requiredText(formData, "subscriptionId");
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 500) || "Suspended by platform administrator";

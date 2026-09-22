@@ -120,6 +120,7 @@ test.describe.serial("expanded platform administrator operational tooling", () =
     attacker = await createSecurityTenant("platform-ops-attacker");
     victim = await createSecurityTenant("platform-ops-victim");
     await securityDb.insert(schema.platformAdminGrants).values({ authUserId: admin.authUserId, source: "security-test" });
+    await securitySql`UPDATE auth_user SET two_factor_enabled = true WHERE id = ${admin.authUserId}`;
 
     const organizationRows = await securitySql`
       SELECT slug FROM organizations WHERE id = ${victim.organizationId}::uuid LIMIT 1
