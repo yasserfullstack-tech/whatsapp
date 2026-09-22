@@ -6,6 +6,7 @@ import { parse } from "csv-parse";
 const workerSource = [
   readFileSync(new URL("./contact-import-csv.ts", import.meta.url), "utf8"),
   readFileSync(new URL("./contact-import-worker.ts", import.meta.url), "utf8"),
+  readFileSync(new URL("./contact-import-processor.ts", import.meta.url), "utf8"),
 ].join("\n");
 
 const parserOptions = {
