@@ -164,10 +164,11 @@ export class DrizzleBillingRepository implements BillingRepository {
   }
 
   async appendUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
-    if (input.limit === null) return this.appendUnlimitedUsage(input);
+    const limit = input.limit;
+    if (limit === null) return this.appendUnlimitedUsage(input);
 
-    if (input.quantity > input.limit) {
-      throw new BillingLimitExceededError(input.entitlementKey, input.limit, input.quantity);
+    if (input.quantity > limit) {
+      throw new BillingLimitExceededError(input.entitlementKey, limit, input.quantity);
     }
 
     return this.db.transaction(async (tx) => {
@@ -244,7 +245,7 @@ export class DrizzleBillingRepository implements BillingRepository {
         })
         .where(and(
           usageWhere,
-          lte(schema.billingPeriodUsage.quantity, input.limit - input.quantity),
+          lte(schema.billingPeriodUsage.quantity, limit - input.quantity),
         ))
         .returning({ quantity: schema.billingPeriodUsage.quantity });
 
@@ -260,7 +261,7 @@ export class DrizzleBillingRepository implements BillingRepository {
 
       throw new BillingLimitExceededError(
         input.entitlementKey,
-        input.limit,
+        limit,
         current + input.quantity,
       );
     });
