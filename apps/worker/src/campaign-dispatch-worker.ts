@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import type { EntitlementService } from "@wa/billing";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase, normalizeAudienceDefinition, schema } from "@wa/db";
 import type { TemplateComponent } from "@wa/meta";
@@ -14,6 +15,7 @@ import {
   type CampaignDispatchJob,
   type SendMessageJob,
 } from "@wa/queue";
+import { reserveCampaignRecipientUsage } from "./campaign-billing";
 import { prepareConnectionForSend } from "./connection-health";
 import { checkCampaignDeferral, createRecipientSnapshot } from "./campaign-snapshot";
 import {
@@ -36,8 +38,9 @@ export function createCampaignDispatchWorker(input: {
   db: Database;
   env: WorkerEnv;
   sendQueue: SendQueue;
+  entitlements: EntitlementService;
 }) {
-  const { db, env, sendQueue } = input;
+  const { db, env, sendQueue, entitlements } = input;
 
   const dispatchCampaign = async (job: CampaignDispatchJob) => {
     const [record] = await db
@@ -117,6 +120,17 @@ export function createCampaignDispatchWorker(input: {
       const audienceDefinition = normalizeAudienceDefinition(record.audienceDefinition ?? { type: "all" });
       const snapshotResult = await createRecipientSnapshot(db, record.campaignId, record.organizationId, audienceDefinition);
       if ("terminal" in snapshotResult) return snapshotResult;
+    }
+
+    // Reserve campaign-recipient usage once for the immutable snapshot before
+    // any send jobs are published. This keeps quota enforcement ahead of the
+    // provider boundary without serializing every individual send on billing.
+    const usageReservation = await reserveCampaignRecipientUsage(db, entitlements, {
+      organizationId: record.organizationId,
+      campaignId: record.campaignId,
+    });
+    if (!usageReservation.reserved) {
+      return { terminal: "paused", reason: usageReservation.reason };
     }
 
     const targetBacklog = Math.max(
