@@ -12,16 +12,6 @@ export function eventTime(status: WhatsAppMessageStatus | WhatsAppInboundMessage
   return new Date();
 }
 
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message.slice(0, 2_000);
-  return String(error).slice(0, 2_000);
-}
-
-export function webhookRetryDelayMs(attempt: number): number {
-  const safeAttempt = Math.max(1, Math.floor(attempt));
-  return Math.min(WEBHOOK_MAX_RETRY_DELAY_MS, 1_000 * (2 ** Math.min(20, safeAttempt - 1)));
-}
-
 export type WebhookRecipientStatus =
   | "pending"
   | "queued"
