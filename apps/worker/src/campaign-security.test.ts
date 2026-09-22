@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { ensureDefaultBilling } from "@wa/billing";
+import { DrizzleBillingRepository, EntitlementService, ensureDefaultBilling } from "@wa/billing";
 import { createDatabase, schema } from "@wa/db";
 import { claimCampaignRecipientForSend } from "./campaign-security";
 
@@ -12,6 +12,7 @@ describe("campaign send queue tenant boundary", () => {
   test("a forged send job cannot claim another organization's recipient", async () => {
     const database = createDatabase(databaseUrl);
     const db = database.db;
+    const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
     const suffix = randomUUID();
     const organizations = await db.insert(schema.organizations).values([
       { name: `Queue attacker ${suffix}`, slug: `queue-attacker-${suffix}` },
@@ -70,7 +71,7 @@ describe("campaign send queue tenant boundary", () => {
       }).returning({ id: schema.campaignRecipients.id });
       if (!recipient) throw new Error("Could not create recipient fixture");
 
-      const forged = await claimCampaignRecipientForSend(db, {
+      const forged = await claimCampaignRecipientForSend(db, entitlements, {
         organizationId: attacker.id,
         campaignId: campaign.id,
         recipientId: recipient.id,
@@ -88,7 +89,7 @@ describe("campaign send queue tenant boundary", () => {
         ));
       expect(untouched).toEqual([{ status: "queued", attemptCount: 0 }]);
 
-      const legitimate = await claimCampaignRecipientForSend(db, {
+      const legitimate = await claimCampaignRecipientForSend(db, entitlements, {
         organizationId: victim.id,
         campaignId: campaign.id,
         recipientId: recipient.id,
