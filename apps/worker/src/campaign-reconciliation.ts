@@ -5,7 +5,7 @@ import { claimDueScheduledCampaigns } from "./campaign-scheduling";
 import {
   UNKNOWN_SEND_OUTCOME_CODE,
   UNKNOWN_SEND_OUTCOME_ERROR,
-} from "./campaign-send-worker";
+} from "./campaign-send-state";
 
 type Database = ReturnType<typeof createDatabase>["db"];
 type DispatchQueue = ReturnType<typeof createCampaignDispatchQueue>;
