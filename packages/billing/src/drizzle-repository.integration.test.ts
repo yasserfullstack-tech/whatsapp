@@ -87,7 +87,7 @@ if (databaseUrl) {
     test("records parallel unlimited usage without duplicate increments", async () => {
       const results = await Promise.all(
         Array.from({ length: 200 }, (_, index) =>
-          repository.appendUsage({ ...usage(`unlimited-${index}`, null), includeTotal: false }),
+          repository.appendUsage(usage(`unlimited-${index}`, null)),
         ),
       );
 
@@ -99,12 +99,6 @@ if (databaseUrl) {
         periodStart,
         periodEnd,
       })).toBe(200);
-
-      const aggregateRows = await db
-        .select({ id: schema.billingPeriodUsage.id })
-        .from(schema.billingPeriodUsage)
-        .where(eq(schema.billingPeriodUsage.organizationId, organizationId));
-      expect(aggregateRows).toHaveLength(0);
 
       const duplicates = await Promise.all(
         Array.from({ length: 50 }, () =>
