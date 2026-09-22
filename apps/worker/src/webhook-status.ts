@@ -38,38 +38,6 @@ export function webhookRecipientStatusAfter(
   return current === "delivered" || current === "read" ? current : "failed";
 }
 
-export function shouldReconcileWebhookEvent(
-  event: {
-    processingStatus: string;
-    createdAt: Date;
-    processingStartedAt: Date | null;
-    nextRetryAt: Date | null;
-  },
-  now: Date,
-): "never_queued" | "stale_processing" | "retry_due" | null {
-  const nowMs = now.getTime();
-  if (
-    event.processingStatus === "processing" &&
-    event.processingStartedAt &&
-    nowMs - event.processingStartedAt.getTime() >= WEBHOOK_STALE_PROCESSING_MS
-  ) {
-    return "stale_processing";
-  }
-  if (
-    event.processingStatus === "retry" &&
-    (!event.nextRetryAt || event.nextRetryAt.getTime() <= nowMs)
-  ) {
-    return "retry_due";
-  }
-  if (
-    event.processingStatus === "pending" &&
-    nowMs - event.createdAt.getTime() >= WEBHOOK_UNPROCESSED_THRESHOLD_MS
-  ) {
-    return "never_queued";
-  }
-  return null;
-}
-
 function failureDetails(status: WhatsAppMessageStatus): { code: string | null; message: string | null } {
   const error = status.errors[0];
   if (!error) return { code: null, message: null };
