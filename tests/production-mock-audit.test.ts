@@ -17,7 +17,7 @@ const EXCLUDED = [
   /(^|\/)e2e(\/|$)/,
   /(^|\/)test(s)?(\/|$)/,
   /(^|\/)__tests__(\/|$)/,
-  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /\.(test|spec|suite|fixtures)\.[cm]?[jt]sx?$/,
   /(^|\/)drizzle(\/|$)/,
   /(^|\/)migrations?(\/|$)/,
 ];
