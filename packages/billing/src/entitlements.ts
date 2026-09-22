@@ -35,6 +35,7 @@ export type BillingSubscriptionSnapshot = {
 export type BillingEntitlementSnapshot = {
   enabled: boolean;
   limit: number | null;
+  includeTotal?: boolean;
 };
 
 export type UsageAppendInput = {
@@ -262,6 +263,7 @@ export class EntitlementService {
     idempotencyKey: string;
     occurredAt?: Date;
     metadata?: Record<string, unknown>;
+    includeTotal?: boolean;
   }): Promise<UsageCheck & { recorded: boolean }> {
     if (entitlementDefinitions[input.key].mode !== "metered") {
       throw new BillingEntitlementError("entitlement_missing", input.key, `${input.key} is not a metered entitlement`);
@@ -296,6 +298,7 @@ export class EntitlementService {
       occurredAt: at,
       metadata: input.metadata ?? {},
       limit: entitlement.limit,
+      includeTotal: input.includeTotal,
     });
 
     return {
