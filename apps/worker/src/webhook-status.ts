@@ -1,0 +1,163 @@
+import { sql } from "drizzle-orm";
+import { createDatabase } from "@wa/db";
+import type { WhatsAppInboundMessage, WhatsAppMessageStatus } from "@wa/meta/webhooks";
+
+type Database = ReturnType<typeof createDatabase>["db"];
+
+export function eventTime(status: WhatsAppMessageStatus | WhatsAppInboundMessage): Date {
+  if (status.timestampSeconds !== undefined) {
+    const date = new Date(status.timestampSeconds * 1_000);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return new Date();
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 2_000);
+  return String(error).slice(0, 2_000);
+}
+
+export function webhookRetryDelayMs(attempt: number): number {
+  const safeAttempt = Math.max(1, Math.floor(attempt));
+  return Math.min(WEBHOOK_MAX_RETRY_DELAY_MS, 1_000 * (2 ** Math.min(20, safeAttempt - 1)));
+}
+
+export type WebhookRecipientStatus =
+  | "pending"
+  | "queued"
+  | "submitted"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed"
+  | "skipped";
+
+export function webhookRecipientStatusAfter(
+  current: WebhookRecipientStatus,
+  incoming: WhatsAppMessageStatus["status"],
+): WebhookRecipientStatus {
+  if (incoming === "sent") {
+    return ["pending", "queued", "submitted", "sent"].includes(current) ? "sent" : current;
+  }
+  if (incoming === "delivered") {
+    return ["pending", "queued", "submitted", "sent", "delivered"].includes(current) ? "delivered" : current;
+  }
+  if (incoming === "read") {
+    return current === "failed" ? "failed" : "read";
+  }
+  return current === "delivered" || current === "read" ? current : "failed";
+}
+
+export function shouldReconcileWebhookEvent(
+  event: {
+    processingStatus: string;
+    createdAt: Date;
+    processingStartedAt: Date | null;
+    nextRetryAt: Date | null;
+  },
+  now: Date,
+): "never_queued" | "stale_processing" | "retry_due" | null {
+  const nowMs = now.getTime();
+  if (
+    event.processingStatus === "processing" &&
+    event.processingStartedAt &&
+    nowMs - event.processingStartedAt.getTime() >= WEBHOOK_STALE_PROCESSING_MS
+  ) {
+    return "stale_processing";
+  }
+  if (
+    event.processingStatus === "retry" &&
+    (!event.nextRetryAt || event.nextRetryAt.getTime() <= nowMs)
+  ) {
+    return "retry_due";
+  }
+  if (
+    event.processingStatus === "pending" &&
+    nowMs - event.createdAt.getTime() >= WEBHOOK_UNPROCESSED_THRESHOLD_MS
+  ) {
+    return "never_queued";
+  }
+  return null;
+}
+
+function failureDetails(status: WhatsAppMessageStatus): { code: string | null; message: string | null } {
+  const error = status.errors[0];
+  if (!error) return { code: null, message: null };
+  const parts = [error.title, error.message, error.details].filter((value): value is string => Boolean(value));
+  return {
+    code: error.code ?? null,
+    message: parts.length ? parts.join(": ").slice(0, 2_000) : null,
+  };
+}
+
+export async function applyStatus(
+  db: Database,
+  organizationId: string,
+  status: WhatsAppMessageStatus,
+): Promise<void> {
+  const at = eventTime(status).toISOString();
+
+  if (status.status === "sent") {
+    await db.execute(sql`
+      UPDATE campaign_recipients
+      SET
+        sent_at = COALESCE(sent_at, ${at}::timestamptz),
+        status = CASE
+          WHEN status IN ('pending', 'queued', 'submitted', 'sent') THEN 'sent'::recipient_status
+          ELSE status
+        END,
+        updated_at = now()
+      WHERE wamid = ${status.wamid}
+        AND organization_id = ${organizationId}::uuid
+    `);
+    return;
+  }
+
+  if (status.status === "delivered") {
+    await db.execute(sql`
+      UPDATE campaign_recipients
+      SET
+        delivered_at = COALESCE(delivered_at, ${at}::timestamptz),
+        status = CASE
+          WHEN status IN ('pending', 'queued', 'submitted', 'sent', 'delivered') THEN 'delivered'::recipient_status
+          ELSE status
+        END,
+        updated_at = now()
+      WHERE wamid = ${status.wamid}
+        AND organization_id = ${organizationId}::uuid
+    `);
+    return;
+  }
+
+  if (status.status === "read") {
+    await db.execute(sql`
+      UPDATE campaign_recipients
+      SET
+        read_at = COALESCE(read_at, ${at}::timestamptz),
+        status = CASE
+          WHEN status <> 'failed' THEN 'read'::recipient_status
+          ELSE status
+        END,
+        updated_at = now()
+      WHERE wamid = ${status.wamid}
+        AND organization_id = ${organizationId}::uuid
+    `);
+    return;
+  }
+
+  const failure = failureDetails(status);
+  await db.execute(sql`
+    UPDATE campaign_recipients
+    SET
+      failed_at = COALESCE(failed_at, ${at}::timestamptz),
+      error_code = COALESCE(${failure.code}, error_code),
+      last_error = COALESCE(${failure.message}, last_error),
+      status = CASE
+        WHEN status IN ('delivered', 'read') THEN status
+        ELSE 'failed'::recipient_status
+      END,
+      updated_at = now()
+    WHERE wamid = ${status.wamid}
+      AND organization_id = ${organizationId}::uuid
+  `);
+}
