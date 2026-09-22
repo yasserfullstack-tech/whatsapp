@@ -35,7 +35,6 @@ export type BillingSubscriptionSnapshot = {
 export type BillingEntitlementSnapshot = {
   enabled: boolean;
   limit: number | null;
-  includeTotal?: boolean;
 };
 
 export type UsageAppendInput = {
@@ -49,6 +48,7 @@ export type UsageAppendInput = {
   occurredAt: Date;
   metadata: Record<string, unknown>;
   limit: number | null;
+  includeTotal?: boolean;
 };
 
 export type UsageAppendResult = {
