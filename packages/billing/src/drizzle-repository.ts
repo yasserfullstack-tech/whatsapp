@@ -5,6 +5,7 @@ import {
   type BillingEntitlementSnapshot,
   type BillingRepository,
   type BillingSubscriptionSnapshot,
+  type BillingUsageContext,
   type EntitlementKey,
   type UsageAppendInput,
   type UsageAppendResult,
@@ -14,6 +15,69 @@ type BillingDb = ReturnType<typeof createDatabase>["db"];
 
 export class DrizzleBillingRepository implements BillingRepository {
   constructor(private readonly db: BillingDb) {}
+
+  async getUsageContext(
+    organizationId: string,
+    key: EntitlementKey,
+    _at: Date,
+  ): Promise<BillingUsageContext> {
+    const row = (
+      await this.db
+        .select({
+          organizationId: schema.billingSubscriptions.organizationId,
+          subscriptionId: schema.billingSubscriptions.id,
+          planVersionId: schema.billingSubscriptions.planVersionId,
+          planCode: schema.billingPlans.code,
+          planName: schema.billingPlans.name,
+          status: schema.billingSubscriptions.status,
+          isManual: schema.billingSubscriptions.isManual,
+          currentPeriodStart: schema.billingSubscriptions.currentPeriodStart,
+          currentPeriodEnd: schema.billingSubscriptions.currentPeriodEnd,
+          trialEndsAt: schema.billingSubscriptions.trialEndsAt,
+          graceEndsAt: schema.billingSubscriptions.graceEndsAt,
+          entitlementId: schema.billingPlanEntitlements.id,
+          entitlementEnabled: schema.billingPlanEntitlements.enabled,
+          entitlementLimit: schema.billingPlanEntitlements.limitValue,
+        })
+        .from(schema.billingSubscriptions)
+        .innerJoin(
+          schema.billingPlanVersions,
+          eq(schema.billingPlanVersions.id, schema.billingSubscriptions.planVersionId),
+        )
+        .innerJoin(schema.billingPlans, eq(schema.billingPlans.id, schema.billingPlanVersions.planId))
+        .leftJoin(
+          schema.billingPlanEntitlements,
+          and(
+            eq(schema.billingPlanEntitlements.planVersionId, schema.billingSubscriptions.planVersionId),
+            eq(schema.billingPlanEntitlements.key, key),
+          ),
+        )
+        .where(eq(schema.billingSubscriptions.organizationId, organizationId))
+        .orderBy(desc(schema.billingSubscriptions.createdAt))
+        .limit(1)
+    )[0];
+
+    if (!row) return { subscription: null, entitlement: null };
+
+    return {
+      subscription: {
+        organizationId: row.organizationId,
+        subscriptionId: row.subscriptionId,
+        planVersionId: row.planVersionId,
+        planCode: row.planCode,
+        planName: row.planName,
+        status: row.status,
+        isManual: row.isManual,
+        currentPeriodStart: row.currentPeriodStart,
+        currentPeriodEnd: row.currentPeriodEnd,
+        trialEndsAt: row.trialEndsAt,
+        graceEndsAt: row.graceEndsAt,
+      },
+      entitlement: row.entitlementId
+        ? { enabled: row.entitlementEnabled!, limit: row.entitlementLimit }
+        : null,
+    };
+  }
 
   async getCurrentSubscription(organizationId: string, _at: Date): Promise<BillingSubscriptionSnapshot | null> {
     const row = (
