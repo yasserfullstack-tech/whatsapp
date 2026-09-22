@@ -36,38 +36,44 @@ export function createCampaignSendWorker(input: {
   const getAccessToken = createAccessTokenLoader(db, env);
   const { markUnknownSendOutcome, failQueuedRecipientForConnection } = createCampaignSendState(db);
 
+  const guardUnknownPriorOutcome = async (job: Job<SendMessageJob>): Promise<boolean> => {
+    const [recipient] = await db
+      .select({
+        status: schema.campaignRecipients.status,
+        attemptCount: schema.campaignRecipients.attemptCount,
+        lastError: schema.campaignRecipients.lastError,
+        wamid: schema.campaignRecipients.wamid,
+      })
+      .from(schema.campaignRecipients)
+      .where(and(
+        eq(schema.campaignRecipients.id, job.data.recipientId),
+        eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+        eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+      ))
+      .limit(1);
+
+    if (
+      recipient?.status === "queued" &&
+      recipient.attemptCount > 0 &&
+      recipient.lastError === null &&
+      recipient.wamid === null
+    ) {
+      await markUnknownSendOutcome(
+        job.data.recipientId,
+        job.data.campaignId,
+        job.data.organizationId,
+      );
+      return true;
+    }
+
+    return false;
+  };
+
   const sendWorker = new Worker<SendMessageJob>(
     SEND_QUEUE_NAME,
     async (job: Job<SendMessageJob>) => {
       const mps = Math.min(job.data.maxMessagesPerSecond ?? env.DEFAULT_META_MPS, 1_000);
       await limiter.acquire(job.data.phoneNumberId, Math.max(1, Math.floor(mps * 0.95)));
-
-      // Unknown prior provider outcomes take precedence over connection state.
-      // Never replace this safety signal with a newer credential error because
-      // doing so could make a real prior send look safe to retry manually.
-      const [preflightRecipient] = await db
-        .select({
-          status: schema.campaignRecipients.status,
-          attemptCount: schema.campaignRecipients.attemptCount,
-          lastError: schema.campaignRecipients.lastError,
-          wamid: schema.campaignRecipients.wamid,
-        })
-        .from(schema.campaignRecipients)
-        .where(and(
-          eq(schema.campaignRecipients.id, job.data.recipientId),
-          eq(schema.campaignRecipients.campaignId, job.data.campaignId),
-          eq(schema.campaignRecipients.organizationId, job.data.organizationId),
-        ))
-        .limit(1);
-      if (
-        preflightRecipient?.status === "queued" &&
-        preflightRecipient.attemptCount > 0 &&
-        preflightRecipient.lastError === null &&
-        preflightRecipient.wamid === null
-      ) {
-        await markUnknownSendOutcome(job.data.recipientId, job.data.campaignId, job.data.organizationId);
-        return { failed: true, reason: "send-outcome-unknown" };
-      }
 
       const readiness = await prepareConnectionForSend(db, {
         organizationId: job.data.organizationId,
@@ -75,6 +81,11 @@ export function createCampaignSendWorker(input: {
         credentialKey: job.data.credentialKey,
       });
       if (!readiness.sendable) {
+        // Unknown prior provider outcomes still take precedence over a newer
+        // connection failure, but successful first-attempt sends avoid this read.
+        if (await guardUnknownPriorOutcome(job)) {
+          return { failed: true, reason: "send-outcome-unknown" };
+        }
         await failQueuedRecipientForConnection(job.data, readiness);
         return { failed: true, reason: "connection-unavailable" };
       }
@@ -84,6 +95,9 @@ export function createCampaignSendWorker(input: {
         accessToken = await getAccessToken(job.data.organizationId, job.data.credentialKey);
       } catch (error) {
         if (!(error instanceof CredentialUnavailableError)) throw error;
+        if (await guardUnknownPriorOutcome(job)) {
+          return { failed: true, reason: "send-outcome-unknown" };
+        }
         await markConnectionRequiresReauthorization(db, {
           organizationId: job.data.organizationId,
           phoneNumberId: job.data.phoneNumberId,
@@ -111,37 +125,9 @@ export function createCampaignSendWorker(input: {
       });
 
       if (!claimed) {
-        const [existing] = await db
-          .select({
-            status: schema.campaignRecipients.status,
-            attemptCount: schema.campaignRecipients.attemptCount,
-            lastError: schema.campaignRecipients.lastError,
-            wamid: schema.campaignRecipients.wamid,
-          })
-          .from(schema.campaignRecipients)
-          .where(
-            and(
-              eq(schema.campaignRecipients.id, job.data.recipientId),
-              eq(schema.campaignRecipients.campaignId, job.data.campaignId),
-              eq(schema.campaignRecipients.organizationId, job.data.organizationId),
-            ),
-          )
-          .limit(1);
-
-        if (
-          existing?.status === "queued" &&
-          existing.attemptCount > 0 &&
-          existing.lastError === null &&
-          existing.wamid === null
-        ) {
-          await markUnknownSendOutcome(
-            job.data.recipientId,
-            job.data.campaignId,
-            job.data.organizationId,
-          );
+        if (await guardUnknownPriorOutcome(job)) {
           return { failed: true, reason: "send-outcome-unknown" };
         }
-
         return { skipped: true, reason: "recipient-already-processed-or-foreign" };
       }
 

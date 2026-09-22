@@ -17,7 +17,7 @@ import { createContactImportWorker } from "./contact-import-worker";
 
 const env = loadWorkerEnv();
 const redis = createRedisClient(env.REDIS_URL);
-const database = createDatabase(env.DATABASE_URL);
+const database = createDatabase(env.DATABASE_URL, { maxConnections: env.DATABASE_POOL_MAX });
 const db = database.db;
 const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
 const log = createLogger({ service: "worker" });
@@ -237,6 +237,7 @@ const observabilityServer = Bun.serve({
 
 log.info("service_started", {
   sendConcurrency: env.WORKER_CONCURRENCY,
+  databasePoolMax: env.DATABASE_POOL_MAX,
   webhookConcurrency: env.WEBHOOK_CONCURRENCY,
   campaignDispatchConcurrency: env.CAMPAIGN_DISPATCH_CONCURRENCY,
   contactImportConcurrency: env.CONTACT_IMPORT_CONCURRENCY,

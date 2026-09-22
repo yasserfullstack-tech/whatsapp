@@ -28,6 +28,19 @@ export type ConnectionReadiness =
 
 const VALIDATION_INTERVAL_MS = 15 * 60_000;
 const VALIDATION_BATCH_SIZE = 250;
+const SEND_READINESS_CACHE_MS = 250;
+const sendReadinessCache = new Map<string, number>();
+
+function sendReadinessCacheKey(organizationId: string, phoneNumberId: string, credentialKey: string): string {
+  return `${organizationId}:${phoneNumberId}:${credentialKey}`;
+}
+
+function invalidateSendReadiness(organizationId: string, phoneNumberId: string): void {
+  const prefix = `${organizationId}:${phoneNumberId}:`;
+  for (const key of sendReadinessCache.keys()) {
+    if (key.startsWith(prefix)) sendReadinessCache.delete(key);
+  }
+}
 
 export function isConnectionRevisionCurrent(expected: Date, current: Date): boolean {
   return expected.getTime() === current.getTime();
@@ -220,6 +233,7 @@ export async function markConnectionRequiresReauthorization(
     expectedUpdatedAt?: Date;
   },
 ): Promise<boolean> {
+  invalidateSendReadiness(input.organizationId, input.phoneNumberId);
   const existing = (
     await db
       .select({
@@ -288,6 +302,17 @@ export async function prepareConnectionForSend(
   },
 ): Promise<ConnectionReadiness> {
   const now = input.now ?? new Date();
+  const cacheKey = sendReadinessCacheKey(
+    input.organizationId,
+    input.phoneNumberId,
+    input.credentialKey,
+  );
+  const cachedUntil = sendReadinessCache.get(cacheKey);
+  if (cachedUntil !== undefined) {
+    if (cachedUntil > now.getTime()) return { sendable: true };
+    sendReadinessCache.delete(cacheKey);
+  }
+
   const connection = (
     await db
       .select({
@@ -296,8 +321,16 @@ export async function prepareConnectionForSend(
         failureCode: schema.whatsappPhoneNumbers.failureCode,
         failureReason: schema.whatsappPhoneNumbers.failureReason,
         credentialExpiresAt: schema.whatsappPhoneNumbers.credentialExpiresAt,
+        credentialId: schema.credentialSecrets.id,
       })
       .from(schema.whatsappPhoneNumbers)
+      .leftJoin(
+        schema.credentialSecrets,
+        and(
+          eq(schema.credentialSecrets.organizationId, input.organizationId),
+          eq(schema.credentialSecrets.key, input.credentialKey),
+        ),
+      )
       .where(and(
         eq(schema.whatsappPhoneNumbers.organizationId, input.organizationId),
         eq(schema.whatsappPhoneNumbers.phoneNumberId, input.phoneNumberId),
@@ -329,17 +362,10 @@ export async function prepareConnectionForSend(
     return readiness;
   }
 
-  const credential = (
-    await db
-      .select({ id: schema.credentialSecrets.id })
-      .from(schema.credentialSecrets)
-      .where(and(
-        eq(schema.credentialSecrets.organizationId, input.organizationId),
-        eq(schema.credentialSecrets.key, input.credentialKey),
-      ))
-      .limit(1)
-  )[0];
-  if (credential) return { sendable: true };
+  if (connection.credentialId) {
+    sendReadinessCache.set(cacheKey, now.getTime() + SEND_READINESS_CACHE_MS);
+    return { sendable: true };
+  }
 
   const missing = {
     kind: "reauthorize" as const,

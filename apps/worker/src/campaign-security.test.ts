@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { ensureDefaultBilling } from "@wa/billing";
 import { createDatabase, schema } from "@wa/db";
 import { claimCampaignRecipientForSend } from "./campaign-security";
 
@@ -21,11 +20,6 @@ describe("campaign send queue tenant boundary", () => {
     if (!attacker || !victim) throw new Error("Could not create organization fixtures");
 
     try {
-      await Promise.all([
-        ensureDefaultBilling(db, attacker.id),
-        ensureDefaultBilling(db, victim.id),
-      ]);
-
       const [phone] = await db.insert(schema.whatsappPhoneNumbers).values({
         organizationId: victim.id,
         wabaId: `waba-${suffix}`,

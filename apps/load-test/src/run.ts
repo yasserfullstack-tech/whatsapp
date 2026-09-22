@@ -267,11 +267,11 @@ async function main() {
       if (!organization) throw new Error("Could not create load-test organization");
       organizationIds.push(organization.id);
 
-      // The send worker meters every recipient against `monthly_campaign_recipients`
-      // and pauses the campaign when the org has no usable subscription. Orgs created
-      // after migration 0005 get no backfilled subscription, so seed one here.
-      // ponytail: `custom` has NULL limits so a plan quota never masks the metric under
-      // test; switch the plan code if a run should exercise limit_exceeded on purpose.
+      // Campaign dispatch reserves the immutable recipient snapshot once against
+      // `monthly_campaign_recipients` before publishing send jobs. Orgs created after
+      // migration 0005 get no backfilled subscription, so seed one here.
+      // `custom` has NULL limits so a plan quota never masks the metric under test;
+      // switch the plan code if a run should exercise limit_exceeded on purpose.
       await client`
         INSERT INTO billing_accounts (organization_id) VALUES (${organization.id}::uuid)
         ON CONFLICT (organization_id) DO NOTHING

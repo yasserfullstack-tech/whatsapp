@@ -272,20 +272,18 @@ export class EntitlementService {
     if (!input.idempotencyKey.trim()) throw new Error("recordUsage idempotencyKey is required");
 
     const at = input.occurredAt ?? new Date();
-    // Validate subscription/entitlement availability only. appendUsage is the
-    // authority for numeric enforcement because it checks idempotency first;
-    // this keeps retries safe even when usage is at or above a downgraded limit.
-    const check = await this.assertUsage(input.organizationId, input.key, {
-      requested: 0,
-      currentUsage: 0,
-      at,
-    });
-    if (!check.periodStart || !check.periodEnd) {
-      throw new BillingEntitlementError(check.reason, input.key);
-    }
-
+    // Metering validates the live subscription on every call. The numeric limit
+    // remains authoritative inside appendUsage so concurrent sends cannot
+    // overshoot a finite quota and idempotent retries remain safe.
     const subscription = await this.repository.getCurrentSubscription(input.organizationId, at);
     if (!subscription) throw new BillingEntitlementError("no_subscription", input.key);
+    if (!isSubscriptionUsable(subscription, at)) {
+      throw new BillingEntitlementError("subscription_inactive", input.key);
+    }
+
+    const entitlement = await this.repository.getEntitlement(subscription.planVersionId, input.key);
+    if (!entitlement) throw new BillingEntitlementError("entitlement_missing", input.key);
+    if (!entitlement.enabled) throw new BillingEntitlementError("entitlement_disabled", input.key);
 
     const result = await this.repository.appendUsage({
       organizationId: input.organizationId,
@@ -293,20 +291,25 @@ export class EntitlementService {
       entitlementKey: input.key,
       quantity: input.quantity,
       idempotencyKey: input.idempotencyKey,
-      periodStart: check.periodStart,
-      periodEnd: check.periodEnd,
+      periodStart: subscription.currentPeriodStart,
+      periodEnd: subscription.currentPeriodEnd,
       occurredAt: at,
       metadata: input.metadata ?? {},
-      limit: check.limit,
+      limit: entitlement.limit,
     });
 
     return {
-      ...check,
+      allowed: entitlement.limit === null || result.total <= entitlement.limit,
+      reason: entitlement.limit === null || result.total <= entitlement.limit ? "ok" : "limit_exceeded",
+      status: subscription.status,
+      planCode: subscription.planCode,
+      mode: entitlementDefinitions[input.key].mode,
+      limit: entitlement.limit,
       used: result.total,
       requested: 0,
-      remaining: remaining(check.limit, result.total),
-      allowed: check.limit === null || result.total <= check.limit,
-      reason: check.limit === null || result.total <= check.limit ? "ok" : "limit_exceeded",
+      remaining: remaining(entitlement.limit, result.total),
+      periodStart: subscription.currentPeriodStart,
+      periodEnd: subscription.currentPeriodEnd,
       recorded: result.recorded,
     };
   }

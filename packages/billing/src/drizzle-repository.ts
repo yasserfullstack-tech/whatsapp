@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, lte, sql } from "drizzle-orm";
 import { createDatabase, schema } from "@wa/db";
 import {
   BillingLimitExceededError,
@@ -13,6 +13,11 @@ import {
 type BillingDb = ReturnType<typeof createDatabase>["db"];
 
 export class DrizzleBillingRepository implements BillingRepository {
+  private readonly entitlementCache = new Map<string, {
+    value: BillingEntitlementSnapshot | null;
+    expiresAt: number;
+  }>();
+
   constructor(private readonly db: BillingDb) {}
 
   async getCurrentSubscription(organizationId: string, _at: Date): Promise<BillingSubscriptionSnapshot | null> {
@@ -43,6 +48,11 @@ export class DrizzleBillingRepository implements BillingRepository {
   }
 
   async getEntitlement(planVersionId: string, key: EntitlementKey): Promise<BillingEntitlementSnapshot | null> {
+    const cacheKey = `${planVersionId}:${key}`;
+    const now = Date.now();
+    const cached = this.entitlementCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.value;
+
     const row = (
       await this.db
         .select({
@@ -57,9 +67,13 @@ export class DrizzleBillingRepository implements BillingRepository {
           ),
         )
         .limit(1)
-    )[0];
+    )[0] ?? null;
 
-    return row ?? null;
+    // Plan-version entitlement metadata changes far less frequently than send
+    // traffic. A short cache removes a per-recipient read while still picking
+    // up administrative changes quickly. Subscription status remains uncached.
+    this.entitlementCache.set(cacheKey, { value: row, expiresAt: now + 1_000 });
+    return row;
   }
 
   async getUsage(input: {
@@ -88,29 +102,90 @@ export class DrizzleBillingRepository implements BillingRepository {
     return row?.quantity ?? 0;
   }
 
+  private async appendUnlimitedUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
+    const updatedAt = new Date();
+    const rows = await this.db.execute(sql<{ total: number }>`
+      WITH inserted_ledger AS (
+        INSERT INTO ${schema.billingUsageLedger} (
+          organization_id,
+          subscription_id,
+          entitlement_key,
+          quantity,
+          idempotency_key,
+          period_start,
+          period_end,
+          occurred_at,
+          metadata
+        )
+        VALUES (
+          ${input.organizationId},
+          ${input.subscriptionId},
+          ${input.entitlementKey},
+          ${input.quantity},
+          ${input.idempotencyKey},
+          ${input.periodStart.toISOString()}::timestamptz,
+          ${input.periodEnd.toISOString()}::timestamptz,
+          ${input.occurredAt.toISOString()}::timestamptz,
+          ${JSON.stringify(input.metadata)}::jsonb
+        )
+        ON CONFLICT (organization_id, idempotency_key) DO NOTHING
+        RETURNING 1
+      )
+      INSERT INTO ${schema.billingPeriodUsage} (
+        organization_id,
+        subscription_id,
+        entitlement_key,
+        period_start,
+        period_end,
+        quantity,
+        updated_at
+      )
+      SELECT
+        ${input.organizationId},
+        ${input.subscriptionId},
+        ${input.entitlementKey},
+        ${input.periodStart.toISOString()}::timestamptz,
+        ${input.periodEnd.toISOString()}::timestamptz,
+        ${input.quantity},
+        ${updatedAt.toISOString()}::timestamptz
+      FROM inserted_ledger
+      ON CONFLICT (
+        organization_id,
+        subscription_id,
+        entitlement_key,
+        period_start,
+        period_end
+      )
+      DO UPDATE SET
+        quantity = ${schema.billingPeriodUsage.quantity} + EXCLUDED.quantity,
+        updated_at = EXCLUDED.updated_at
+      RETURNING quantity AS total
+    `);
+
+    const row = rows[0];
+    if (row) return { recorded: true, total: Number(row.total) };
+
+    return {
+      recorded: false,
+      total: await this.getUsage({
+        organizationId: input.organizationId,
+        subscriptionId: input.subscriptionId,
+        entitlementKey: input.entitlementKey,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+      }),
+    };
+  }
+
   async appendUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
+    const limit = input.limit;
+    if (limit === null) return this.appendUnlimitedUsage(input);
+
+    if (input.quantity > limit) {
+      throw new BillingLimitExceededError(input.entitlementKey, limit, input.quantity);
+    }
+
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`
-        SELECT ${schema.billingSubscriptions.id}
-        FROM ${schema.billingSubscriptions}
-        WHERE ${schema.billingSubscriptions.id} = ${input.subscriptionId}
-          AND ${schema.billingSubscriptions.organizationId} = ${input.organizationId}
-        FOR UPDATE
-      `);
-
-      const existing = (
-        await tx
-          .select({ id: schema.billingUsageLedger.id })
-          .from(schema.billingUsageLedger)
-          .where(
-            and(
-              eq(schema.billingUsageLedger.organizationId, input.organizationId),
-              eq(schema.billingUsageLedger.idempotencyKey, input.idempotencyKey),
-            ),
-          )
-          .limit(1)
-      )[0];
-
       const usageWhere = and(
         eq(schema.billingPeriodUsage.organizationId, input.organizationId),
         eq(schema.billingPeriodUsage.subscriptionId, input.subscriptionId),
@@ -118,34 +193,41 @@ export class DrizzleBillingRepository implements BillingRepository {
         eq(schema.billingPeriodUsage.periodStart, input.periodStart),
         eq(schema.billingPeriodUsage.periodEnd, input.periodEnd),
       );
-      const current = (
-        await tx
-          .select({ quantity: schema.billingPeriodUsage.quantity })
-          .from(schema.billingPeriodUsage)
-          .where(usageWhere)
-          .limit(1)
-      )[0]?.quantity ?? 0;
 
-      if (existing) return { recorded: false, total: current };
+      const [ledgerEntry] = await tx
+        .insert(schema.billingUsageLedger)
+        .values({
+          organizationId: input.organizationId,
+          subscriptionId: input.subscriptionId,
+          entitlementKey: input.entitlementKey,
+          quantity: input.quantity,
+          idempotencyKey: input.idempotencyKey,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          occurredAt: input.occurredAt,
+          metadata: input.metadata,
+        })
+        .onConflictDoNothing({
+          target: [
+            schema.billingUsageLedger.organizationId,
+            schema.billingUsageLedger.idempotencyKey,
+          ],
+        })
+        .returning({ id: schema.billingUsageLedger.id });
 
-      const attemptedTotal = current + input.quantity;
-      if (input.limit !== null && attemptedTotal > input.limit) {
-        throw new BillingLimitExceededError(input.entitlementKey, input.limit, attemptedTotal);
+      if (!ledgerEntry) {
+        const current = (
+          await tx
+            .select({ quantity: schema.billingPeriodUsage.quantity })
+            .from(schema.billingPeriodUsage)
+            .where(usageWhere)
+            .limit(1)
+        )[0]?.quantity ?? 0;
+        return { recorded: false, total: current };
       }
 
-      await tx.insert(schema.billingUsageLedger).values({
-        organizationId: input.organizationId,
-        subscriptionId: input.subscriptionId,
-        entitlementKey: input.entitlementKey,
-        quantity: input.quantity,
-        idempotencyKey: input.idempotencyKey,
-        periodStart: input.periodStart,
-        periodEnd: input.periodEnd,
-        occurredAt: input.occurredAt,
-        metadata: input.metadata,
-      });
-
-      await tx
+      const updatedAt = new Date();
+      const [createdUsage] = await tx
         .insert(schema.billingPeriodUsage)
         .values({
           organizationId: input.organizationId,
@@ -154,9 +236,9 @@ export class DrizzleBillingRepository implements BillingRepository {
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
           quantity: input.quantity,
-          updatedAt: new Date(),
+          updatedAt,
         })
-        .onConflictDoUpdate({
+        .onConflictDoNothing({
           target: [
             schema.billingPeriodUsage.organizationId,
             schema.billingPeriodUsage.subscriptionId,
@@ -164,13 +246,38 @@ export class DrizzleBillingRepository implements BillingRepository {
             schema.billingPeriodUsage.periodStart,
             schema.billingPeriodUsage.periodEnd,
           ],
-          set: {
-            quantity: sql`${schema.billingPeriodUsage.quantity} + ${input.quantity}`,
-            updatedAt: new Date(),
-          },
-        });
+        })
+        .returning({ quantity: schema.billingPeriodUsage.quantity });
 
-      return { recorded: true, total: attemptedTotal };
+      if (createdUsage) return { recorded: true, total: createdUsage.quantity };
+
+      const [updatedUsage] = await tx
+        .update(schema.billingPeriodUsage)
+        .set({
+          quantity: sql`${schema.billingPeriodUsage.quantity} + ${input.quantity}`,
+          updatedAt,
+        })
+        .where(and(
+          usageWhere,
+          lte(schema.billingPeriodUsage.quantity, limit - input.quantity),
+        ))
+        .returning({ quantity: schema.billingPeriodUsage.quantity });
+
+      if (updatedUsage) return { recorded: true, total: updatedUsage.quantity };
+
+      const current = (
+        await tx
+          .select({ quantity: schema.billingPeriodUsage.quantity })
+          .from(schema.billingPeriodUsage)
+          .where(usageWhere)
+          .limit(1)
+      )[0]?.quantity ?? 0;
+
+      throw new BillingLimitExceededError(
+        input.entitlementKey,
+        limit,
+        current + input.quantity,
+      );
     });
   }
 }
