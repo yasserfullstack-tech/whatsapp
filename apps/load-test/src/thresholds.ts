@@ -12,6 +12,10 @@ export type ThresholdSummary = {
   checks: ThresholdCheck[];
 };
 
+export type CampaignThresholdOptions = {
+  throughputMode?: "capacity" | "regression";
+};
+
 function max(metric: string, observed: number, limit: number, note?: string): ThresholdCheck {
   return { metric, observed, operator: "<=", limit, pass: observed <= limit, ...(note ? { note } : {}) };
 }
@@ -45,7 +49,10 @@ export function summarizeThresholds(checks: ThresholdCheck[]): ThresholdSummary 
   return { passed: checks.every((check) => check.pass), checks };
 }
 
-export function evaluateCampaignThresholds(report: any): ThresholdSummary {
+export function evaluateCampaignThresholds(
+  report: any,
+  options: CampaignThresholdOptions = {},
+): ThresholdSummary {
   const expected = number(report?.totals?.expectedRecipients);
   const submitted = number(report?.totals?.submitted);
   const failed = number(report?.totals?.failed);
@@ -84,17 +91,22 @@ export function evaluateCampaignThresholds(report: any): ThresholdSummary {
   const snapshotLimitSeconds = Math.max(15, expected / 5_000);
   const finalFailureRate = expected > 0 ? failed / expected : 1;
   const failureRateLimit = hasInjectedErrors ? 0.02 : 0;
-  const throughputEfficiencyFloor = hasInjectedErrors ? 0.20 : 0.70;
+  const throughputMode = options.throughputMode ?? "capacity";
+  const throughputEfficiencyFloor = hasInjectedErrors || throughputMode === "regression" ? 0.20 : 0.70;
   const queueDepthLimit = Math.min(expected, 20_000 * campaigns) + Math.max(1, number(report?.scenario?.workerConcurrency));
   const queueDrainLimitSeconds = Math.max(30, expectedSteadyStateSeconds * 4 + 15);
   const failedJobLimit = Math.ceil(expected * failureRateLimit);
 
   const throughputCheck = hasSustainedThroughputWindow
     ? min(
-        "dispatch throughput efficiency",
+        throughputMode === "regression"
+          ? "dispatch throughput efficiency (shared-runner regression floor)"
+          : "dispatch throughput efficiency",
         throughputEfficiency,
         throughputEfficiencyFloor,
-        `Gated because the configured workload represents ${expectedSteadyStateSeconds.toFixed(1)} seconds at target throughput.`,
+        throughputMode === "regression"
+          ? `Regression-only floor on non-representative CI. The workload represents ${expectedSteadyStateSeconds.toFixed(1)} seconds at target throughput; capacity certification remains on the dedicated full benchmark.`
+          : `Gated because the configured workload represents ${expectedSteadyStateSeconds.toFixed(1)} seconds at target throughput.`,
       )
     : min(
         "dispatch throughput efficiency (short-run diagnostic only)",

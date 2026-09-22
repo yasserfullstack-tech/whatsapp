@@ -16,7 +16,6 @@ type Scenario = {
   phonesPerOrganization: number;
   messagesPerSecond: number;
   workerConcurrency: number;
-  databasePoolMax: number;
   fakeLatencyMs: number;
   fakeJitterMs: number;
   fakeErrorRate: number;
@@ -72,12 +71,12 @@ function scenarioFromArgs(): Scenario {
   const name = argument("scenario") || "baseline-80";
   const presets: Record<string, Partial<Scenario>> = {
     "baseline-80": { messagesPerSecond: 80 },
-    "baseline-1000": { messagesPerSecond: 1_000, workerConcurrency: 1_200, databasePoolMax: 80 },
-    "concurrent-10": { campaigns: 10, organizations: 1, phonesPerOrganization: 10, messagesPerSecond: 1_000, workerConcurrency: 1_500, databasePoolMax: 80 },
-    "multi-org": { campaigns: 8, organizations: 4, phonesPerOrganization: 2, messagesPerSecond: 1_000, workerConcurrency: 1_500, databasePoolMax: 80 },
-    "slow-meta": { messagesPerSecond: 1_000, workerConcurrency: 1_500, databasePoolMax: 80, fakeLatencyMs: 500, fakeJitterMs: 150 },
-    "meta-429": { messagesPerSecond: 1_000, workerConcurrency: 1_500, databasePoolMax: 80, fake429Rate: 0.25 },
-    "meta-500": { messagesPerSecond: 1_000, workerConcurrency: 1_500, databasePoolMax: 80, fake500Rate: 0.25 },
+    "baseline-1000": { messagesPerSecond: 1_000, workerConcurrency: 1_200 },
+    "concurrent-10": { campaigns: 10, organizations: 1, phonesPerOrganization: 10, messagesPerSecond: 1_000, workerConcurrency: 1_500 },
+    "multi-org": { campaigns: 8, organizations: 4, phonesPerOrganization: 2, messagesPerSecond: 1_000, workerConcurrency: 1_500 },
+    "slow-meta": { messagesPerSecond: 1_000, workerConcurrency: 1_500, fakeLatencyMs: 500, fakeJitterMs: 150 },
+    "meta-429": { messagesPerSecond: 1_000, workerConcurrency: 1_500, fake429Rate: 0.25 },
+    "meta-500": { messagesPerSecond: 1_000, workerConcurrency: 1_500, fake500Rate: 0.25 },
   };
   const preset = presets[name];
   if (!preset) throw new Error(`Unknown scenario: ${name}. Choose ${Object.keys(presets).join(", ")}`);
@@ -90,7 +89,6 @@ function scenarioFromArgs(): Scenario {
     phonesPerOrganization: 1,
     messagesPerSecond: 80,
     workerConcurrency: 400,
-    databasePoolMax: 48,
     fakeLatencyMs: 25,
     fakeJitterMs: 10,
     fakeErrorRate: 0,
@@ -107,7 +105,6 @@ function scenarioFromArgs(): Scenario {
     phonesPerOrganization: integerArgument("phones", base.phonesPerOrganization),
     messagesPerSecond: integerArgument("mps", base.messagesPerSecond),
     workerConcurrency: integerArgument("worker-concurrency", base.workerConcurrency),
-    databasePoolMax: Math.min(80, integerArgument("database-pool-max", base.databasePoolMax)),
     fakeLatencyMs: numberArgument("latency-ms", base.fakeLatencyMs),
     fakeJitterMs: numberArgument("jitter-ms", base.fakeJitterMs),
     fakeErrorRate: Math.min(1, numberArgument("error-rate", base.fakeErrorRate)),
@@ -227,7 +224,6 @@ async function main() {
       META_SEND_API_BASE_URL: FAKE_META_URL,
       DEFAULT_META_MPS: String(scenario.messagesPerSecond),
       WORKER_CONCURRENCY: String(scenario.workerConcurrency),
-      DATABASE_POOL_MAX: String(scenario.databasePoolMax),
       WEBHOOK_CONCURRENCY: "200",
       CAMPAIGN_DISPATCH_CONCURRENCY: String(Math.min(100, Math.max(8, scenario.campaigns))),
       CONTACT_IMPORT_CONCURRENCY: "2",
