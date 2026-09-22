@@ -58,9 +58,6 @@ export async function claimCampaignRecipientForSend(
         campaignId: input.campaignId,
         recipientId: claimed.id,
       },
-      // Send processing only needs enforcement/idempotency. Unlimited plans can
-      // avoid calculating an aggregate total on every recipient.
-      includeTotal: false,
     });
   } catch (error) {
     const entitlementDenied = error instanceof BillingEntitlementError || error instanceof BillingLimitExceededError;
