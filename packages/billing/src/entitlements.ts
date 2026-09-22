@@ -298,7 +298,7 @@ export class EntitlementService {
       occurredAt: at,
       metadata: input.metadata ?? {},
       limit: entitlement.limit,
-      includeTotal: input.includeTotal,
+      ...(input.includeTotal === undefined ? {} : { includeTotal: input.includeTotal }),
     });
 
     return {
