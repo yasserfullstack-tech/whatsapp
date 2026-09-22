@@ -1,3 +1,4 @@
+import { DrizzleBillingRepository, EntitlementService } from "@wa/billing";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase } from "@wa/db";
 import {
@@ -30,9 +31,10 @@ export function startCampaignWorkers(input: {
   const { db, redis, env } = input;
   const sendQueue = createSendQueue(env.REDIS_URL);
   const dispatchQueue = createCampaignDispatchQueue(env.REDIS_URL);
+  const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
   const connectionHealthMonitor = startConnectionHealthMonitor({ db, env });
   const sendWorker = createCampaignSendWorker({ db, redis, env });
-  const campaignDispatchWorker = createCampaignDispatchWorker({ db, env, sendQueue });
+  const campaignDispatchWorker = createCampaignDispatchWorker({ db, env, sendQueue, entitlements });
   const reconciliation = startCampaignReconciliation({ db, dispatchQueue });
 
   return {
