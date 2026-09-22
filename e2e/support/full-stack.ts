@@ -96,6 +96,10 @@ const metaServer = Bun.serve({
     const action = resource[1];
     if (!id) return Response.json({ error: { message: "missing id" } }, { status: 400 });
 
+    if (action === "phone_numbers" && request.method === "GET") {
+      return Response.json({ data: [{ id: "e2e-phone" }] });
+    }
+
     if (request.method === "GET" && !action) {
       return Response.json({
         id,

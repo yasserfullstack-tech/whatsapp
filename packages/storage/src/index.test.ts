@@ -23,18 +23,43 @@ describe("R2 object key isolation", () => {
   test("accepts only objects strictly below the expected prefix", () => {
     const prefix = "org-a/data-exports/job-a/";
     expect(isObjectKeyWithinPrefix("org-a/data-exports/job-a/file.ndjson", prefix)).toBe(true);
+    expect(isObjectKeyWithinPrefix("org-a/data-exports/job-a/nested/file.ndjson", prefix)).toBe(true);
     expect(isObjectKeyWithinPrefix(prefix, prefix)).toBe(false);
     expect(isObjectKeyWithinPrefix("org-b/data-exports/job-a/file.ndjson", prefix)).toBe(false);
     expect(isObjectKeyWithinPrefix("org-a2/data-exports/job-a/file.ndjson", prefix)).toBe(false);
     expect(isObjectKeyWithinPrefix("org-a/data-exports/job-b/file.ndjson", prefix)).toBe(false);
   });
 
-  test("rejects path-like traversal and separator tricks", () => {
+  test("rejects path-like traversal, separator tricks, and control characters", () => {
     const prefix = "org-a/contact-imports/import-a/";
-    expect(isObjectKeyWithinPrefix("org-a/contact-imports/import-a/../foreign.csv", prefix)).toBe(false);
-    expect(isObjectKeyWithinPrefix("org-a/contact-imports/import-a/.//foreign.csv", prefix)).toBe(false);
-    expect(isObjectKeyWithinPrefix("org-a/contact-imports/import-a\\foreign.csv", prefix)).toBe(false);
-    expect(isObjectKeyWithinPrefix("/org-a/contact-imports/import-a/foreign.csv", prefix)).toBe(false);
+    for (const key of [
+      "org-a/contact-imports/import-a/../foreign.csv",
+      "org-a/contact-imports/import-a/./foreign.csv",
+      "org-a/contact-imports/import-a//foreign.csv",
+      "org-a/contact-imports/import-a\\foreign.csv",
+      "/org-a/contact-imports/import-a/foreign.csv",
+      "org-a/contact-imports/import-a/foreign\0.csv",
+      "org-a/contact-imports/import-a/foreign\n.csv",
+      "org-a/contact-imports/import-a/foreign\r.csv",
+      "org-a/contact-imports/import-a/foreign\u007f.csv",
+    ]) {
+      expect(isObjectKeyWithinPrefix(key, prefix)).toBe(false);
+    }
+  });
+
+  test("rejects malformed prefixes before applying containment checks", () => {
+    const key = "org-a/data-exports/job-a/file.ndjson";
+    for (const prefix of [
+      "",
+      "org-a/data-exports/job-a",
+      "/org-a/data-exports/job-a/",
+      "org-a/data-exports/../job-a/",
+      "org-a/data-exports//job-a/",
+      "org-a/data-exports/job-a\\",
+      "org-a/data-exports/job-a\n/",
+    ]) {
+      expect(isObjectKeyWithinPrefix(key, prefix)).toBe(false);
+    }
   });
 });
 

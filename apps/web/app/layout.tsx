@@ -6,6 +6,7 @@ import { getI18n } from "@/lib/i18n/server";
 import { getPublicAppUrl } from "@/lib/public-app-url";
 import "./globals.css";
 import "./responsive.css";
+import "./ui-skills-guided.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { messages } = await getI18n();

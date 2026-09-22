@@ -16,6 +16,7 @@ const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defa
 
 export const memberRole = pgEnum("member_role", ["owner", "admin", "member", "viewer"]);
 export const connectionStatus = pgEnum("connection_status", ["pending", "connected", "restricted", "disconnected"]);
+export const connectionHealthStatus = pgEnum("connection_health_status", ["unknown", "healthy", "degraded", "reauthorization_required"]);
 export const templateCategory = pgEnum("template_category", ["marketing", "utility", "authentication"]);
 export const templateStatus = pgEnum("template_status", ["draft", "pending", "approved", "rejected", "paused", "disabled"]);
 export const campaignStatus = pgEnum("campaign_status", ["draft", "scheduled", "dispatching", "sending", "paused", "completed", "cancelled", "failed"]);
@@ -135,6 +136,7 @@ export const credentialSecrets = pgTable(
     ciphertext: text("ciphertext").notNull(),
     iv: text("iv").notNull(),
     authTag: text("auth_tag").notNull(),
+    keyVersion: integer("key_version"),
     createdAt,
     updatedAt,
   },
@@ -152,6 +154,12 @@ export const whatsappPhoneNumbers = pgTable(
     displayPhoneNumber: text("display_phone_number"),
     verifiedName: text("verified_name"),
     status: connectionStatus("status").notNull().default("pending"),
+    healthStatus: connectionHealthStatus("health_status").notNull().default("unknown"),
+    lastValidatedAt: timestamp("last_validated_at", { withTimezone: true }),
+    reauthorizationRequired: boolean("reauthorization_required").notNull().default(false),
+    failureCode: text("failure_code"),
+    failureReason: text("failure_reason"),
+    credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
     qualityRating: text("quality_rating"),
     throughputMps: integer("throughput_mps").notNull().default(80),
     credentialKey: text("credential_key").notNull(),
@@ -161,6 +169,7 @@ export const whatsappPhoneNumbers = pgTable(
   (table) => [
     uniqueIndex("whatsapp_phone_numbers_phone_id_uq").on(table.phoneNumberId),
     index("whatsapp_phone_numbers_org_idx").on(table.organizationId),
+    index("whatsapp_phone_numbers_health_idx").on(table.status, table.reauthorizationRequired, table.lastValidatedAt),
   ],
 );
 

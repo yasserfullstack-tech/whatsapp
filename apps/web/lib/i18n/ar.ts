@@ -336,6 +336,6 @@ export const ar: Messages = {
   },
   signOut: { idle: "تسجيل الخروج", pending: "جارٍ تسجيل الخروج…" },
   connect: {
-    finishing: "جارٍ إكمال ربط واتساب…", connected: "تم ربط واتساب", failed: "تعذر ربط واتساب", cancelled: "تم إلغاء ربط واتساب.", openingMeta: "جارٍ فتح Meta…", metaLoading: "ما زال تسجيل الدخول إلى Meta قيد التحميل. حاول مرة أخرى بعد لحظات.", noCode: "لم تُرجع Meta رمز تفويض.", authorized: "تم التفويض من Meta. جارٍ إكمال الإعداد…", button: "ربط واتساب", loadingMeta: "جارٍ تحميل Meta…",
+    finishing: "جارٍ إكمال ربط واتساب…", connected: "تم ربط واتساب", failed: "تعذر ربط واتساب", cancelled: "تم إلغاء ربط واتساب.", openingMeta: "جارٍ فتح Meta…", metaLoading: "ما زال تسجيل الدخول إلى Meta قيد التحميل. حاول مرة أخرى بعد لحظات.", noCode: "لم تُرجع Meta رمز تفويض.", reloadToRetry: "أعد تحميل هذه الصفحة قبل محاولة ربط واتساب مرة أخرى.", authorized: "تم التفويض من Meta. جارٍ إكمال الإعداد…", button: "ربط واتساب", loadingMeta: "جارٍ تحميل Meta…",
   },
 };

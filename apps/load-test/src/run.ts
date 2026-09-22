@@ -267,6 +267,29 @@ async function main() {
       if (!organization) throw new Error("Could not create load-test organization");
       organizationIds.push(organization.id);
 
+      // The send worker meters every recipient against `monthly_campaign_recipients`
+      // and pauses the campaign when the org has no usable subscription. Orgs created
+      // after migration 0005 get no backfilled subscription, so seed one here.
+      // ponytail: `custom` has NULL limits so a plan quota never masks the metric under
+      // test; switch the plan code if a run should exercise limit_exceeded on purpose.
+      await client`
+        INSERT INTO billing_accounts (organization_id) VALUES (${organization.id}::uuid)
+        ON CONFLICT (organization_id) DO NOTHING
+      `;
+      const [subscription] = await client`
+        INSERT INTO subscriptions (
+          billing_account_id, organization_id, plan_version_id, status,
+          current_period_start, current_period_end
+        )
+        SELECT ba.id, ba.organization_id, pv.id, 'active', now(), now() + interval '1 month'
+        FROM billing_accounts ba
+        JOIN plans p ON p.code = 'custom'
+        JOIN plan_versions pv ON pv.plan_id = p.id AND pv.version = 1
+        WHERE ba.organization_id = ${organization.id}::uuid
+        RETURNING id
+      `;
+      if (!subscription) throw new Error("Could not seed load-test billing subscription");
+
       await client`
         INSERT INTO contacts (
           id, organization_id, phone_e164, display_name, opted_in, opt_in_source, opt_in_at, created_at, updated_at
@@ -375,6 +398,7 @@ async function main() {
     const timeoutMs = integerArgument("timeout-ms", Math.max(120_000, Math.ceil(theoreticalSeconds * 4_000)));
     const deadline = Date.now() + timeoutMs;
     let allTerminal = false;
+    let blockedReason: string | null = null;
 
     while (Date.now() < deadline) {
       const states = await Promise.all(campaignIds.map(async (campaignId) => {
@@ -386,6 +410,19 @@ async function main() {
         return rows[0] as { status?: string; snapshot_created_at?: Date | null; completed_at?: Date | null } | undefined;
       }));
       allTerminal = states.every((row) => row && ["completed", "failed", "cancelled"].includes(String(row.status)));
+      // `paused` is never reached again by the dispatcher, so waiting out the deadline
+      // only hides why. Surface the recipient error that caused the pause immediately.
+      if (states.some((row) => String(row?.status) === "paused")) {
+        const [blocked] = await client`
+          SELECT last_error, error_code
+          FROM campaign_recipients
+          WHERE campaign_id = ANY(${campaignIds}::uuid[]) AND last_error IS NOT NULL
+          LIMIT 1
+        `;
+        blockedReason =
+          `Load test campaign was paused mid-run (statuses: ${states.map((row) => row?.status).join(", ")}). ` +
+          `First recipient error: ${blocked?.error_code ?? "unknown"} ${blocked?.last_error ?? "(none recorded)"}`;
+      }
 
       const queueCounts = await sendQueue.getJobCounts("waiting", "active", "delayed", "failed");
       const redisMemoryBytes = parseRedisMemory(await redis.info("memory"));
@@ -415,7 +452,7 @@ async function main() {
         workerMemoryMb: workerUsage.memoryMb,
       });
 
-      if (allTerminal) break;
+      if (allTerminal || blockedReason) break;
       await Bun.sleep(1_000);
     }
 
@@ -530,6 +567,7 @@ async function main() {
     console.log(markdown);
     console.log(`Report written to ${fileBase}.json and ${fileBase}.md`);
 
+    if (blockedReason) throw new Error(blockedReason);
     if (!allTerminal) throw new Error(`Load test exceeded timeout before all campaigns reached a terminal state`);
   } finally {
     worker.kill("SIGTERM");

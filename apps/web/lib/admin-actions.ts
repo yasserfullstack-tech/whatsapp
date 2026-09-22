@@ -1,10 +1,12 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
 import { requirePlatformAdmin } from "./platform-admin";
 import { db } from "./server";
+
+const workspaceRoles = new Set(["owner", "admin", "member", "viewer"]);
 
 function requiredText(formData: FormData, key: string): string {
   const value = String(formData.get(key) ?? "").trim();
@@ -24,7 +26,96 @@ function refreshOrganization(id: string) {
   revalidatePath("/admin");
   revalidatePath("/admin/organizations");
   revalidatePath(`/admin/organizations/${id}`);
+  revalidatePath("/admin/users");
   revalidatePath("/admin/audit");
+}
+
+function refreshAccess() {
+  revalidatePath("/admin");
+  revalidatePath("/admin/access");
+  revalidatePath("/admin/audit");
+}
+
+export async function grantPlatformAdminAction(formData: FormData) {
+  const actor = await requirePlatformAdmin();
+  const targetAuthUserId = requiredText(formData, "authUserId");
+  const [target] = await db
+    .select({ id: schema.authUser.id, email: schema.authUser.email })
+    .from(schema.authUser)
+    .where(eq(schema.authUser.id, targetAuthUserId))
+    .limit(1);
+  if (!target) throw new Error("Authentication user not found");
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(schema.platformAdminGrants)
+      .values({
+        authUserId: target.id,
+        source: "manual",
+        createdByAuthUserId: actor.authUserId,
+        revokedAt: null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.platformAdminGrants.authUserId,
+        set: {
+          source: "manual",
+          createdByAuthUserId: actor.authUserId,
+          revokedAt: null,
+          updatedAt: now,
+        },
+      });
+    await tx.insert(schema.platformAuditEvents).values({
+      actorAuthUserId: actor.authUserId,
+      action: "platform_admin.granted",
+      targetType: "auth_user",
+      targetId: target.id,
+      metadata: { email: target.email },
+    });
+  });
+
+  refreshAccess();
+}
+
+export async function revokePlatformAdminAction(formData: FormData) {
+  const actor = await requirePlatformAdmin();
+  const targetAuthUserId = requiredText(formData, "authUserId");
+  if (targetAuthUserId === actor.authUserId) {
+    throw new Error("You cannot revoke your own platform-admin grant");
+  }
+
+  const [target] = await db
+    .select({
+      id: schema.authUser.id,
+      email: schema.authUser.email,
+      revokedAt: schema.platformAdminGrants.revokedAt,
+    })
+    .from(schema.authUser)
+    .innerJoin(schema.platformAdminGrants, eq(schema.platformAdminGrants.authUserId, schema.authUser.id))
+    .where(eq(schema.authUser.id, targetAuthUserId))
+    .limit(1);
+  if (!target || target.revokedAt) throw new Error("Active platform-admin grant not found");
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    const [revoked] = await tx
+      .update(schema.platformAdminGrants)
+      .set({ revokedAt: now, updatedAt: now })
+      .where(and(eq(schema.platformAdminGrants.authUserId, target.id), isNull(schema.platformAdminGrants.revokedAt)))
+      .returning({ id: schema.platformAdminGrants.id });
+    if (!revoked) throw new Error("Platform-admin grant changed while revoking; refresh and try again");
+
+    await tx.insert(schema.platformAuditEvents).values({
+      actorAuthUserId: actor.authUserId,
+      action: "platform_admin.revoked",
+      targetType: "auth_user",
+      targetId: target.id,
+      metadata: { email: target.email },
+    });
+  });
+
+  refreshAccess();
 }
 
 export async function suspendOrganizationAction(formData: FormData) {
@@ -110,6 +201,112 @@ export async function updateOrganizationPlanAction(formData: FormData) {
   refreshOrganization(organizationId);
 }
 
+export async function updateMembershipRoleAction(formData: FormData) {
+  const actor = await requirePlatformAdmin();
+  const membershipId = requiredText(formData, "membershipId");
+  const role = requiredText(formData, "role");
+  if (!workspaceRoles.has(role)) throw new Error("Invalid workspace role");
+
+  const [membershipRef] = await db
+    .select({ organizationId: schema.organizationMembers.organizationId })
+    .from(schema.organizationMembers)
+    .where(eq(schema.organizationMembers.id, membershipId))
+    .limit(1);
+  if (!membershipRef) throw new Error("Membership not found");
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select ${schema.organizations.id} from ${schema.organizations} where ${schema.organizations.id} = ${membershipRef.organizationId} for update`);
+
+    const [membership] = await tx
+      .select({
+        id: schema.organizationMembers.id,
+        organizationId: schema.organizationMembers.organizationId,
+        userId: schema.organizationMembers.userId,
+        currentRole: schema.organizationMembers.role,
+        email: schema.users.email,
+      })
+      .from(schema.organizationMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
+      .where(eq(schema.organizationMembers.id, membershipId))
+      .limit(1);
+    if (!membership) throw new Error("Membership not found");
+    if (membership.currentRole === role) return;
+
+    if (membership.currentRole === "owner" && role !== "owner") {
+      const [owners] = await tx
+        .select({ value: count() })
+        .from(schema.organizationMembers)
+        .where(and(eq(schema.organizationMembers.organizationId, membership.organizationId), eq(schema.organizationMembers.role, "owner")));
+      if ((owners?.value ?? 0) <= 1) throw new Error("An organization must retain at least one owner");
+    }
+
+    await tx
+      .update(schema.organizationMembers)
+      .set({ role: role as "owner" | "admin" | "member" | "viewer" })
+      .where(eq(schema.organizationMembers.id, membership.id));
+    await tx.insert(schema.platformAuditEvents).values({
+      actorAuthUserId: actor.authUserId,
+      organizationId: membership.organizationId,
+      action: "membership.role_changed",
+      targetType: "organization_membership",
+      targetId: membership.id,
+      metadata: { userId: membership.userId, email: membership.email, fromRole: membership.currentRole, toRole: role },
+    });
+  });
+
+  refreshOrganization(membershipRef.organizationId);
+}
+
+export async function removeMembershipAction(formData: FormData) {
+  const actor = await requirePlatformAdmin();
+  const membershipId = requiredText(formData, "membershipId");
+
+  const [membershipRef] = await db
+    .select({ organizationId: schema.organizationMembers.organizationId })
+    .from(schema.organizationMembers)
+    .where(eq(schema.organizationMembers.id, membershipId))
+    .limit(1);
+  if (!membershipRef) throw new Error("Membership not found");
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select ${schema.organizations.id} from ${schema.organizations} where ${schema.organizations.id} = ${membershipRef.organizationId} for update`);
+
+    const [membership] = await tx
+      .select({
+        id: schema.organizationMembers.id,
+        organizationId: schema.organizationMembers.organizationId,
+        userId: schema.organizationMembers.userId,
+        role: schema.organizationMembers.role,
+        email: schema.users.email,
+      })
+      .from(schema.organizationMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
+      .where(eq(schema.organizationMembers.id, membershipId))
+      .limit(1);
+    if (!membership) throw new Error("Membership not found");
+
+    if (membership.role === "owner") {
+      const [owners] = await tx
+        .select({ value: count() })
+        .from(schema.organizationMembers)
+        .where(and(eq(schema.organizationMembers.organizationId, membership.organizationId), eq(schema.organizationMembers.role, "owner")));
+      if ((owners?.value ?? 0) <= 1) throw new Error("The last organization owner cannot be removed");
+    }
+
+    await tx.delete(schema.organizationMembers).where(eq(schema.organizationMembers.id, membership.id));
+    await tx.insert(schema.platformAuditEvents).values({
+      actorAuthUserId: actor.authUserId,
+      organizationId: membership.organizationId,
+      action: "membership.removed",
+      targetType: "organization_membership",
+      targetId: membership.id,
+      metadata: { userId: membership.userId, email: membership.email, role: membership.role },
+    });
+  });
+
+  refreshOrganization(membershipRef.organizationId);
+}
+
 export async function setUserDisabledAction(formData: FormData) {
   const actor = await requirePlatformAdmin();
   const userId = requiredText(formData, "userId");
@@ -138,5 +335,6 @@ export async function setUserDisabledAction(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath("/admin/users");
+  revalidatePath("/admin/access");
   revalidatePath("/admin/audit");
 }

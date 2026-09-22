@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
 import { encryptSecret } from "@wa/credentials";
 import { schema } from "@wa/db";
@@ -7,16 +7,20 @@ import {
   exchangeEmbeddedSignupCode,
   getWhatsAppPhoneNumber,
   inferThroughputMps,
+  listWhatsAppBusinessAccountPhoneNumberIds,
   MetaApiError,
   subscribeAppToWaba,
 } from "@wa/meta";
 import { getAuthContext } from "@/lib/auth-context";
 import {
+  assertEmbeddedSignupWabaPhoneMatch,
   EmbeddedSignupConflictError,
   EmbeddedSignupPhoneMismatchError,
+  EmbeddedSignupWabaPhoneMismatchError,
   verifyEmbeddedSignupPhone,
 } from "@/lib/embedded-signup-security";
-import { db, getCredentialEncryptionKey, getMetaServerConfig } from "@/lib/server";
+import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
+import { db, getCredentialKeyRing, getMetaServerConfig } from "@/lib/server";
 import {
   saveVerifiedWhatsAppConnectionAtomic,
   WhatsAppConnectionConflictError,
@@ -71,6 +75,39 @@ export async function POST(request: Request) {
       )[0]?.organizationId ?? null,
     });
 
+    const wabaPhoneNumberIds = await listWhatsAppBusinessAccountPhoneNumberIds({
+      wabaId: parsed.data.wabaId,
+      accessToken: token.accessToken,
+      graphApiVersion: meta.graphApiVersion,
+    });
+    assertEmbeddedSignupWabaPhoneMatch({
+      requestedPhoneNumberId: phone.id,
+      wabaPhoneNumberIds,
+    });
+
+    const [existingPhone] = await db
+      .select({ status: schema.whatsappPhoneNumbers.status })
+      .from(schema.whatsappPhoneNumbers)
+      .where(and(
+        eq(schema.whatsappPhoneNumbers.organizationId, context.workspace.organizationId),
+        eq(schema.whatsappPhoneNumbers.phoneNumberId, phone.id),
+      ))
+      .limit(1);
+
+    if (!existingPhone || existingPhone.status !== "connected") {
+      const [connectedCount] = await db
+        .select({ total: count() })
+        .from(schema.whatsappPhoneNumbers)
+        .where(and(
+          eq(schema.whatsappPhoneNumbers.organizationId, context.workspace.organizationId),
+          eq(schema.whatsappPhoneNumbers.status, "connected"),
+        ));
+      await entitlements.assertUsage(context.workspace.organizationId, "max_phone_numbers", {
+        currentUsage: connectedCount?.total ?? 0,
+        requested: 1,
+      });
+    }
+
     await subscribeAppToWaba({
       wabaId: parsed.data.wabaId,
       accessToken: token.accessToken,
@@ -78,8 +115,11 @@ export async function POST(request: Request) {
     });
 
     const credentialKey = `org/${context.workspace.organizationId}/whatsapp/${phone.id}/access-token`;
-    const encrypted = encryptSecret(token.accessToken, getCredentialEncryptionKey());
+    const encrypted = encryptSecret(token.accessToken, getCredentialKeyRing());
     const throughputMps = inferThroughputMps(phone.throughputLevel);
+    const credentialExpiresAt = typeof token.expiresIn === "number" && token.expiresIn > 0
+      ? new Date(Date.now() + token.expiresIn * 1_000)
+      : undefined;
 
     await saveVerifiedWhatsAppConnectionAtomic(db, {
       organizationId: context.workspace.organizationId,
@@ -95,6 +135,7 @@ export async function POST(request: Request) {
       credential: {
         key: credentialKey,
         ...encrypted,
+        ...(credentialExpiresAt ? { expiresAt: credentialExpiresAt } : {}),
       },
     });
 
@@ -109,12 +150,21 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    const entitlementError = entitlementErrorPayload(error);
+    if (entitlementError) {
+      return NextResponse.json(entitlementError, { status: 409 });
+    }
+
     if (error instanceof EmbeddedSignupConflictError || error instanceof WhatsAppConnectionConflictError) {
       return NextResponse.json({ error: "Could not connect this WhatsApp number" }, { status: 409 });
     }
 
     if (error instanceof EmbeddedSignupPhoneMismatchError) {
       return NextResponse.json({ error: "Meta returned a different WhatsApp phone number" }, { status: 400 });
+    }
+
+    if (error instanceof EmbeddedSignupWabaPhoneMismatchError) {
+      return NextResponse.json({ error: "Meta returned mismatched WhatsApp account assets" }, { status: 400 });
     }
 
     if (error instanceof MetaApiError) {

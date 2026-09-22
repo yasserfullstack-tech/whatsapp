@@ -142,6 +142,7 @@ export async function seedPopulatedWorkspace(tenant: FunctionalTenant): Promise<
     ciphertext: encrypted.ciphertext,
     iv: encrypted.iv,
     authTag: encrypted.authTag,
+    keyVersion: encrypted.keyVersion,
   });
   await functionalDb.insert(schema.whatsappPhoneNumbers).values({
     id: phoneId,

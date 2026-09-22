@@ -1,0 +1,63 @@
+name: Readiness Issue Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/production-readiness-plan.md
+  pull_request:
+    paths:
+      - docs/production-readiness-plan.md
+  # Recurrence guard for issue #92: an implementation PR that auto-closes one of
+  # the readiness tracking issues (#46..#67) with `Closes #N` while its plan
+  # checkbox is still unchecked must not pass unnoticed. This event fires after
+  # the merge closes the issue, so the sync-check below turns red and annotates
+  # the drift. External-evidence issues are never closed by repository CI alone.
+  issues:
+    types: [closed, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  # sync-check: compares the top-level PR-001..PR-022 checklist in
+  # docs/production-readiness-plan.md against the live GitHub issue state.
+  # Fails when a checked item has an open issue or an unchecked item has a
+  # closed issue (see issue #92).
+  sync-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Check readiness/issue state alignment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun infra/production/scripts/check-readiness-sync.ts
+
+  # release-review: release-review step that catches readiness drift before
+  # declaring paid production readiness. Manually dispatched from the Actions
+  # tab as part of the launch sign-off procedure (see docs/production-readiness-plan.md).
+  release-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Check readiness/issue state alignment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun infra/production/scripts/check-readiness-sync.ts
+      - name: Release-review checklist reminder
+        run: |
+          echo "Before declaring paid production readiness, confirm in docs/production-readiness-plan.md:"
+          echo "  1. sync-check above reports 0 mismatches."
+          echo "  2. All Paid-production launch gate items (#46..#58) have real-environment evidence."
+          echo "  3. All Product-completeness items (#59..#67) have final evidence or are explicitly deferred."
+          echo "  4. main branch protection and required release gates are enforced."
+          echo "  5. Load Smoke is green on the release commit."

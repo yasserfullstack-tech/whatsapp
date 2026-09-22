@@ -86,3 +86,68 @@ Useful resilience overrides are `--fault-after-ms`, `--extra-workers`, `--mps`, 
 The campaign report records snapshot completion timing, time-to-first-message, stable submitted throughput, fake-Meta p50/p95/p99 latency, Redis memory, send-queue depth, Postgres CPU when Docker stats are available, Postgres connections, approximate database writes/sec, worker CPU and RSS, retry volume, and failed-job volume.
 
 The resilience runner writes a separate JSON/Markdown event timeline alongside the underlying campaign report so the injected fault can be correlated with queue depth, throughput, latency, retries, failures, and worker resource peaks.
+
+## Root cause: Load Smoke failure on `main` @ 149cc1a (issue #90)
+
+Failing run: https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35209808796 (job `smoke`, step `1k campaign smoke`).
+
+**Failing command**
+
+```
+bun run load:run -- --scenario=baseline-80 --recipients=1000 --timeout-ms=120000
+```
+
+**Failing assertion, quoted from the run log**
+
+```
+@wa/load-test run: 533 |     if (!allTerminal) throw new Error(`Load test exceeded timeout before all campaigns reached a terminal state`);
+@wa/load-test run:                                       ^
+@wa/load-test run: error: Load test exceeded timeout before all campaigns reached a terminal state
+@wa/load-test run:       at main (/home/runner/work/whatsapp/whatsapp/apps/load-test/src/run.ts:533:33)
+```
+
+That assertion was only the symptom. Every send job in the same run logged:
+
+```
+{"jobId":"send-...","organizationId":"fab231fe-250d-4ffd-a1f8-6c11281307d5",
+ "campaignId":"acaa2ac0-1fc8-4e52-bb60-68e3a8d0d5f5","recipientId":"...",
+ "error":{"name":"BillingEntitlementError",
+          "message":"Billing entitlement monthly_campaign_recipients denied: no_subscription"}}
+```
+
+**Cause**
+
+`claimSendJob` in `apps/worker/src/campaign-security.ts:50` meters every recipient against the
+`monthly_campaign_recipients` entitlement before the provider call, and on a `BillingEntitlementError`
+it returns the recipient to `pending` and sets the campaign to `paused`
+(`apps/worker/src/campaign-security.ts:89`). That enforcement arrived in `e224e91`
+("PR-007: Enforce server-side entitlements and usage limits"), which did not update the load harness.
+
+Migration `0005_billing-foundation.sql` backfills a `starter` subscription only for organizations that
+existed when the migration ran. The load harness creates its synthetic organizations *after* migration,
+so they have no billing account and no subscription — `getCurrentSubscription` returns `null` and every
+send is denied. The campaign then sat in `paused`, which is not in the runner's terminal set
+(`completed`, `failed`, `cancelled`), so the runner burned the full 120 s deadline and reported the
+generic timeout instead of the denial. Artifact upload "failed" because the workflow had no upload step
+at all.
+
+No threshold was weakened. The load thresholds were never reached — zero messages were submitted.
+
+**Fix**
+
+- `apps/load-test/src/run.ts:270-292` — seed a billing account plus an `active` subscription on the
+  `custom` plan for each synthetic organization. `custom` has `NULL` entitlement limits, so a plan quota
+  cannot mask the metric under test while the metering write path (usage ledger + period usage) is still
+  exercised end to end. Change the plan code if a run should deliberately exercise `limit_exceeded`.
+- `apps/load-test/src/run.ts:415-427, 401, 455, 570` — detect a `paused` campaign, break out of the poll
+  loop immediately, still write the report, then fail with the first recipient `error_code` /
+  `last_error` instead of a 120 s generic timeout.
+- `.github/workflows/load-smoke.yml:21-33` — dump `docker compose` logs into `load-results/` and upload
+  `load-results/` with `if: always()`, so reports and container logs survive a failing test step.
+
+**Reproduction status**
+
+Not reproduced locally: no Docker daemon is available in this environment
+(`dial unix /var/run/docker.sock: connect: no such file or directory`) and the harness requires the
+`docker-compose.load.yml` Postgres and Valkey services. The cause is established from the run log above
+plus the code paths cited. Verification is the Load Smoke workflow run on the fixing commit.

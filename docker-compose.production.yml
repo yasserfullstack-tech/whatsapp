@@ -100,9 +100,13 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       PLATFORM_ADMIN_USER_IDS: ${PLATFORM_ADMIN_USER_IDS:-}
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
-      RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY is required}
-      AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:?AUTH_EMAIL_FROM is required}
-      AUTH_EMAIL_REPLY_TO: ${AUTH_EMAIL_REPLY_TO:-}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURITY: ${SMTP_SECURITY:-tls}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
+      EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM is required}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v26.0}
       META_APP_ID: ${META_APP_ID:?META_APP_ID is required}
@@ -169,8 +173,13 @@ services:
       APP_URL: ${APP_URL:?APP_URL is required}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
-      RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY is required}
-      AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:?AUTH_EMAIL_FROM is required}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURITY: ${SMTP_SECURITY:-tls}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
+      EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM is required}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v26.0}
       DEFAULT_META_MPS: ${DEFAULT_META_MPS:-80}
@@ -204,6 +213,68 @@ services:
         hard: 65535
     networks: [backend]
 
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    logging: *default-logging
+
+  valkey-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://valkey:6379
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks: [backend]
+    logging: *default-logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+    volumes:
+      - /:/host:ro,rslave
+      - ${NODE_EXPORTER_TEXTFILE_DIR:-/var/lib/whatsapp/node-exporter}:/var/lib/node_exporter/textfile_collector:ro
+    networks: [backend]
+    logging: *default-logging
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./infra/production/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [backend]
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./infra/production/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets:
+      - alertmanager_webhook_url
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    networks: [backend]
+    logging: *default-logging
+
   prometheus:
     image: prom/prometheus:v3.13.3
     restart: unless-stopped
@@ -213,6 +284,8 @@ services:
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
     volumes:
       - ./infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/production/alerts:/etc/prometheus/alerts:ro
+      - ./.runtime/monitoring:/runtime/monitoring:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
@@ -221,6 +294,16 @@ services:
         condition: service_healthy
       worker:
         condition: service_healthy
+      alertmanager:
+        condition: service_started
+      blackbox-exporter:
+        condition: service_started
+      postgres-exporter:
+        condition: service_started
+      valkey-exporter:
+        condition: service_started
+      node-exporter:
+        condition: service_started
     networks: [backend]
     logging: *default-logging
 
@@ -270,10 +353,15 @@ networks:
   backend:
     driver: bridge
 
+secrets:
+  alertmanager_webhook_url:
+    file: ${ALERTMANAGER_WEBHOOK_URL_FILE:-./.runtime/monitoring/alertmanager-webhook-url}
+
 volumes:
   postgres_data:
   valkey_data:
   prometheus_data:
+  alertmanager_data:
   grafana_data:
   caddy_data:
   caddy_config:

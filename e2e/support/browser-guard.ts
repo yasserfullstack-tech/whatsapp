@@ -4,9 +4,11 @@ const sdkStub = `
 window.FB = {
   init() {},
   login(callback) {
+    const source = new MessageChannel().port1;
     callback({ status: "connected", authResponse: { code: "e2e-embedded-signup-code" } });
     setTimeout(() => window.dispatchEvent(new MessageEvent("message", {
       origin: "https://www.facebook.com",
+      source,
       data: { type: "WA_EMBEDDED_SIGNUP", event: "FINISH", data: { waba_id: "e2e-waba", phone_number_id: "e2e-phone", business_id: "e2e-business" } }
     })), 0);
   }

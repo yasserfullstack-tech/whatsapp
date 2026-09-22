@@ -41,6 +41,18 @@ test.describe.serial("workspace product authorization matrix", () => {
     const queueImport = await tenant.api.post(`/api/contact-imports/${randomUUID()}`);
     expect(queueImport.status(), "viewer must be denied before import lookup or queue work").toBe(403);
 
+    const createContact = await tenant.api.post("/api/contacts", { data: {} });
+    expect(createContact.status(), "viewer must be denied before contact creation validation").toBe(403);
+
+    const updateContact = await tenant.api.patch(`/api/contacts/${resources.contactId}`, { data: {} });
+    expect(updateContact.status(), "viewer must be denied before contact update validation").toBe(403);
+
+    const bulkContacts = await tenant.api.post("/api/contacts/bulk", { data: {} });
+    expect(bulkContacts.status(), "viewer must be denied before bulk contact validation").toBe(403);
+
+    const mergeContacts = await tenant.api.post("/api/contacts/merge", { data: {} });
+    expect(mergeContacts.status(), "viewer must be denied before contact merge validation").toBe(403);
+
     const template = await tenant.api.post("/api/templates", { data: {} });
     expect(template.status(), "viewer must be denied before template validation or Meta access").toBe(403);
 
@@ -79,6 +91,10 @@ test.describe.serial("workspace product authorization matrix", () => {
     expect((await tenant.api.post("/api/audiences/segments", { data: {} })).status()).toBe(400);
     expect((await tenant.api.post("/api/campaigns", { data: {} })).status()).toBe(400);
     expect((await tenant.api.post("/api/contact-imports/presign", { data: {} })).status()).toBe(400);
+    expect((await tenant.api.post("/api/contacts", { data: {} })).status()).toBe(400);
+    expect((await tenant.api.patch(`/api/contacts/${resources.contactId}`, { data: {} })).status()).toBe(400);
+    expect((await tenant.api.post("/api/contacts/bulk", { data: {} })).status()).toBe(400);
+    expect((await tenant.api.post("/api/contacts/merge", { data: {} })).status()).toBe(400);
     expect((await tenant.api.post("/api/templates", { data: {} })).status()).toBe(400);
 
     const suppress = await tenant.api.post(`/api/contacts/${resources.contactId}/suppress`, {

@@ -5,9 +5,12 @@
   "scripts": {
     "dev": "bun --hot src/entry.ts",
     "start": "bun src/entry.ts",
+    "credentials:rotate": "bun src/credential-rotation.ts",
+    "credentials:key-versions": "bun src/credential-key-versions.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@wa/billing": "workspace:*",
     "@wa/config": "workspace:*",
     "@wa/credentials": "workspace:*",
     "@wa/db": "workspace:*",

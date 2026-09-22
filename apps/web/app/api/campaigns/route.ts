@@ -2,29 +2,38 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { schema } from "@wa/db";
-import type { CampaignVariableBinding } from "@wa/queue";
+import { validateTemplateBindings, type TemplateParameterBinding } from "@wa/meta/templates";
 import { getAuthContext } from "@/lib/auth-context";
 import {
   audienceSelectionSchema,
   countEligibleAudience,
   resolveAudienceSelection,
+  sampleEligibleAudience,
 } from "@/lib/audience-server";
+import { parseCampaignScheduledAt } from "@/lib/campaign-scheduling";
+import { entitlements, entitlementErrorPayload } from "@/lib/entitlements-server";
+import { ONBOARDING_TEST_RECIPIENT_LIMIT, validateOnboardingTestRequest } from "@/lib/onboarding-test-mode";
 import { campaignDispatchQueue, db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
 
 const bindingSchema = z.object({
+  key: z.string().trim().min(1).max(128).optional(),
   index: z.number().int().positive().max(20),
+  component: z.enum(["header", "body", "button"]).optional(),
+  parameterType: z.enum(["text", "image", "video", "document", "payload"]).optional(),
+  buttonIndex: z.number().int().min(0).max(9).optional(),
+  buttonSubType: z.enum(["url", "quick_reply"]).optional(),
   source: z.enum(["display_name", "phone_e164", "literal"]),
-  value: z.string().trim().max(500).optional(),
+  value: z.string().trim().max(2_000).optional(),
   fallback: z.string().trim().max(120).optional(),
 }).superRefine((binding, context) => {
   if (binding.source === "literal" && !binding.value?.trim()) {
-    context.addIssue({ code: "custom", message: "Literal template variables need a value" });
+    context.addIssue({ code: "custom", message: "Literal template parameters need a value" });
   }
   if (binding.source === "display_name" && !binding.fallback?.trim()) {
-    context.addIssue({ code: "custom", message: "Contact-name template variables need an explicit fallback" });
+    context.addIssue({ code: "custom", message: "Contact-name template parameters need an explicit fallback" });
   }
 });
 
@@ -33,24 +42,10 @@ const createCampaignSchema = z.object({
   whatsappPhoneNumberId: z.uuid(),
   templateId: z.uuid(),
   audience: audienceSelectionSchema,
-  bindings: z.array(bindingSchema).max(20).default([]),
+  bindings: z.array(bindingSchema).max(30).default([]),
+  scheduledAt: z.string().trim().max(64).optional(),
+  mode: z.enum(["standard", "onboarding_test"]).default("standard"),
 });
-
-function requiredVariableIndexes(body: string | null): number[] {
-  if (!body) return [];
-  return [...new Set([...body.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1])))]
-    .filter((value) => Number.isInteger(value) && value > 0)
-    .sort((a, b) => a - b);
-}
-
-function isTextOnlyTemplate(components: unknown): boolean {
-  if (!Array.isArray(components)) return true;
-  return components.every((component) => {
-    if (!component || typeof component !== "object") return false;
-    const type = String((component as Record<string, unknown>).type ?? "").toUpperCase();
-    return type === "BODY" || type === "FOOTER";
-  });
-}
 
 export async function POST(request: Request) {
   const context = await getAuthContext();
@@ -60,6 +55,13 @@ export async function POST(request: Request) {
   const parsed = createCampaignSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid campaign request", issues: parsed.error.issues }, { status: 400 });
+  }
+
+  let scheduledAt: Date | null;
+  try {
+    scheduledAt = parseCampaignScheduledAt(parsed.data.scheduledAt);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid campaign schedule" }, { status: 400 });
   }
 
   const organizationId = context.workspace.organizationId;
@@ -87,16 +89,12 @@ export async function POST(request: Request) {
   if (phone.wabaId !== template.wabaId) {
     return NextResponse.json({ error: "The selected template belongs to a different WhatsApp Business Account" }, { status: 400 });
   }
-  if (!isTextOnlyTemplate(template.components)) {
-    return NextResponse.json({ error: "This campaign engine currently supports text/body templates only." }, { status: 400 });
-  }
 
-  const required = requiredVariableIndexes(template.bodyPreview);
-  const bindings = parsed.data.bindings as CampaignVariableBinding[];
-  const supplied = [...new Set(bindings.map((binding) => binding.index))].sort((a, b) => a - b);
-  if (required.length !== supplied.length || required.some((value, index) => value !== supplied[index])) {
-    return NextResponse.json({ error: `Template variables must be mapped exactly: ${required.map((value) => `{{${value}}}`).join(", ") || "none"}` }, { status: 400 });
+  const validation = validateTemplateBindings(template.components, parsed.data.bindings as TemplateParameterBinding[]);
+  if (!validation.valid) {
+    return NextResponse.json({ error: validation.errors.join(". "), issues: validation.errors }, { status: 400 });
   }
+  const bindings = validation.normalizedBindings;
 
   let audience;
   try {
@@ -110,6 +108,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "The selected audience has no currently eligible, non-suppressed contacts" }, { status: 400 });
   }
 
+  const isOnboardingTest = parsed.data.mode === "onboarding_test";
+  let onboardingTestRecipients: Awaited<ReturnType<typeof sampleEligibleAudience>> = [];
+  if (isOnboardingTest) {
+    const testModeError = validateOnboardingTestRequest({ eligibleContacts, scheduledAt });
+    if (testModeError) return NextResponse.json({ error: testModeError }, { status: 400 });
+
+    onboardingTestRecipients = await sampleEligibleAudience(organizationId, audience.definition);
+    if (onboardingTestRecipients.length === 0) {
+      return NextResponse.json({ error: "The selected audience no longer has eligible contacts. Refresh and retry the test." }, { status: 409 });
+    }
+    if (onboardingTestRecipients.length > ONBOARDING_TEST_RECIPIENT_LIMIT) {
+      return NextResponse.json({ error: `Onboarding test campaigns are limited to ${ONBOARDING_TEST_RECIPIENT_LIMIT} eligible contacts` }, { status: 400 });
+    }
+  }
+
+  const authoritativeRecipientCount = isOnboardingTest ? onboardingTestRecipients.length : eligibleContacts;
+  try {
+    // This is an early UX check only. The worker records the authoritative
+    // billable event immediately before the provider send boundary.
+    await entitlements.assertUsage(organizationId, "monthly_campaign_recipients", {
+      requested: authoritativeRecipientCount,
+    });
+  } catch (error) {
+    const payload = entitlementErrorPayload(error);
+    if (payload) return NextResponse.json(payload, { status: 409 });
+    throw error;
+  }
+
+  const snapshotAt = isOnboardingTest ? new Date() : null;
+  const initialStatus = isOnboardingTest ? "sending" : scheduledAt ? "scheduled" : "dispatching";
   const campaignId = await db.transaction(async (tx) => {
     const [campaign] = await tx
       .insert(schema.campaigns)
@@ -118,8 +146,14 @@ export async function POST(request: Request) {
         whatsappPhoneNumberId: phone.id,
         templateId: template.id,
         name: parsed.data.name,
-        status: "dispatching",
+        status: initialStatus,
+        scheduledAt,
         templateBindings: bindings,
+        ...(snapshotAt ? {
+          recipientCount: authoritativeRecipientCount,
+          snapshotCreatedAt: snapshotAt,
+          startedAt: snapshotAt,
+        } : {}),
       })
       .returning({ id: schema.campaigns.id });
 
@@ -134,29 +168,52 @@ export async function POST(request: Request) {
       definition: audience.definition,
     });
 
+    if (isOnboardingTest) {
+      await tx.insert(schema.campaignRecipients).values(onboardingTestRecipients.map((recipient) => ({
+        organizationId,
+        campaignId: campaign.id,
+        contactId: recipient.id,
+        phoneE164: recipient.phoneE164,
+        displayName: recipient.displayName,
+        status: "pending" as const,
+      })));
+
+      const now = new Date();
+      await tx.insert(schema.organizationOnboarding)
+        .values({ organizationId, testCampaignId: campaign.id, updatedAt: now })
+        .onConflictDoUpdate({
+          target: schema.organizationOnboarding.organizationId,
+          set: { testCampaignId: campaign.id, updatedAt: now },
+        });
+    }
+
     return campaign.id;
   });
 
-  try {
-    await campaignDispatchQueue.add(
-      "dispatch-campaign",
-      { organizationId, campaignId },
-      { jobId: `campaign-${campaignId}` },
-    );
-  } catch (error) {
-    await db.update(schema.campaigns)
-      .set({ status: "failed", updatedAt: new Date() })
-      .where(eq(schema.campaigns.id, campaignId));
-    console.error("Could not queue campaign dispatcher", error);
-    return NextResponse.json({ error: "Campaign was created but could not be queued" }, { status: 503 });
+  if (!scheduledAt) {
+    try {
+      await campaignDispatchQueue.add(
+        "dispatch-campaign",
+        { organizationId, campaignId },
+        { jobId: `campaign-${campaignId}` },
+      );
+    } catch (error) {
+      await db.update(schema.campaigns)
+        .set({ status: "failed", updatedAt: new Date() })
+        .where(eq(schema.campaigns.id, campaignId));
+      console.error("Could not queue campaign dispatcher", error);
+      return NextResponse.json({ error: "Campaign was created but could not be queued" }, { status: 503 });
+    }
   }
 
   return NextResponse.json({
     campaignId,
-    status: "dispatching",
+    status: initialStatus,
+    scheduledAt: scheduledAt?.toISOString() ?? null,
+    snapshotTiming: isOnboardingTest ? "creation" : "dispatch",
     audienceName: audience.sourceName,
-    eligibleContacts,
+    eligibleContacts: authoritativeRecipientCount,
     throughputMps: phone.throughputMps,
-    estimatedSeconds: Math.ceil(eligibleContacts / Math.max(1, Math.floor(phone.throughputMps * 0.95))),
+    estimatedSeconds: Math.ceil(authoritativeRecipientCount / Math.max(1, Math.floor(phone.throughputMps * 0.95))),
   }, { status: 201 });
 }

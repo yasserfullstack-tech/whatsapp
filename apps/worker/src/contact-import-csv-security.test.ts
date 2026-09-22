@@ -3,7 +3,11 @@ import { Readable } from "node:stream";
 import { describe, expect, test } from "bun:test";
 import { parse } from "csv-parse";
 
-const workerSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const workerSource = [
+  readFileSync(new URL("./contact-import-csv.ts", import.meta.url), "utf8"),
+  readFileSync(new URL("./contact-import-worker.ts", import.meta.url), "utf8"),
+  readFileSync(new URL("./contact-import-processor.ts", import.meta.url), "utf8"),
+].join("\n");
 
 const parserOptions = {
   bom: true,
@@ -27,7 +31,7 @@ describe("contact import CSV security policy", () => {
     expect(workerSource).toContain("max_record_size: 1024 * 1024");
     expect(workerSource).toContain("const MAX_IMPORT_ROWS = 2_000_000");
     expect(workerSource).toContain("if (seenRows > MAX_IMPORT_ROWS)");
-    expect(workerSource).toContain("CSV needs a phone column");
+    expect(workerSource).toContain("CSV needs the configured phone column");
     expect(workerSource).toContain("parsePhoneNumberFromString(cleaned, country)");
   });
 

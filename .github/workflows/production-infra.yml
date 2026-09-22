@@ -4,28 +4,40 @@ on:
   pull_request:
     paths:
       - ".github/workflows/production-infra.yml"
+      - ".github/workflows/release-images.yml"
       - ".dockerignore"
       - ".env.production.example"
+      - ".env.staging.example"
+      - "package.json"
+      - "bun.lock"
       - "apps/web/next.config.ts"
       - "apps/web/**"
       - "apps/api/**"
       - "apps/worker/**"
       - "packages/**"
       - "docker-compose.production.yml"
+      - "docs/deployment.md"
+      - "docs/production-infrastructure.md"
       - "infra/docker/**"
       - "infra/production/**"
   push:
     branches: [main]
     paths:
       - ".github/workflows/production-infra.yml"
+      - ".github/workflows/release-images.yml"
       - ".dockerignore"
       - ".env.production.example"
+      - ".env.staging.example"
+      - "package.json"
+      - "bun.lock"
       - "apps/web/next.config.ts"
       - "apps/web/**"
       - "apps/api/**"
       - "apps/worker/**"
       - "packages/**"
       - "docker-compose.production.yml"
+      - "docs/deployment.md"
+      - "docs/production-infrastructure.md"
       - "infra/docker/**"
       - "infra/production/**"
 
@@ -35,28 +47,60 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare placeholder production environment
+      - name: Prepare placeholder deployment environments
         run: |
           cp .env.production.example .env.production.ci
-          sed -i \
-            -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
-            -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
-            -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
-            -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
-            .env.production.ci
+          cp .env.staging.example .env.staging.ci
+
+          for file in .env.production.ci .env.staging.ci; do
+            sed -i \
+              -e "s|^RELEASE_SHA=.*|RELEASE_SHA=${GITHUB_SHA}|" \
+              -e 's|^WEB_IMAGE=.*|WEB_IMAGE=whatsapp-web:local|' \
+              -e 's|^API_IMAGE=.*|API_IMAGE=whatsapp-api:local|' \
+              -e 's|^WORKER_IMAGE=.*|WORKER_IMAGE=whatsapp-worker:local|' \
+              -e 's|^MIGRATOR_IMAGE=.*|MIGRATOR_IMAGE=whatsapp-migrator:local|' \
+              "$file"
+          done
+
+          sh infra/production/scripts/render-monitoring-config.sh .env.production.ci
+          printf '%s\n' 'http://127.0.0.1:65535/alerts' > .runtime/monitoring/alertmanager-webhook-url
+          chmod 0600 .runtime/monitoring/alertmanager-webhook-url
 
       - name: Validate shell scripts
         run: |
           sh -n infra/production/scripts/backup-postgres.sh
           sh -n infra/production/scripts/verify-postgres-backup.sh
           sh -n infra/production/scripts/smoke-test.sh
+          sh -n infra/production/scripts/check-immutable-images.sh
+          sh -n infra/production/scripts/verify-environment-isolation.sh
+          sh -n infra/production/scripts/write-release-manifest.sh
+          sh -n infra/production/scripts/collect-infrastructure-evidence.sh
+          sh -n infra/production/scripts/rollback-release.sh
+          sh -n infra/production/scripts/render-monitoring-config.sh
+          sh -n infra/production/scripts/test-alert-delivery.sh
+
+      - name: Validate environment isolation examples
+        run: sh infra/production/scripts/verify-environment-isolation.sh .env.staging.example .env.production.example
+
+      - name: Validate immutable image guardrails
+        run: |
+          cp .env.production.example .env.production.release-ci
+          cp .env.staging.example .env.staging.release-ci
+          digest=1111111111111111111111111111111111111111111111111111111111111111
+          for file in .env.production.release-ci .env.staging.release-ci; do
+            sed -i "s|sha256:0000000000000000000000000000000000000000000000000000000000000000|sha256:${digest}|g" "$file"
+            sh infra/production/scripts/check-immutable-images.sh "$file"
+          done
 
       - name: Validate production Compose configuration
         run: docker compose --env-file .env.production.ci -f docker-compose.production.yml config --quiet
+
+      - name: Validate staging Compose configuration
+        run: docker compose --env-file .env.staging.ci -f docker-compose.production.yml config --quiet
 
       - name: Validate Caddy configuration
         run: |
@@ -67,19 +111,203 @@ jobs:
             -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-      - name: Validate Prometheus configuration
+      - name: Validate Prometheus configuration and alert rules
         run: |
           docker run --rm --entrypoint /bin/promtool \
             -v "$PWD/infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
+            -v "$PWD/.runtime/monitoring:/runtime/monitoring:ro" \
             prom/prometheus:v3.13.3 \
             check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint /bin/promtool \
+            -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
+            prom/prometheus:v3.13.3 \
+            check rules /etc/prometheus/alerts/whatsapp.rules.yml
 
-      - name: Build production images
+      - name: Validate Alertmanager configuration
         run: |
-          docker build -f infra/docker/web.Dockerfile -t whatsapp-web:local .
-          docker build -f infra/docker/api.Dockerfile -t whatsapp-api:local .
-          docker build -f infra/docker/worker.Dockerfile -t whatsapp-worker:local .
-          docker build -f infra/docker/api.Dockerfile --target migrator -t whatsapp-migrator:local .
+          docker run --rm --entrypoint /bin/amtool \
+            -v "$PWD/infra/production/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            prom/alertmanager:v0.28.1 \
+            check-config /etc/alertmanager/alertmanager.yml
+
+      - name: Build production images with immutable revision metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_args=(
+            --build-arg "IMAGE_SOURCE=https://github.com/${GITHUB_REPOSITORY}"
+            --build-arg "IMAGE_REVISION=${GITHUB_SHA}"
+            --build-arg "IMAGE_VERSION=${GITHUB_SHA}"
+          )
+          docker build -f infra/docker/web.Dockerfile "${build_args[@]}" -t whatsapp-web:local -t "whatsapp-web:${GITHUB_SHA}" .
+          docker build -f infra/docker/api.Dockerfile "${build_args[@]}" -t whatsapp-api:local -t "whatsapp-api:${GITHUB_SHA}" .
+          docker build -f infra/docker/worker.Dockerfile "${build_args[@]}" -t whatsapp-worker:local -t "whatsapp-worker:${GITHUB_SHA}" .
+          docker build -f infra/docker/api.Dockerfile --target migrator "${build_args[@]}" -t whatsapp-migrator:local -t "whatsapp-migrator:${GITHUB_SHA}" .
+
+      - name: Verify image revision and source labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_source="https://github.com/${GITHUB_REPOSITORY}"
+          for image in whatsapp-web whatsapp-api whatsapp-worker whatsapp-migrator; do
+            ref="${image}:${GITHUB_SHA}"
+            revision="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            source="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.source" }}')"
+            version="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')"
+            test "$revision" = "$GITHUB_SHA"
+            test "$version" = "$GITHUB_SHA"
+            test "$source" = "$expected_source"
+          done
+
+      - name: Record production dependency HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-dependencies.json
+          exit-code: "0"
+          vuln-type: library
+          severity: HIGH,CRITICAL
+
+      - name: Record web image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-web:${{ github.sha }}
+          format: json
+          output: trivy-web.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record API image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-api:${{ github.sha }}
+          format: json
+          output: trivy-api.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record worker image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-worker:${{ github.sha }}
+          format: json
+          output: trivy-worker.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Record migrator image HIGH/CRITICAL vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-migrator:${{ github.sha }}
+          format: json
+          output: trivy-migrator.json
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Upload production vulnerability reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-production-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: trivy-*.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce production dependency vulnerability policy
+        id: policy_dependencies
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce web image vulnerability policy
+        id: policy_web
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-web:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce API image vulnerability policy
+        id: policy_api
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-api:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce worker image vulnerability policy
+        id: policy_worker
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-worker:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Enforce migrator image vulnerability policy
+        id: policy_migrator
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: whatsapp-migrator:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          skip-setup-trivy: "true"
+
+      - name: Require production dependencies and images to pass the blocking vulnerability policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "dependencies:${{ steps.policy_dependencies.outcome }}" \
+            "web:${{ steps.policy_web.outcome }}" \
+            "api:${{ steps.policy_api.outcome }}" \
+            "worker:${{ steps.policy_worker.outcome }}" \
+            "migrator:${{ steps.policy_migrator.outcome }}"; do
+            target="${result%%:*}"
+            outcome="${result#*:}"
+            if [ "$outcome" != "success" ]; then
+              echo "${target} failed the blocking HIGH/CRITICAL vulnerability policy." >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Start production dependencies
         run: docker compose --env-file .env.production.ci -f docker-compose.production.yml up -d --no-build postgres valkey
@@ -120,10 +348,10 @@ jobs:
             bun -e "fetch('http://127.0.0.1:9464/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
           docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T api \
-            bun -e "fetch('http://127.0.0.1:4000/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_http_requests_total')?0:1)).catch(()=>process.exit(1))"
+            bun -e "fetch('http://127.0.0.1:4000/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_http_requests_total')&&t.includes('whatsapp_application_errors_total')?0:1)).catch(()=>process.exit(1))"
 
           docker compose --env-file .env.production.ci -f docker-compose.production.yml exec -T worker \
-            bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')?0:1)).catch(()=>process.exit(1))"
+            bun -e "fetch('http://127.0.0.1:9464/metrics').then(r=>r.text()).then(t=>process.exit(t.includes('whatsapp_queue_depth')&&t.includes('whatsapp_r2_up')&&t.includes('whatsapp_email_delivery_backlog')?0:1)).catch(()=>process.exit(1))"
 
       - name: Show service logs on failure
         if: failure()

@@ -18,7 +18,7 @@ Multi-tenant SaaS for businesses to connect their own WhatsApp Business account,
 
 ```text
 apps/
-  web/       Next.js dashboard, auth, contacts/consent, audiences, campaigns, Meta Embedded Signup BFF routes
+  web/       Next.js workspace app, platform-admin control plane, auth, contacts/consent, audiences, campaigns, billing, Meta Embedded Signup BFF routes
   api/       Hono API + signed Meta webhook ingress
   worker/    contact import, campaign dispatch, send, and webhook workers
 packages/
@@ -27,6 +27,9 @@ packages/
   credentials/   AES-256-GCM credential encryption helpers
   db/            Drizzle schema, versioned migrations, audience predicates, and database client
   meta/          Meta Cloud API + Embedded Signup/webhook helpers
+  billing/       provider-neutral billing model, entitlements, and admin services
+  notifications/ in-app/email notification runtime and SMTP transport
+  observability/ structured logging and metrics
   queue/         BullMQ queues + per-phone limiter
   storage/       Cloudflare R2 / S3-compatible storage helpers
 docs/
@@ -67,6 +70,8 @@ At minimum, set these values in `.env`:
 - `META_VERIFY_TOKEN` — private webhook verification value.
 - Cloudflare R2 account, access key, secret, and bucket values for contact imports.
 
+For the first platform administrator, optionally bootstrap access with `PLATFORM_ADMIN_USER_IDS` or `PLATFORM_ADMIN_EMAILS`. Email bootstrap only applies to a verified authentication email; a successful bootstrap is persisted as a database admin grant.
+
 Never commit real Meta tokens or production secrets.
 
 ## Implemented flow
@@ -87,6 +92,29 @@ Never commit real Meta tokens or production secrets.
 14. Campaigns can be paused, resumed, or cancelled; suppression remains authoritative for future sends.
 15. Database schema changes ship as committed Drizzle migrations and CI proves a clean PostgreSQL database can apply them before tests/build run.
 
+## Platform administration
+
+The web app includes a separate platform-owner control plane at `/admin`. Platform-admin access is independent of workspace roles such as owner/admin/member/viewer.
+
+Access requires an authenticated, non-disabled user with an active platform-admin grant. The first administrator can be bootstrapped with `PLATFORM_ADMIN_USER_IDS` or a verified email listed in `PLATFORM_ADMIN_EMAILS`; the grant is then persisted in the database. A revoked database grant is not silently restored by bootstrap configuration.
+
+Current platform-admin capabilities:
+
+- **Overview:** view cross-organization counts for organizations, users, contacts, campaigns, recipients, connected WABAs/numbers, message delivery/read/failure totals, queue depth, webhook backlog, failed imports, and recent recipient errors.
+- **Organizations:** search/filter organizations; inspect members, contacts, campaigns, WhatsApp numbers, imports, suppressions, message usage, billing, and organization audit history; suspend/reactivate an organization; edit its platform plan label and contact/campaign-recipient/monthly-message limits.
+- **Workspace membership support:** change a membership role between `owner`, `admin`, `member`, and `viewer`, or remove a membership. Server-side guards prevent demoting or removing the last owner.
+- **Users:** search/filter customer users, view their organization memberships, disable an account with a reason, and re-enable it.
+- **Platform access:** grant, restore, and revoke platform-admin access for authentication users. An administrator cannot revoke their own active platform-admin grant.
+- **Billing:** inspect subscriptions, invoices, payments, provider references, periods, and statuses. For **manually managed** subscriptions, admins can change the plan version or suspend billing. Provider-managed subscriptions are intentionally read-only in this control plane and must be changed through the selected billing provider.
+- **WhatsApp connections:** inspect cross-organization WABA/phone identifiers, connection status, health, reconnect requirement, validation time, credential expiry, failure details, quality rating, and configured throughput.
+- **Campaigns:** inspect recent campaigns and drill into failed recipient attempts, including attempt counts and provider/application errors.
+- **Imports:** inspect recent, failed, and in-flight contact imports, row progress, imported/invalid/duplicate counts, and failure messages.
+- **System queues:** inspect send, campaign-dispatch, contact-import, and webhook queue health and recent failed jobs. Direct retry is deliberately limited to failed **campaign-dispatch** and **contact-import** jobs; send recovery remains recipient-aware and webhook replay uses the durable webhook controls.
+- **Webhooks:** search/filter the durable Meta webhook inbox, inspect payloads and processing state, and safely retry eligible unprocessed or dead-letter events.
+- **Audit:** search/filter platform administrative mutations and export up to 5,000 matching audit events as CSV. The export action itself is audited.
+
+All admin mutation handlers re-check platform-admin authorization server-side and record platform audit events. The current admin control plane does **not** provide user impersonation.
+
 ## Security and delivery baseline
 
 - Application tenant IDs are separate from authentication-provider IDs.
@@ -102,6 +130,6 @@ Never commit real Meta tokens or production secrets.
 
 ## Next production milestones
 
-- end-to-end tests with a real Meta test/business number;
-- controlled 1k / 10k / 50k / large-volume load tests with PostgreSQL, Redis, worker, and Meta latency metrics;
-- deployment hardening, monitoring, backups, and billing.
+The source-of-truth launch and product-completeness checklist is [`docs/production-readiness-plan.md`](docs/production-readiness-plan.md). It tracks ownership, dependencies, acceptance criteria, evidence requirements, and verified completion for every readiness task.
+
+Near-term priorities include real-provider Meta validation, representative load/soak evidence, production infrastructure and recovery proof, alerting, billing, and entitlement enforcement. Use the readiness plan rather than this summary to determine launch status.

@@ -48,6 +48,7 @@ export default async function BillingSettingsPage() {
         <article className="panel billingSummaryCard">
           <span className="billingLabel">{m.subscriptionStatus}</span>
           <strong>{subscription ? m.statusLabels[subscription.status] : "—"}</strong>
+          {subscription?.cancelAtPeriodEnd ? <small>{m.cancellationScheduled}</small> : null}
         </article>
         <article className="panel billingSummaryCard">
           <span className="billingLabel">{m.billingPeriod}</span>
@@ -101,8 +102,15 @@ export default async function BillingSettingsPage() {
         <article className="panel settingsPanel">
           <h2>{m.upgrade}</h2>
           <p className="subtitle">{m.upgradeBody}</p>
-          <button className="primary billingDisabledButton" type="button" disabled>{m.upgradeButton}</button>
+          <p className="settingsHint">{m.providerNotConfigured}</p>
         </article>
+
+        <article className="panel settingsPanel">
+          <h2>{m.manageBilling}</h2>
+          <p className="subtitle">{m.manageBillingBody}</p>
+          {subscription?.cancelAtPeriodEnd ? <p className="settingsHint">{m.cancellationScheduled}</p> : null}
+        </article>
+
         <article className="panel settingsPanel">
           <h2>{m.manualBilling}</h2>
           <p className="subtitle">{m.manualBillingBody}</p>

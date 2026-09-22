@@ -11,6 +11,8 @@ export const workspaceActions = [
   "team.transferOwnership",
   "whatsapp.read",
   "whatsapp.manage",
+  "inbox.read",
+  "inbox.manage",
   "contacts.manage",
   "contacts.restoreConsent",
   "audiences.manage",
@@ -30,6 +32,7 @@ export const workspaceActions = [
 export type WorkspaceAction = (typeof workspaceActions)[number];
 
 const productMemberActions: WorkspaceAction[] = [
+  "inbox.manage",
   "contacts.manage",
   "audiences.manage",
   "templates.manage",
@@ -48,6 +51,7 @@ const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
     "team.remove",
     "whatsapp.read",
     "whatsapp.manage",
+    "inbox.read",
     ...productMemberActions,
     "contacts.restoreConsent",
     "security.read",
@@ -62,6 +66,7 @@ const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
     "workspace.read",
     "team.read",
     "whatsapp.read",
+    "inbox.read",
     ...productMemberActions,
     "security.read",
     "billing.read",
@@ -71,6 +76,7 @@ const access: Record<WorkspaceRole, ReadonlySet<WorkspaceAction>> = {
     "workspace.read",
     "team.read",
     "whatsapp.read",
+    "inbox.read",
     "security.read",
     "billing.read",
     "data.read",

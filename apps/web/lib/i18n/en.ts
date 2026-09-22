@@ -385,6 +385,7 @@ export const en = {
     openingMeta: "Opening Meta…",
     metaLoading: "Meta login is still loading. Try again in a moment.",
     noCode: "Meta did not return an authorization code.",
+    reloadToRetry: "Reload this page before trying the WhatsApp connection again.",
     authorized: "Meta authorized. Finishing setup…",
     button: "Connect WhatsApp",
     loadingMeta: "Loading Meta…",

@@ -18,6 +18,9 @@ export async function getBillingOverview(organizationId: string) {
         planCode: schema.billingPlans.code,
         planName: schema.billingPlans.name,
         planIsCustom: schema.billingPlans.isCustom,
+        providerKey: schema.billingSubscriptions.providerKey,
+        providerSubscriptionId: schema.billingSubscriptions.providerSubscriptionId,
+        cancelAtPeriodEnd: schema.billingSubscriptions.cancelAtPeriodEnd,
       })
       .from(schema.billingSubscriptions)
       .innerJoin(schema.billingPlanVersions, eq(schema.billingPlanVersions.id, schema.billingSubscriptions.planVersionId))
@@ -27,7 +30,16 @@ export async function getBillingOverview(organizationId: string) {
       .limit(1)
   )[0] ?? null;
 
-  const [invoices, payments, contactCount, memberCount, phoneNumberCount] = await Promise.all([
+  const [account, invoices, payments, contactCount, memberCount, phoneNumberCount] = await Promise.all([
+    db
+      .select({
+        providerKey: schema.billingAccounts.providerKey,
+        providerCustomerId: schema.billingAccounts.providerCustomerId,
+      })
+      .from(schema.billingAccounts)
+      .where(eq(schema.billingAccounts.organizationId, organizationId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
     db
       .select({
         id: schema.billingInvoices.id,
@@ -61,6 +73,7 @@ export async function getBillingOverview(organizationId: string) {
 
   if (!subscription) {
     return {
+      account,
       subscription: null,
       entitlements: [] as Array<{ key: EntitlementKey; enabled: boolean; limit: number | null; used: number | null }>,
       invoices,
@@ -112,5 +125,5 @@ export async function getBillingOverview(organizationId: string) {
       return { ...row, used };
     });
 
-  return { subscription, entitlements, invoices, payments };
+  return { account, subscription, entitlements, invoices, payments };
 }

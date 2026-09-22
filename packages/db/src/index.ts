@@ -10,6 +10,9 @@ import * as billingSchema from "./billing-schema";
 import * as onboardingSchema from "./onboarding-schema";
 import * as notificationSchema from "./notification-schema";
 import * as dataLifecycleSchema from "./data-lifecycle-schema";
+import * as legalSchema from "./legal-schema";
+import * as metaAssetSchema from "./meta-asset-schema";
+import * as inboxSchema from "./inbox-schema";
 
 export const schema = {
   ...coreSchema,
@@ -22,7 +25,11 @@ export const schema = {
   ...onboardingSchema,
   ...notificationSchema,
   ...dataLifecycleSchema,
+  ...legalSchema,
+  ...metaAssetSchema,
+  ...inboxSchema,
 };
+export type Database = ReturnType<typeof createDatabase>["db"];
 export * from "./schema";
 export * from "./contact-import-schema";
 export * from "./suppression-schema";
@@ -33,7 +40,11 @@ export * from "./billing-schema";
 export * from "./onboarding-schema";
 export * from "./notification-schema";
 export * from "./data-lifecycle-schema";
+export * from "./legal-schema";
+export * from "./meta-asset-schema";
+export * from "./inbox-schema";
 export * from "./audience-query";
+export * from "./campaign-control";
 
 export function createDatabase(databaseUrl: string) {
   const client = postgres(databaseUrl, {

@@ -71,6 +71,48 @@
       "when": 1789338286456,
       "tag": "0009_data-lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789557000000,
+      "tag": "0010_legal-acceptances",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789582500000,
+      "tag": "0011_meta-asset-sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789584270864,
+      "tag": "0012_whatsapp-connection-health",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789595700000,
+      "tag": "0013_inbound-inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789599300000,
+      "tag": "0014_contact-management",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790025046341,
+      "tag": "0015_credential-key-versioning",
+      "breakpoints": true
     }
   ]
 }

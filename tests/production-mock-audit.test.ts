@@ -17,7 +17,7 @@ const EXCLUDED = [
   /(^|\/)e2e(\/|$)/,
   /(^|\/)test(s)?(\/|$)/,
   /(^|\/)__tests__(\/|$)/,
-  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /\.(test|spec|suite|fixtures)\.[cm]?[jt]sx?$/,
   /(^|\/)drizzle(\/|$)/,
   /(^|\/)migrations?(\/|$)/,
 ];
@@ -45,6 +45,8 @@ const SEMANTIC_FALLBACK_FILES = new Set([
   "apps/web/components/campaign-builder.tsx",
   "apps/web/components/mfa-security-card.tsx",
   "apps/worker/src/campaigns.ts",
+  "apps/worker/src/campaign-template-bindings.ts",
+  "packages/meta/src/templates.ts",
   "packages/queue/src/index.ts",
 ]);
 const AUDIENCE_SAMPLE_FILES = new Set([
@@ -77,10 +79,14 @@ function isAllowedFinding(file: string, line: string): boolean {
   if (file === "apps/web/lib/marketing-content.ts") return true;
   if (AUDIENCE_SAMPLE_FILES.has(file) && /\bsample\b/.test(line)) return true;
   if (SEMANTIC_FALLBACK_FILES.has(file) && /\bfallback\b/.test(line)) return true;
+  if (
+    file === "infra/production/scripts/validate-provider-evidence.ts"
+    && /placeholder (?:SHA|digest)/i.test(line)
+  ) return true;
   if (file === "apps/web/lib/public-app-url.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
   if (file === "apps/worker/src/notification-runtime.ts" && /127\.0\.0\.1/.test(line)) return true;
   if (file === "packages/config/src/index.ts" && /localhost|127\.0\.0\.1|::1/.test(line)) return true;
-  if (file === "packages/notifications/src/index.ts" && /127\.0\.0\.1/.test(line)) return true;
+  if (["packages/notifications/src/index.ts", "packages/notifications/src/email.ts"].includes(file) && /127\.0\.0\.1/.test(line)) return true;
   if (file === "docker-compose.production.yml" && /127\.0\.0\.1|GF_SERVER_DOMAIN:\s*localhost/.test(line)) return true;
   if (file === "apps/web/lib/workspace-actions.ts" && /BETTER_AUTH_URL.*127\.0\.0\.1/.test(line)) return true;
   return false;

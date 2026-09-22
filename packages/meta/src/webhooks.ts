@@ -33,10 +33,54 @@ export type WhatsAppInboundMessage = {
   wabaId?: string;
 };
 
+export type WhatsAppMetaAssetEvent =
+  | {
+      kind: "template_status";
+      wabaId: string;
+      timestampSeconds?: number;
+      templateId: string;
+      templateName?: string;
+      language?: string;
+      event: string;
+      reason?: string;
+    }
+  | {
+      kind: "phone_name";
+      wabaId: string;
+      timestampSeconds?: number;
+      displayPhoneNumber?: string;
+      decision?: string;
+      requestedVerifiedName?: string;
+      rejectionReason?: string;
+    }
+  | {
+      kind: "phone_quality";
+      wabaId: string;
+      timestampSeconds?: number;
+      displayPhoneNumber?: string;
+      event?: string;
+      currentLimit?: string;
+    }
+  | {
+      kind: "account_update";
+      wabaId: string;
+      timestampSeconds?: number;
+      event?: string;
+      banState?: string;
+      banDate?: string;
+    }
+  | {
+      kind: "account_review";
+      wabaId: string;
+      timestampSeconds?: number;
+      decision?: string;
+    };
+
 export type ParsedWhatsAppWebhook = {
   phoneNumberIds: string[];
   statuses: WhatsAppMessageStatus[];
   messages: WhatsAppInboundMessage[];
+  assetEvents: WhatsAppMetaAssetEvent[];
 };
 
 const supportedStatuses = new Set(["sent", "delivered", "read", "failed"] as const);
@@ -145,22 +189,97 @@ function parseInboundMessage(
   };
 }
 
+function parseAssetEvent(
+  field: string | undefined,
+  value: JsonRecord,
+  wabaId: string | undefined,
+  timestampSeconds: number | undefined,
+): WhatsAppMetaAssetEvent | null {
+  if (!field || !wabaId) return null;
+
+  if (field === "message_template_status_update") {
+    if (typeof value.message_template_id !== "string" || typeof value.event !== "string") return null;
+    return {
+      kind: "template_status",
+      wabaId,
+      ...(timestampSeconds !== undefined ? { timestampSeconds } : {}),
+      templateId: value.message_template_id,
+      ...(typeof value.message_template_name === "string" ? { templateName: value.message_template_name } : {}),
+      ...(typeof value.message_template_language === "string" ? { language: value.message_template_language } : {}),
+      event: value.event.toUpperCase(),
+      ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
+    };
+  }
+
+  if (field === "phone_number_name_update") {
+    return {
+      kind: "phone_name",
+      wabaId,
+      ...(timestampSeconds !== undefined ? { timestampSeconds } : {}),
+      ...(typeof value.display_phone_number === "string" ? { displayPhoneNumber: value.display_phone_number } : {}),
+      ...(typeof value.decision === "string" ? { decision: value.decision.toUpperCase() } : {}),
+      ...(typeof value.requested_verified_name === "string" ? { requestedVerifiedName: value.requested_verified_name } : {}),
+      ...(typeof value.rejection_reason === "string" ? { rejectionReason: value.rejection_reason } : {}),
+    };
+  }
+
+  if (field === "phone_number_quality_update") {
+    return {
+      kind: "phone_quality",
+      wabaId,
+      ...(timestampSeconds !== undefined ? { timestampSeconds } : {}),
+      ...(typeof value.display_phone_number === "string" ? { displayPhoneNumber: value.display_phone_number } : {}),
+      ...(typeof value.event === "string" ? { event: value.event.toUpperCase() } : {}),
+      ...(typeof value.current_limit === "string" ? { currentLimit: value.current_limit } : {}),
+    };
+  }
+
+  if (field === "account_update") {
+    const banInfo = isRecord(value.ban_info) ? value.ban_info : undefined;
+    return {
+      kind: "account_update",
+      wabaId,
+      ...(timestampSeconds !== undefined ? { timestampSeconds } : {}),
+      ...(typeof value.event === "string" ? { event: value.event.toUpperCase() } : {}),
+      ...(banInfo && typeof banInfo.waba_ban_state === "string" ? { banState: banInfo.waba_ban_state.toUpperCase() } : {}),
+      ...(banInfo && typeof banInfo.waba_ban_date === "string" ? { banDate: banInfo.waba_ban_date } : {}),
+    };
+  }
+
+  if (field === "account_review_update") {
+    return {
+      kind: "account_review",
+      wabaId,
+      ...(timestampSeconds !== undefined ? { timestampSeconds } : {}),
+      ...(typeof value.decision === "string" ? { decision: value.decision.toUpperCase() } : {}),
+    };
+  }
+
+  return null;
+}
+
 export function parseWhatsAppWebhook(payload: unknown): ParsedWhatsAppWebhook {
   const phoneNumberIds = new Set<string>();
   const statuses: WhatsAppMessageStatus[] = [];
   const messages: WhatsAppInboundMessage[] = [];
+  const assetEvents: WhatsAppMetaAssetEvent[] = [];
 
   if (!isRecord(payload) || payload.object !== "whatsapp_business_account" || !Array.isArray(payload.entry)) {
-    return { phoneNumberIds: [], statuses: [], messages: [] };
+    return { phoneNumberIds: [], statuses: [], messages: [], assetEvents: [] };
   }
 
   for (const entry of payload.entry) {
     if (!isRecord(entry) || !Array.isArray(entry.changes)) continue;
     const wabaId = typeof entry.id === "string" ? entry.id : undefined;
+    const entryTimestampSeconds = parseTimestampSeconds(entry.time);
 
     for (const change of entry.changes) {
       if (!isRecord(change) || !isRecord(change.value)) continue;
       const value = change.value;
+      const field = typeof change.field === "string" ? change.field.toLowerCase() : undefined;
+      const assetEvent = parseAssetEvent(field, value, wabaId, entryTimestampSeconds);
+      if (assetEvent) assetEvents.push(assetEvent);
+
       const metadata = isRecord(value.metadata) ? value.metadata : undefined;
       const phoneNumberId = metadata && typeof metadata.phone_number_id === "string"
         ? metadata.phone_number_id
@@ -196,5 +315,5 @@ export function parseWhatsAppWebhook(payload: unknown): ParsedWhatsAppWebhook {
     }
   }
 
-  return { phoneNumberIds: [...phoneNumberIds], statuses, messages };
+  return { phoneNumberIds: [...phoneNumberIds], statuses, messages, assetEvents };
 }
