@@ -1,6 +1,6 @@
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { CountryCode } from "libphonenumber-js/max";
-import { BillingLimitExceededError, EntitlementService } from "@wa/billing";
+import { BillingLimitExceededError, type EntitlementService } from "@wa/billing";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import type { ContactImportJob } from "@wa/queue";
@@ -18,7 +18,6 @@ import {
   type ContactImportMapping,
   type CsvRow,
 } from "./contact-import-csv";
-
 type Database = ReturnType<typeof createDatabase>;
 type ContactInsert = typeof schema.contacts.$inferInsert;
 type R2Client = ReturnType<typeof createR2Client>;
@@ -31,8 +30,7 @@ export function createContactImportProcessor(input: {
 }) {
   const { database, entitlements, r2, env } = input;
   const db = database.db;
-
-async function processContactImport(job: ContactImportJob) {
+  async function processContactImport(job: ContactImportJob) {
   const [contactImport] = await db
     .select()
     .from(schema.contactImports)
