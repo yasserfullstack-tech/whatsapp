@@ -1,6 +1,5 @@
 import { Worker, type Job } from "bullmq";
 import { and, eq, isNull } from "drizzle-orm";
-import { DrizzleBillingRepository, EntitlementService } from "@wa/billing";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import { MetaApiError, WhatsAppCloudClient } from "@wa/meta";
@@ -34,7 +33,6 @@ export function createCampaignSendWorker(input: {
 }) {
   const { db, redis, env } = input;
   const limiter = new PerNumberRateLimiter(redis);
-  const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
   const getAccessToken = createAccessTokenLoader(db, env);
   const { markUnknownSendOutcome, failQueuedRecipientForConnection } = createCampaignSendState(db);
 
@@ -119,7 +117,7 @@ export function createCampaignSendWorker(input: {
       // the provider boundary. A prior claim without a recorded outcome is never
       // automatically resent because that could duplicate a real WhatsApp send.
       const now = new Date();
-      const claimed = await claimCampaignRecipientForSend(db, entitlements, {
+      const claimed = await claimCampaignRecipientForSend(db, {
         organizationId: job.data.organizationId,
         campaignId: job.data.campaignId,
         recipientId: job.data.recipientId,
