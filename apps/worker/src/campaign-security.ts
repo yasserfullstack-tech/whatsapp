@@ -2,7 +2,6 @@ import { and, eq, isNotNull, or, sql } from "drizzle-orm";
 import {
   BillingEntitlementError,
   BillingLimitExceededError,
-  DrizzleBillingRepository,
   EntitlementService,
 } from "@wa/billing";
 import { createDatabase, schema } from "@wa/db";
@@ -11,6 +10,7 @@ type Database = ReturnType<typeof createDatabase>["db"];
 
 export async function claimCampaignRecipientForSend(
   db: Database,
+  entitlements: EntitlementService,
   input: {
     organizationId: string;
     campaignId: string;
@@ -45,7 +45,6 @@ export async function claimCampaignRecipientForSend(
 
   if (!claimed) return null;
 
-  const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
   try {
     await entitlements.recordUsage({
       organizationId: input.organizationId,
