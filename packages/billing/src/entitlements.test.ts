@@ -60,16 +60,6 @@ class FakeBillingRepository implements BillingRepository {
     ].join(":");
   }
 
-  async getUsageContext(organizationId: string, key: EntitlementKey, _at: Date) {
-    const subscription = this.subscriptions.get(organizationId) ?? null;
-    return {
-      subscription,
-      entitlement: subscription
-        ? this.entitlements.get(`${subscription.planVersionId}:${key}`) ?? null
-        : null,
-    };
-  }
-
   async getCurrentSubscription(organizationId: string, _at: Date) {
     return this.subscriptions.get(organizationId) ?? null;
   }
