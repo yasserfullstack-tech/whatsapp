@@ -296,8 +296,16 @@ export async function prepareConnectionForSend(
         failureCode: schema.whatsappPhoneNumbers.failureCode,
         failureReason: schema.whatsappPhoneNumbers.failureReason,
         credentialExpiresAt: schema.whatsappPhoneNumbers.credentialExpiresAt,
+        credentialId: schema.credentialSecrets.id,
       })
       .from(schema.whatsappPhoneNumbers)
+      .leftJoin(
+        schema.credentialSecrets,
+        and(
+          eq(schema.credentialSecrets.organizationId, input.organizationId),
+          eq(schema.credentialSecrets.key, input.credentialKey),
+        ),
+      )
       .where(and(
         eq(schema.whatsappPhoneNumbers.organizationId, input.organizationId),
         eq(schema.whatsappPhoneNumbers.phoneNumberId, input.phoneNumberId),
@@ -329,17 +337,7 @@ export async function prepareConnectionForSend(
     return readiness;
   }
 
-  const credential = (
-    await db
-      .select({ id: schema.credentialSecrets.id })
-      .from(schema.credentialSecrets)
-      .where(and(
-        eq(schema.credentialSecrets.organizationId, input.organizationId),
-        eq(schema.credentialSecrets.key, input.credentialKey),
-      ))
-      .limit(1)
-  )[0];
-  if (credential) return { sendable: true };
+  if (connection.credentialId) return { sendable: true };
 
   const missing = {
     kind: "reauthorize" as const,
