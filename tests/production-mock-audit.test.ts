@@ -45,6 +45,7 @@ const SEMANTIC_FALLBACK_FILES = new Set([
   "apps/web/components/campaign-builder.tsx",
   "apps/web/components/mfa-security-card.tsx",
   "apps/worker/src/campaigns.ts",
+  "apps/worker/src/campaign-template-bindings.ts",
   "packages/meta/src/templates.ts",
   "packages/queue/src/index.ts",
 ]);
