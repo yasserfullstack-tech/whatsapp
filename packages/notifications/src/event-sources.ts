@@ -70,13 +70,13 @@ export const NOTIFICATION_EVENT_SOURCES: Record<NotificationType, NotificationEv
   template_approved: {
     source: "`platform_audit_events` rows for `meta.asset.template_status_changed` / `meta.asset.template_reconciled` with status approved",
     recipients: "Workspace members, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "\"template_approved\"" }],
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" }],
     reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" },
   },
   template_rejected: {
     source: "`platform_audit_events` rows for `meta.asset.template_status_changed` / `meta.asset.template_reconciled` with status rejected",
     recipients: "Workspace members, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "\"template_rejected\"" }],
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" }],
     reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" },
   },
   whatsapp_disconnected: {
@@ -115,13 +115,13 @@ export const NOTIFICATION_EVENT_SOURCES: Record<NotificationType, NotificationEv
   subscription_past_due: {
     source: "`billing_subscription_changes` rows whose resulting status is `past_due` or `grace_period`",
     recipients: "Owners/admins; mandatory",
-    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "\"subscription_past_due\"" }],
+    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" }],
     reconciler: { file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" },
   },
   subscription_changed: {
     source: "Any other `billing_subscription_changes` row",
     recipients: "Owners/admins, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "\"subscription_changed\"" }],
+    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" }],
     reconciler: { file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" },
   },
   security_event: {
