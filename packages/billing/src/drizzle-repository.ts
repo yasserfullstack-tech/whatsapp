@@ -13,6 +13,11 @@ import {
 type BillingDb = ReturnType<typeof createDatabase>["db"];
 
 export class DrizzleBillingRepository implements BillingRepository {
+  private readonly entitlementCache = new Map<string, {
+    value: BillingEntitlementSnapshot | null;
+    expiresAt: number;
+  }>();
+
   constructor(private readonly db: BillingDb) {}
 
   async getCurrentSubscription(organizationId: string, _at: Date): Promise<BillingSubscriptionSnapshot | null> {
@@ -43,6 +48,11 @@ export class DrizzleBillingRepository implements BillingRepository {
   }
 
   async getEntitlement(planVersionId: string, key: EntitlementKey): Promise<BillingEntitlementSnapshot | null> {
+    const cacheKey = `${planVersionId}:${key}`;
+    const now = Date.now();
+    const cached = this.entitlementCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.value;
+
     const row = (
       await this.db
         .select({
@@ -57,9 +67,13 @@ export class DrizzleBillingRepository implements BillingRepository {
           ),
         )
         .limit(1)
-    )[0];
+    )[0] ?? null;
 
-    return row ?? null;
+    // Plan-version entitlement metadata changes far less frequently than send
+    // traffic. A short cache removes a per-recipient read while still picking
+    // up administrative changes quickly. Subscription status remains uncached.
+    this.entitlementCache.set(cacheKey, { value: row, expiresAt: now + 1_000 });
+    return row;
   }
 
   async getUsage(input: {
