@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, lte, sql } from "drizzle-orm";
 import { createDatabase, schema } from "@wa/db";
 import {
   BillingLimitExceededError,
@@ -89,28 +89,11 @@ export class DrizzleBillingRepository implements BillingRepository {
   }
 
   async appendUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
+    if (input.limit !== null && input.quantity > input.limit) {
+      throw new BillingLimitExceededError(input.entitlementKey, input.limit, input.quantity);
+    }
+
     return this.db.transaction(async (tx) => {
-      await tx.execute(sql`
-        SELECT ${schema.billingSubscriptions.id}
-        FROM ${schema.billingSubscriptions}
-        WHERE ${schema.billingSubscriptions.id} = ${input.subscriptionId}
-          AND ${schema.billingSubscriptions.organizationId} = ${input.organizationId}
-        FOR UPDATE
-      `);
-
-      const existing = (
-        await tx
-          .select({ id: schema.billingUsageLedger.id })
-          .from(schema.billingUsageLedger)
-          .where(
-            and(
-              eq(schema.billingUsageLedger.organizationId, input.organizationId),
-              eq(schema.billingUsageLedger.idempotencyKey, input.idempotencyKey),
-            ),
-          )
-          .limit(1)
-      )[0];
-
       const usageWhere = and(
         eq(schema.billingPeriodUsage.organizationId, input.organizationId),
         eq(schema.billingPeriodUsage.subscriptionId, input.subscriptionId),
@@ -118,34 +101,41 @@ export class DrizzleBillingRepository implements BillingRepository {
         eq(schema.billingPeriodUsage.periodStart, input.periodStart),
         eq(schema.billingPeriodUsage.periodEnd, input.periodEnd),
       );
-      const current = (
-        await tx
-          .select({ quantity: schema.billingPeriodUsage.quantity })
-          .from(schema.billingPeriodUsage)
-          .where(usageWhere)
-          .limit(1)
-      )[0]?.quantity ?? 0;
 
-      if (existing) return { recorded: false, total: current };
+      const [ledgerEntry] = await tx
+        .insert(schema.billingUsageLedger)
+        .values({
+          organizationId: input.organizationId,
+          subscriptionId: input.subscriptionId,
+          entitlementKey: input.entitlementKey,
+          quantity: input.quantity,
+          idempotencyKey: input.idempotencyKey,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          occurredAt: input.occurredAt,
+          metadata: input.metadata,
+        })
+        .onConflictDoNothing({
+          target: [
+            schema.billingUsageLedger.organizationId,
+            schema.billingUsageLedger.idempotencyKey,
+          ],
+        })
+        .returning({ id: schema.billingUsageLedger.id });
 
-      const attemptedTotal = current + input.quantity;
-      if (input.limit !== null && attemptedTotal > input.limit) {
-        throw new BillingLimitExceededError(input.entitlementKey, input.limit, attemptedTotal);
+      if (!ledgerEntry) {
+        const current = (
+          await tx
+            .select({ quantity: schema.billingPeriodUsage.quantity })
+            .from(schema.billingPeriodUsage)
+            .where(usageWhere)
+            .limit(1)
+        )[0]?.quantity ?? 0;
+        return { recorded: false, total: current };
       }
 
-      await tx.insert(schema.billingUsageLedger).values({
-        organizationId: input.organizationId,
-        subscriptionId: input.subscriptionId,
-        entitlementKey: input.entitlementKey,
-        quantity: input.quantity,
-        idempotencyKey: input.idempotencyKey,
-        periodStart: input.periodStart,
-        periodEnd: input.periodEnd,
-        occurredAt: input.occurredAt,
-        metadata: input.metadata,
-      });
-
-      await tx
+      const updatedAt = new Date();
+      const [createdUsage] = await tx
         .insert(schema.billingPeriodUsage)
         .values({
           organizationId: input.organizationId,
@@ -154,9 +144,9 @@ export class DrizzleBillingRepository implements BillingRepository {
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
           quantity: input.quantity,
-          updatedAt: new Date(),
+          updatedAt,
         })
-        .onConflictDoUpdate({
+        .onConflictDoNothing({
           target: [
             schema.billingPeriodUsage.organizationId,
             schema.billingPeriodUsage.subscriptionId,
@@ -164,13 +154,46 @@ export class DrizzleBillingRepository implements BillingRepository {
             schema.billingPeriodUsage.periodStart,
             schema.billingPeriodUsage.periodEnd,
           ],
-          set: {
-            quantity: sql`${schema.billingPeriodUsage.quantity} + ${input.quantity}`,
-            updatedAt: new Date(),
-          },
-        });
+        })
+        .returning({ quantity: schema.billingPeriodUsage.quantity });
 
-      return { recorded: true, total: attemptedTotal };
+      if (createdUsage) return { recorded: true, total: createdUsage.quantity };
+
+      const updateWhere = input.limit === null
+        ? usageWhere
+        : and(
+            usageWhere,
+            lte(schema.billingPeriodUsage.quantity, input.limit - input.quantity),
+          );
+
+      const [updatedUsage] = await tx
+        .update(schema.billingPeriodUsage)
+        .set({
+          quantity: sql`${schema.billingPeriodUsage.quantity} + ${input.quantity}`,
+          updatedAt,
+        })
+        .where(updateWhere)
+        .returning({ quantity: schema.billingPeriodUsage.quantity });
+
+      if (updatedUsage) return { recorded: true, total: updatedUsage.quantity };
+
+      const current = (
+        await tx
+          .select({ quantity: schema.billingPeriodUsage.quantity })
+          .from(schema.billingPeriodUsage)
+          .where(usageWhere)
+          .limit(1)
+      )[0]?.quantity ?? 0;
+
+      if (input.limit !== null) {
+        throw new BillingLimitExceededError(
+          input.entitlementKey,
+          input.limit,
+          current + input.quantity,
+        );
+      }
+
+      throw new Error("Billing period usage row disappeared during metering");
     });
   }
 }
