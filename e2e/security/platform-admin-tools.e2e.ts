@@ -60,11 +60,56 @@ test.describe.serial("expanded platform administrator tooling authorization", ()
     admin = await createSecurityTenant("platform-tools-admin");
     attacker = await createSecurityTenant("platform-tools-attacker");
     await securityDb.insert(schema.platformAdminGrants).values({ authUserId: admin.authUserId, source: "security-test" });
+    await securitySql`UPDATE auth_user SET two_factor_enabled = true WHERE id = ${admin.authUserId}`;
   });
 
   test.afterAll(async () => {
     if (attacker) await destroySecurityTenant(attacker);
     if (admin) await destroySecurityTenant(admin);
+  });
+
+  test("platform-admin mutations require MFA and a fresh authentication session", async () => {
+    const pagePath = `/admin/access?q=${encodeURIComponent(attacker.email)}`;
+    const rendered = await admin.api.get(pagePath);
+    const html = await rendered.text();
+    expect(rendered.status(), html).toBe(200);
+    const multipart = extractActionForm(html, "authUserId", attacker.authUserId, "Grant platform admin");
+
+    await securitySql`UPDATE auth_user SET two_factor_enabled = false WHERE id = ${admin.authUserId}`;
+    try {
+      const withoutMfa = await replayAdminAction(admin, pagePath, multipart);
+      expect([200, 201, 202, 204]).not.toContain(withoutMfa.status());
+
+      const exportWithoutMfa = await admin.api.get("/admin/audit/export");
+      expect(exportWithoutMfa.status()).not.toBe(200);
+      expect(exportWithoutMfa.headers()["content-type"] ?? "").not.toContain("text/csv");
+    } finally {
+      await securitySql`UPDATE auth_user SET two_factor_enabled = true WHERE id = ${admin.authUserId}`;
+    }
+
+    await securitySql`
+      UPDATE auth_session
+      SET created_at = now() - interval '11 minutes'
+      WHERE user_id = ${admin.authUserId}
+    `;
+    try {
+      const staleSession = await replayAdminAction(admin, pagePath, multipart);
+      expect([200, 201, 202, 204]).not.toContain(staleSession.status());
+
+      const staleExport = await admin.api.get("/admin/audit/export");
+      expect(staleExport.status()).not.toBe(200);
+      expect(staleExport.headers()["content-type"] ?? "").not.toContain("text/csv");
+    } finally {
+      await securitySql`UPDATE auth_session SET created_at = now() WHERE user_id = ${admin.authUserId}`;
+    }
+
+    const grants = await securitySql`
+      SELECT revoked_at AS "revokedAt"
+      FROM platform_admin_grants
+      WHERE auth_user_id = ${attacker.authUserId}
+      LIMIT 1
+    ` as unknown as Array<{ revokedAt: Date | null }>;
+    expect(grants).toEqual([]);
   });
 
   test("workspace users cannot replay the platform-admin grant action", async () => {
@@ -84,6 +129,30 @@ test.describe.serial("expanded platform administrator tooling authorization", ()
       LIMIT 1
     ` as unknown as Array<{ revokedAt: Date | null }>;
     expect(grants).toEqual([]);
+  });
+
+  test("platform audit export requires admin step-up authentication", async () => {
+    await securitySql`UPDATE auth_user SET two_factor_enabled = false WHERE id = ${admin.authUserId}`;
+    try {
+      const withoutMfa = await admin.api.get("/admin/audit/export", { maxRedirects: 0 });
+      expect(withoutMfa.status()).not.toBe(200);
+      expect(withoutMfa.headers()["content-type"] ?? "").not.toContain("text/csv");
+    } finally {
+      await securitySql`UPDATE auth_user SET two_factor_enabled = true WHERE id = ${admin.authUserId}`;
+    }
+
+    await securitySql`
+      UPDATE auth_session
+      SET created_at = now() - interval '11 minutes'
+      WHERE user_id = ${admin.authUserId}
+    `;
+    try {
+      const stale = await admin.api.get("/admin/audit/export", { maxRedirects: 0 });
+      expect(stale.status()).not.toBe(200);
+      expect(stale.headers()["content-type"] ?? "").not.toContain("text/csv");
+    } finally {
+      await securitySql`UPDATE auth_session SET created_at = now() WHERE user_id = ${admin.authUserId}`;
+    }
   });
 
   test("workspace users cannot export the platform audit log", async () => {

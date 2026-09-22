@@ -74,6 +74,7 @@ test.describe.serial("platform administrator authorization", () => {
       authUserId: admin.authUserId,
       source: "security-test",
     });
+    await securitySql`UPDATE auth_user SET two_factor_enabled = true WHERE id = ${admin.authUserId}`;
   });
 
   test.afterAll(async () => {

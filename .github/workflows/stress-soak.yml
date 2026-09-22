@@ -88,7 +88,7 @@ jobs:
     timeout-minutes: 50
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: whatsapp
           POSTGRES_USER: whatsapp
@@ -101,7 +101,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       valkey:
-        image: valkey/valkey:8-alpine
+        image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
         ports:
           - 6379:6379
         options: >-
@@ -123,8 +123,8 @@ jobs:
       LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
       LOAD_REDIS_URL: redis://127.0.0.1:56379
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - name: Create ephemeral encryption key
@@ -158,7 +158,7 @@ jobs:
           bun run load:chaos -- --chaos=worker-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
       - name: Upload summarized load reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stress-soak-branch-validation
           path: load-results/
@@ -179,8 +179,8 @@ jobs:
       LOAD_DATABASE_URL: postgres://whatsapp:whatsapp@127.0.0.1:55432/whatsapp_load
       LOAD_REDIS_URL: redis://127.0.0.1:56379
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - run: bun install
@@ -296,7 +296,7 @@ jobs:
             load-results/representative-evidence
       - name: Upload benchmark reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stress-soak-${{ github.run_id }}-${{ github.run_attempt }}
           path: load-results/

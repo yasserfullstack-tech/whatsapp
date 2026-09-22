@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 35
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: whatsapp
           POSTGRES_USER: whatsapp
@@ -32,7 +32,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       valkey:
-        image: valkey/valkey:8-alpine
+        image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
         ports:
           - 6379:6379
         options: >-
@@ -61,8 +61,8 @@ jobs:
       R2_ENDPOINT: http://127.0.0.1:4569
       E2E_BLOCK_EXTERNAL: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - name: Create ephemeral encryption key
@@ -98,7 +98,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: whatsapp
           POSTGRES_USER: whatsapp
@@ -111,7 +111,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       valkey:
-        image: valkey/valkey:8-alpine
+        image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
         ports:
           - 6379:6379
         options: >-
@@ -137,8 +137,8 @@ jobs:
       R2_SECRET_ACCESS_KEY: ci-only-r2-secret-key
       R2_BUCKET: ci-only-r2-bucket
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - name: Create ephemeral encryption key
@@ -168,8 +168,8 @@ jobs:
       META_CONFIG_ID: ci-only-config-id
       META_VERIFY_TOKEN: ci-only-verify-token
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - run: bun install
@@ -190,7 +190,7 @@ jobs:
           bun run load:chaos -- --chaos=worker-restart --scenario=baseline-80 --recipients=1000 --fault-after-ms=3000 --timeout-ms=180000
       - name: Upload summarized load reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: final-regression-load-${{ github.run_id }}-${{ github.run_attempt }}
           path: load-results/
@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Prepare placeholder production environment
         run: |
           cp .env.production.example .env.production.ci
@@ -228,10 +228,10 @@ jobs:
             -e CADDY_EMAIL=ops@example.test \
             -e CADDY_MAX_REQUEST_BODY=16MB \
             -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           docker run --rm --entrypoint /bin/promtool \
             -v "$PWD/infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
-            prom/prometheus:v3.13.3 \
+            prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7 \
             check config /etc/prometheus/prometheus.yml
       - name: Build production images
         run: |

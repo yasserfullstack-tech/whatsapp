@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { S3Client } from "@aws-sdk/client-s3";
-import { deleteStoredPrefix, isObjectKeyWithinPrefix } from "./index";
+import { createPresignedCsvUpload, createR2Client, deleteStoredPrefix, isObjectKeyWithinPrefix } from "./index";
 
 function fakeS3(objects: Set<string>, ignoreDeletes = false): S3Client {
   return {
@@ -18,6 +18,29 @@ function fakeS3(objects: Set<string>, ignoreDeletes = false): S3Client {
     },
   } as unknown as S3Client;
 }
+
+describe("R2 presigned upload security", () => {
+  test("binds CSV uploads to both content type and declared content length", async () => {
+    const client = createR2Client({
+      accountId: "test",
+      accessKeyId: "test-access",
+      secretAccessKey: "test-secret",
+      bucket: "test-bucket",
+      endpoint: "https://r2.example.test",
+    });
+    const url = await createPresignedCsvUpload({
+      client,
+      bucket: "test-bucket",
+      key: "org-a/contact-imports/import-a/contacts.csv",
+      contentLength: 12_345,
+      expiresInSeconds: 300,
+    });
+
+    const signedHeaders = new URL(url).searchParams.get("X-Amz-SignedHeaders") ?? "";
+    expect(signedHeaders.split(";")).toContain("content-type");
+    expect(signedHeaders.split(";")).toContain("content-length");
+  });
+});
 
 describe("R2 object key isolation", () => {
   test("accepts only objects strictly below the expected prefix", () => {

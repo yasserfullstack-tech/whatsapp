@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2-slim AS deps
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS deps
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 COPY packages ./packages
@@ -12,7 +12,7 @@ COPY apps/worker ./apps/worker
 FROM deps AS build
 RUN bun build apps/worker/src/entry.ts --target=bun --minify --outfile=/out/worker.js
 
-FROM oven/bun:1.4.2-slim AS runtime
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS runtime
 WORKDIR /app
 ARG IMAGE_SOURCE="https://github.com/yasserfullstack-tech/whatsapp"
 ARG IMAGE_REVISION="unknown"
@@ -21,9 +21,7 @@ LABEL org.opencontainers.image.source="$IMAGE_SOURCE" \
       org.opencontainers.image.revision="$IMAGE_REVISION" \
       org.opencontainers.image.version="$IMAGE_VERSION"
 ENV NODE_ENV=production
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk upgrade --no-cache
 COPY --from=build --chown=bun:bun /out/worker.js ./worker.js
 USER bun
 EXPOSE 9464

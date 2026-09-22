@@ -3,7 +3,7 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
-import { requirePlatformAdmin } from "./platform-admin";
+import { requirePlatformAdminMutation } from "./platform-admin";
 import { db, webhookQueue } from "./server";
 
 function requiredText(formData: FormData, key: string): string {
@@ -17,7 +17,7 @@ function errorText(error: unknown): string {
 }
 
 export async function retryWebhookEventAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const eventId = requiredText(formData, "eventId");
   const [event] = await db
     .select({

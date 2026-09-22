@@ -109,6 +109,7 @@ export async function POST(request: Request) {
       client: r2,
       bucket: r2Config.bucket,
       key: objectKey,
+      contentLength: parsed.data.sizeBytes,
       expiresInSeconds: 1_800,
     });
 
