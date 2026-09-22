@@ -85,88 +85,56 @@ export class DrizzleBillingRepository implements BillingRepository {
   }): Promise<number> {
     const row = (
       await this.db
-        .select({ quantity: schema.billingPeriodUsage.quantity })
-        .from(schema.billingPeriodUsage)
+        .select({
+          quantity: sql<number>`coalesce(sum(${schema.billingUsageLedger.quantity}), 0)::int`,
+        })
+        .from(schema.billingUsageLedger)
         .where(
           and(
-            eq(schema.billingPeriodUsage.organizationId, input.organizationId),
-            eq(schema.billingPeriodUsage.subscriptionId, input.subscriptionId),
-            eq(schema.billingPeriodUsage.entitlementKey, input.entitlementKey),
-            eq(schema.billingPeriodUsage.periodStart, input.periodStart),
-            eq(schema.billingPeriodUsage.periodEnd, input.periodEnd),
+            eq(schema.billingUsageLedger.organizationId, input.organizationId),
+            eq(schema.billingUsageLedger.subscriptionId, input.subscriptionId),
+            eq(schema.billingUsageLedger.entitlementKey, input.entitlementKey),
+            eq(schema.billingUsageLedger.periodStart, input.periodStart),
+            eq(schema.billingUsageLedger.periodEnd, input.periodEnd),
           ),
         )
-        .limit(1)
     )[0];
 
-    return row?.quantity ?? 0;
+    return Number(row?.quantity ?? 0);
   }
 
   private async appendUnlimitedUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
-    const updatedAt = new Date();
-    const rows = await this.db.execute(sql<{ total: number }>`
-      WITH inserted_ledger AS (
-        INSERT INTO ${schema.billingUsageLedger} (
-          organization_id,
-          subscription_id,
-          entitlement_key,
-          quantity,
-          idempotency_key,
-          period_start,
-          period_end,
-          occurred_at,
-          metadata
-        )
-        VALUES (
-          ${input.organizationId},
-          ${input.subscriptionId},
-          ${input.entitlementKey},
-          ${input.quantity},
-          ${input.idempotencyKey},
-          ${input.periodStart.toISOString()}::timestamptz,
-          ${input.periodEnd.toISOString()}::timestamptz,
-          ${input.occurredAt.toISOString()}::timestamptz,
-          ${JSON.stringify(input.metadata)}::jsonb
-        )
-        ON CONFLICT (organization_id, idempotency_key) DO NOTHING
-        RETURNING 1
-      )
-      INSERT INTO ${schema.billingPeriodUsage} (
-        organization_id,
-        subscription_id,
-        entitlement_key,
-        period_start,
-        period_end,
-        quantity,
-        updated_at
-      )
-      SELECT
-        ${input.organizationId},
-        ${input.subscriptionId},
-        ${input.entitlementKey},
-        ${input.periodStart.toISOString()}::timestamptz,
-        ${input.periodEnd.toISOString()}::timestamptz,
-        ${input.quantity},
-        ${updatedAt.toISOString()}::timestamptz
-      FROM inserted_ledger
-      ON CONFLICT (
-        organization_id,
-        subscription_id,
-        entitlement_key,
-        period_start,
-        period_end
-      )
-      DO UPDATE SET
-        quantity = ${schema.billingPeriodUsage.quantity} + EXCLUDED.quantity,
-        updated_at = EXCLUDED.updated_at
-      RETURNING quantity AS total
-    `);
+    const [ledgerEntry] = await this.db
+      .insert(schema.billingUsageLedger)
+      .values({
+        organizationId: input.organizationId,
+        subscriptionId: input.subscriptionId,
+        entitlementKey: input.entitlementKey,
+        quantity: input.quantity,
+        idempotencyKey: input.idempotencyKey,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        occurredAt: input.occurredAt,
+        metadata: input.metadata,
+      })
+      .onConflictDoNothing({
+        target: [
+          schema.billingUsageLedger.organizationId,
+          schema.billingUsageLedger.idempotencyKey,
+        ],
+      })
+      .returning({ id: schema.billingUsageLedger.id });
 
-    const row = rows[0];
-    if (row) return { recorded: true, total: Number(row.total) };
+    // Unlimited plans do not need the shared billing_period_usage row for
+    // enforcement. The immutable ledger is authoritative and getUsage() sums
+    // it when an exact total is actually requested. Hot send paths can skip
+    // that aggregate read as well.
+    if (input.includeTotal === false) {
+      return { recorded: Boolean(ledgerEntry), total: 0 };
+    }
 
     return {
-      recorded: false,
+      recorded: Boolean(ledgerEntry),
       total: await this.getUsage({
         organizationId: input.organizationId,
         subscriptionId: input.subscriptionId,
