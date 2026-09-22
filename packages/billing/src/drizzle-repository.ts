@@ -88,8 +88,85 @@ export class DrizzleBillingRepository implements BillingRepository {
     return row?.quantity ?? 0;
   }
 
+  private async appendUnlimitedUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
+    const updatedAt = new Date();
+    const rows = await this.db.execute(sql<{ total: number }>`
+      WITH inserted_ledger AS (
+        INSERT INTO ${schema.billingUsageLedger} (
+          organization_id,
+          subscription_id,
+          entitlement_key,
+          quantity,
+          idempotency_key,
+          period_start,
+          period_end,
+          occurred_at,
+          metadata
+        )
+        VALUES (
+          ${input.organizationId},
+          ${input.subscriptionId},
+          ${input.entitlementKey},
+          ${input.quantity},
+          ${input.idempotencyKey},
+          ${input.periodStart},
+          ${input.periodEnd},
+          ${input.occurredAt},
+          ${JSON.stringify(input.metadata)}::jsonb
+        )
+        ON CONFLICT (organization_id, idempotency_key) DO NOTHING
+        RETURNING 1
+      )
+      INSERT INTO ${schema.billingPeriodUsage} (
+        organization_id,
+        subscription_id,
+        entitlement_key,
+        period_start,
+        period_end,
+        quantity,
+        updated_at
+      )
+      SELECT
+        ${input.organizationId},
+        ${input.subscriptionId},
+        ${input.entitlementKey},
+        ${input.periodStart},
+        ${input.periodEnd},
+        ${input.quantity},
+        ${updatedAt}
+      FROM inserted_ledger
+      ON CONFLICT (
+        organization_id,
+        subscription_id,
+        entitlement_key,
+        period_start,
+        period_end
+      )
+      DO UPDATE SET
+        quantity = ${schema.billingPeriodUsage.quantity} + EXCLUDED.quantity,
+        updated_at = EXCLUDED.updated_at
+      RETURNING quantity AS total
+    `);
+
+    const row = rows[0];
+    if (row) return { recorded: true, total: Number(row.total) };
+
+    return {
+      recorded: false,
+      total: await this.getUsage({
+        organizationId: input.organizationId,
+        subscriptionId: input.subscriptionId,
+        entitlementKey: input.entitlementKey,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+      }),
+    };
+  }
+
   async appendUsage(input: UsageAppendInput): Promise<UsageAppendResult> {
-    if (input.limit !== null && input.quantity > input.limit) {
+    if (input.limit === null) return this.appendUnlimitedUsage(input);
+
+    if (input.quantity > input.limit) {
       throw new BillingLimitExceededError(input.entitlementKey, input.limit, input.quantity);
     }
 
@@ -159,20 +236,16 @@ export class DrizzleBillingRepository implements BillingRepository {
 
       if (createdUsage) return { recorded: true, total: createdUsage.quantity };
 
-      const updateWhere = input.limit === null
-        ? usageWhere
-        : and(
-            usageWhere,
-            lte(schema.billingPeriodUsage.quantity, input.limit - input.quantity),
-          );
-
       const [updatedUsage] = await tx
         .update(schema.billingPeriodUsage)
         .set({
           quantity: sql`${schema.billingPeriodUsage.quantity} + ${input.quantity}`,
           updatedAt,
         })
-        .where(updateWhere)
+        .where(and(
+          usageWhere,
+          lte(schema.billingPeriodUsage.quantity, input.limit - input.quantity),
+        ))
         .returning({ quantity: schema.billingPeriodUsage.quantity });
 
       if (updatedUsage) return { recorded: true, total: updatedUsage.quantity };
@@ -185,15 +258,11 @@ export class DrizzleBillingRepository implements BillingRepository {
           .limit(1)
       )[0]?.quantity ?? 0;
 
-      if (input.limit !== null) {
-        throw new BillingLimitExceededError(
-          input.entitlementKey,
-          input.limit,
-          current + input.quantity,
-        );
-      }
-
-      throw new Error("Billing period usage row disappeared during metering");
+      throw new BillingLimitExceededError(
+        input.entitlementKey,
+        input.limit,
+        current + input.quantity,
+      );
     });
   }
 }
