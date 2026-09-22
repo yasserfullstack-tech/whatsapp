@@ -44,7 +44,7 @@ The validator rejects missing flows, incomplete release identity, unresolved req
 | `full_campaign_dispatch` | Dispatch a complete campaign through the real worker/provider path. | Campaign/job/queue observability references and provider delivery totals. |
 | `account_export` | Run workspace/account export when the product supports it. | Export job/object reference and access-control/audit evidence. If export is not supported, mark `not_applicable` with the product-scope reason. |
 | `account_deletion` | Permanently delete a controlled test workspace/account through the supported path. | Audit reference plus verification that tenant data/credentials are no longer accessible. Never use a customer workspace. |
-| `billing_lifecycle` | Exercise Stripe test-mode or the configured real billing provider lifecycle end to end. | Checkout/subscription/invoice/payment/webhook references covering activation, plan change, failed-payment recovery, cancellation, replay safety, and refund when applicable. |
+| `billing_lifecycle` | Exercise the selected billing provider's sandbox/test lifecycle end to end. | Checkout/subscription/invoice/payment/webhook references covering activation, plan change, failed-payment recovery, cancellation, replay safety, and refund when applicable. |
 | `backup_restore` | Restore from the real off-server encrypted backup path using the recovery drill. | Recovery-drill evidence with backup identity, checksum result, restore result, and measured recovery duration. |
 | `release_rollback` | Roll back to the previous immutable release and pass smoke tests. | Before/after release manifest references, rollback command/result, and successful public smoke-test reference. |
 
@@ -75,7 +75,7 @@ Do not put any of the following in the manifest, generated summary, issue commen
 
 - access/refresh tokens, app secrets, webhook secrets, passwords, private keys, authorization codes, or signing keys,
 - WhatsApp phone numbers, email addresses, customer names, message bodies, media contents, or customer payloads,
-- Stripe secret keys/webhook secrets, R2 access keys, database URLs/credentials, backup encryption keys, or decrypted backup data.
+- Billing-provider credentials/webhook secrets, R2 access keys, database URLs/credentials, backup encryption keys, or decrypted backup data.
 
 Use stable references instead: GitHub Actions run IDs, Sentry event IDs without user data, provider dashboard event IDs, application audit IDs, queue/job IDs, campaign IDs, release manifest hashes, and redacted screenshots.
 
