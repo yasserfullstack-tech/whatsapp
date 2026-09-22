@@ -170,6 +170,7 @@ async function main() {
   const rows: BenchmarkRow[] = [];
   const suiteStartedAt = new Date();
   const failFastProgression = profile === "pr" || profile === "full";
+  const throughputMode = profile === "pr" ? "regression" : "capacity";
   let campaignProgressionBlocked = false;
 
   console.log(JSON.stringify({
@@ -177,7 +178,10 @@ async function main() {
     profile,
     progressiveSizes: PROGRESSIVE_SIZES,
     failFastProgression,
-    note: "Every campaign stage is thresholded. PR/full capacity progression stops before larger campaign stages after the first failed campaign benchmark. Throughput is capacity-gated only when the workload represents at least 10 seconds at target MPS.",
+    throughputMode,
+    note: profile === "pr"
+      ? "Every campaign stage is thresholded. PR runs on variable shared GitHub runners, so sustained throughput uses a regression floor; representative capacity remains gated by the dedicated full benchmark."
+      : "Every campaign stage is thresholded. Full capacity progression stops before larger campaign stages after the first failed campaign benchmark. Throughput is capacity-gated only when the workload represents at least 10 seconds at target MPS.",
   }));
 
   await mkdir("load-results", { recursive: true });
@@ -223,7 +227,7 @@ async function main() {
       }
 
       const report = await readJson(reportPath);
-      const thresholds = evaluateCampaignThresholds(report);
+      const thresholds = evaluateCampaignThresholds(report, { throughputMode });
       const passed = exitCode === 0 && thresholds.passed;
       rows.push({
         kind: "campaign",
