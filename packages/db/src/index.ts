@@ -46,9 +46,13 @@ export * from "./inbox-schema";
 export * from "./audience-query";
 export * from "./campaign-control";
 
-export function createDatabase(databaseUrl: string) {
+export type DatabaseOptions = {
+  maxConnections?: number;
+};
+
+export function createDatabase(databaseUrl: string, options: DatabaseOptions = {}) {
   const client = postgres(databaseUrl, {
-    max: 20,
+    max: options.maxConnections ?? 20,
     idle_timeout: 20,
     connect_timeout: 10,
   });
