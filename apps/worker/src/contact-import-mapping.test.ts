@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 /**
- * The contact import worker module starts BullMQ workers on import, so it cannot
- * be loaded in-process. These assertions guard the mapping contract the presign
- * route writes into `contact_import_mappings` — the worker must consume the
+ * The contact import runtime is verified from source so this contract remains independent
+ * of BullMQ startup. These assertions guard the mapping contract the presign
+ * route writes into `contact_import_mappings` — the processor must consume the
  * stored mapping instead of falling back to header heuristics.
  */
-const workerSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const workerSource = readFileSync(new URL("./contact-import-processor.ts", import.meta.url), "utf8");
 
 function expectSource(fragment: string) {
   expect(workerSource.includes(fragment), `worker source must contain: ${fragment}`).toBe(true);

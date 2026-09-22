@@ -24,6 +24,9 @@ export type NotificationEventSource = {
 };
 
 const NOTIFICATION_SOURCES = "apps/worker/src/notification-sources.ts";
+const NOTIFICATION_AUDIT_SOURCES = "apps/worker/src/notification-audit-sources.ts";
+const NOTIFICATION_BILLING_SOURCES = "apps/worker/src/notification-billing-sources.ts";
+const NOTIFICATION_TERMINAL_SOURCES = "apps/worker/src/notification-terminal-sources.ts";
 const NOTIFICATION_RUNTIME = "apps/worker/src/notification-runtime.ts";
 const CONNECTION_HEALTH = "apps/worker/src/connection-health.ts";
 const INBOX = "apps/worker/src/inbox.ts";
@@ -34,27 +37,27 @@ export const NOTIFICATION_EVENT_SOURCES: Record<NotificationType, NotificationEv
     recipients: "Workspace members, filtered by preferences",
     emitters: [
       { file: NOTIFICATION_RUNTIME, anchor: "emitCampaignTerminalNotification" },
-      { file: NOTIFICATION_SOURCES, anchor: "\"campaign_completed\"" },
+      { file: NOTIFICATION_TERMINAL_SOURCES, anchor: "\"campaign_completed\"" },
     ],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitCampaignTerminalStates" },
+    reconciler: { file: NOTIFICATION_TERMINAL_SOURCES, anchor: "emitCampaignTerminalStates" },
   },
   campaign_failed: {
     source: "`campaigns.status` terminal state (BullMQ campaign-dispatch failure, replayed by the durable scan)",
     recipients: "Workspace members, filtered by preferences",
     emitters: [
       { file: NOTIFICATION_RUNTIME, anchor: "emitCampaignTerminalNotification" },
-      { file: NOTIFICATION_SOURCES, anchor: "\"campaign_failed\"" },
+      { file: NOTIFICATION_TERMINAL_SOURCES, anchor: "\"campaign_failed\"" },
     ],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitCampaignTerminalStates" },
+    reconciler: { file: NOTIFICATION_TERMINAL_SOURCES, anchor: "emitCampaignTerminalStates" },
   },
   import_completed: {
     source: "`contact_imports.status` = completed (BullMQ contact-import completion, replayed by the durable scan)",
     recipients: "Workspace members, filtered by preferences",
     emitters: [
       { file: NOTIFICATION_RUNTIME, anchor: "emitImportTerminalNotification" },
-      { file: NOTIFICATION_SOURCES, anchor: "\"import_completed\"" },
+      { file: NOTIFICATION_TERMINAL_SOURCES, anchor: "\"import_completed\"" },
     ],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitImportCompletionStates" },
+    reconciler: { file: NOTIFICATION_TERMINAL_SOURCES, anchor: "emitImportCompletionStates" },
   },
   import_failed: {
     source: "`contact_imports.status` = failed once the contact-import queue has exhausted its attempts",
@@ -67,65 +70,65 @@ export const NOTIFICATION_EVENT_SOURCES: Record<NotificationType, NotificationEv
   template_approved: {
     source: "`platform_audit_events` rows for `meta.asset.template_status_changed` / `meta.asset.template_reconciled` with status approved",
     recipients: "Workspace members, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"template_approved\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitPlatformAuditEvents" },
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" }],
+    reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" },
   },
   template_rejected: {
     source: "`platform_audit_events` rows for `meta.asset.template_status_changed` / `meta.asset.template_reconciled` with status rejected",
     recipients: "Workspace members, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"template_rejected\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitPlatformAuditEvents" },
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" }],
+    reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" },
   },
   whatsapp_disconnected: {
     source: "`workspace_audit_logs` rows for `whatsapp.disconnected`",
     recipients: "Owners/admins; mandatory",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"whatsapp_disconnected\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitWorkspaceAuditEvents" },
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "\"whatsapp_disconnected\"" }],
+    reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitWorkspaceAuditEvents" },
   },
   whatsapp_connection_problem: {
     source: "Connection-health transition to reauthorization required, plus restricted-WABA `platform_audit_events`",
     recipients: "Owners/admins; mandatory",
     emitters: [
       { file: CONNECTION_HEALTH, anchor: "\"whatsapp_connection_problem\"" },
-      { file: NOTIFICATION_SOURCES, anchor: "\"whatsapp_connection_problem\"" },
+      { file: NOTIFICATION_AUDIT_SOURCES, anchor: "\"whatsapp_connection_problem\"" },
     ],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitPlatformAuditEvents" },
+    reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" },
   },
   quality_rating_degraded: {
     source: "`platform_audit_events` rows for `meta.asset.phone_quality_reconciled` with a worse known rating",
     recipients: "Owners/admins, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"quality_rating_degraded\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitPlatformAuditEvents" },
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "\"quality_rating_degraded\"" }],
+    reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitPlatformAuditEvents" },
   },
   usage_limit_approaching: {
     source: "`billing_period_usage` rows at or above 80% of a finite plan entitlement",
     recipients: "Workspace members, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"usage_limit_approaching\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitUsageThresholds" },
+    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "\"usage_limit_approaching\"" }],
+    reconciler: { file: NOTIFICATION_BILLING_SOURCES, anchor: "emitUsageThresholds" },
   },
   billing_payment_failed: {
     source: "Processed `billing_provider_events` rows for `invoice.payment_failed`",
     recipients: "Owners/admins; mandatory",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"billing_payment_failed\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitPaymentFailures" },
+    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "\"billing_payment_failed\"" }],
+    reconciler: { file: NOTIFICATION_BILLING_SOURCES, anchor: "emitPaymentFailures" },
   },
   subscription_past_due: {
     source: "`billing_subscription_changes` rows whose resulting status is `past_due` or `grace_period`",
     recipients: "Owners/admins; mandatory",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"subscription_past_due\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitSubscriptionChanges" },
+    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" }],
+    reconciler: { file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" },
   },
   subscription_changed: {
     source: "Any other `billing_subscription_changes` row",
     recipients: "Owners/admins, filtered by preferences",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"subscription_changed\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitSubscriptionChanges" },
+    emitters: [{ file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" }],
+    reconciler: { file: NOTIFICATION_BILLING_SOURCES, anchor: "emitSubscriptionChanges" },
   },
   security_event: {
     source: "`workspace_audit_logs` rows for security/account and privileged membership or ownership actions",
     recipients: "Affected user or owners/admins; mandatory",
-    emitters: [{ file: NOTIFICATION_SOURCES, anchor: "\"security_event\"" }],
-    reconciler: { file: NOTIFICATION_SOURCES, anchor: "emitWorkspaceAuditEvents" },
+    emitters: [{ file: NOTIFICATION_AUDIT_SOURCES, anchor: "\"security_event\"" }],
+    reconciler: { file: NOTIFICATION_AUDIT_SOURCES, anchor: "emitWorkspaceAuditEvents" },
   },
   inbound_message: {
     source: "Successfully persisted inbound `inbox_messages` row",
