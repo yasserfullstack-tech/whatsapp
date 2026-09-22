@@ -109,9 +109,9 @@ export class DrizzleBillingRepository implements BillingRepository {
           ${input.entitlementKey},
           ${input.quantity},
           ${input.idempotencyKey},
-          ${input.periodStart},
-          ${input.periodEnd},
-          ${input.occurredAt},
+          ${input.periodStart.toISOString()}::timestamptz,
+          ${input.periodEnd.toISOString()}::timestamptz,
+          ${input.occurredAt.toISOString()}::timestamptz,
           ${JSON.stringify(input.metadata)}::jsonb
         )
         ON CONFLICT (organization_id, idempotency_key) DO NOTHING
@@ -130,10 +130,10 @@ export class DrizzleBillingRepository implements BillingRepository {
         ${input.organizationId},
         ${input.subscriptionId},
         ${input.entitlementKey},
-        ${input.periodStart},
-        ${input.periodEnd},
+        ${input.periodStart.toISOString()}::timestamptz,
+        ${input.periodEnd.toISOString()}::timestamptz,
         ${input.quantity},
-        ${updatedAt}
+        ${updatedAt.toISOString()}::timestamptz
       FROM inserted_ledger
       ON CONFLICT (
         organization_id,
