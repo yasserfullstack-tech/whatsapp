@@ -13,7 +13,7 @@ x-app-security: &app-security
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     restart: unless-stopped
     command:
       - postgres
@@ -43,7 +43,7 @@ services:
     logging: *default-logging
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
     restart: unless-stopped
     command:
       - valkey-server
@@ -214,7 +214,7 @@ services:
     networks: [backend]
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.17.1
+    image: prometheuscommunity/postgres-exporter:v0.17.1@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17
     restart: unless-stopped
     environment:
       DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}?sslmode=disable
@@ -227,7 +227,7 @@ services:
     logging: *default-logging
 
   valkey-exporter:
-    image: oliver006/redis_exporter:v1.67.0
+    image: oliver006/redis_exporter:v1.67.0-alpine@sha256:ef9e3c9afa9072b8a4db8bc2b01471cd582a6a1db23760bc5fdb9e3c21842205
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis://valkey:6379
@@ -238,7 +238,7 @@ services:
     logging: *default-logging
 
   node-exporter:
-    image: prom/node-exporter:v1.9.1
+    image: prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
     restart: unless-stopped
     command:
       - --path.rootfs=/host
@@ -250,7 +250,7 @@ services:
     logging: *default-logging
 
   blackbox-exporter:
-    image: prom/blackbox-exporter:v0.27.0
+    image: prom/blackbox-exporter:v0.27.0@sha256:a50c4c0eda297baa1678cd4dc4712a67fdea713b832d43ce7fcc5f9bea05094d
     restart: unless-stopped
     command:
       - --config.file=/etc/blackbox/blackbox.yml
@@ -260,7 +260,7 @@ services:
     logging: *default-logging
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
     restart: unless-stopped
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -276,7 +276,7 @@ services:
     logging: *default-logging
 
   prometheus:
-    image: prom/prometheus:v3.13.3
+    image: prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -308,7 +308,7 @@ services:
     logging: *default-logging
 
   grafana:
-    image: grafana/grafana-oss:13.2.1
+    image: grafana/grafana:13.2.1@sha256:f772d434e8fab0049deb2b1b30abd43342bcfca1537614aa8d36080232cf4283
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
@@ -327,7 +327,7 @@ services:
     logging: *default-logging
 
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}

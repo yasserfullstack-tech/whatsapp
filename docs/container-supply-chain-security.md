@@ -11,6 +11,11 @@ The production image set is:
 - `whatsapp-worker`
 - `whatsapp-migrator`
 
+Bun build and runtime stages use the digest-pinned `oven/bun:1.4.2-alpine`
+base. The Alpine base replaces the previous Debian slim base so Debian packages
+that were covered by the former unfixed-HIGH exception are no longer present in
+the application image lineage.
+
 The production-infrastructure workflow builds and validates all four images on relevant pull requests and on pushes to `main`.
 
 ## Reproducible dependency installation
@@ -23,6 +28,25 @@ The repository pins Bun to `1.4.2` in CI and in the production Dockerfiles.
 - Do not regenerate or modify `bun.lock` merely to make CI pass. A lockfile change must correspond to an intentional dependency/workspace-manifest change or a reproduced Bun lockfile defect.
 
 Bun documentation: https://bun.com/docs/pm/cli/install
+
+## Third-party runtime image pinning
+
+Every literal third-party image in `docker-compose.production.yml` is pinned to both a human-readable version tag and an immutable `sha256` digest. This covers PostgreSQL, Valkey, Caddy, Prometheus, Grafana, Alertmanager, and the production exporters. Application images remain supplied through the release manifest variables because they are built and deployed by immutable release digest.
+
+The continuous supply-chain guard rejects any future literal production image that is reduced to a mutable tag-only reference.
+
+## Third-party runtime image integrity
+
+Every literal third-party image in `docker-compose.production.yml` is pinned to a
+SHA-256 digest as well as a human-readable version tag. This includes PostgreSQL,
+Valkey, Caddy, Prometheus, Alertmanager, Grafana, and the monitoring exporters.
+
+The digest is the deployment identity; the tag is retained only for operator
+readability. Updating a dependency image requires intentionally updating its
+digest and rerunning the production-infrastructure validation.
+
+The continuous supply-chain guard fails if a literal production image loses its
+`@sha256:...` pin.
 
 ## Container vulnerability scanning
 
@@ -116,26 +140,18 @@ A PR-021 implementation is considered verified only when:
 | Existing security jobs stay green | [Security run on `main`](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35525718027) and [CI run on `main`](https://github.com/yasserfullstack-tech/whatsapp/actions/runs/35525718018) at `8b57bdc` | both `success` |
 | Controls cannot silently regress | `bun run check:container-supply-chain` plus its regression tests | 14/14 controls pass; 18 tests cover the removal of each control |
 
-### Accepted exceptions (issue #66)
+### Retired Debian base exception (issue #66)
 
-The policy above does not block on unfixed findings, but requires them to be
-reviewed. The latest production scan reports the following unfixed HIGH findings,
-identical across the API, worker, and migrator images, all in the `oven/bun:1.4.2-slim`
-(Debian 13.7) base image. None has a published fix, so none is a blocker; they are
-retained in the scan artifact and accepted as follows.
+The former `oven/bun:1.4.2-slim` Debian-base exception covered unfixed HIGH
+findings in ncurses, systemd, acl, util-linux, and perl-Archive-Tar. PR #139
+removes that Debian base from the application build/runtime lineage and replaces
+it with digest-pinned `oven/bun:1.4.2-alpine`.
 
-| Field | Value |
-| --- | --- |
-| Advisories | `CVE-2025-69720` (ncurses), `CVE-2026-16742` (systemd), `CVE-2026-54369` (acl), `CVE-2026-76642`, `CVE-2026-78408`, `CVE-2026-78409`, `CVE-2026-78410` (util-linux), `CVE-2026-9538` (perl-Archive-Tar) |
-| Affected images | `whatsapp-api`, `whatsapp-worker`, `whatsapp-migrator` |
-| Affected packages | `util-linux` and its libraries, `libsystemd0`/`libudev1`, `libacl1`, `ncurses`/`libtinfo6`, `perl-base` |
-| Why remediation is not immediate | Debian 13 has published no fixed package version for any of these advisories, so `ignore-unfixed` correctly does not block. Pinning a newer base is impossible until upstream releases one. |
-| Reachability | `whatsapp-api` and `whatsapp-worker` run as the unprivileged `bun` user with `no-new-privileges`. The util-linux mount/`nsenter` issues require `CAP_SYS_ADMIN` and a privileged mount helper; `systemd-homed` is not present or running in these containers; the ncurses issues need an interactive terminal; `perl-Archive-Tar` is not invoked by the application. |
-| Migrator exposure | `whatsapp-migrator` runs as non-root under `USER bun` in the `migrator` stage. The migration command writes schema state to PostgreSQL, not to a mounted application volume, so the runtime does not require root filesystem privileges. The `migrate` Compose service also retains `no-new-privileges: true`, the `ops` profile, one-shot execution, no published ports, and no interactive shell. |
-| Compensating controls | Non-root `USER bun` for the API, worker, and migrator images; `no-new-privileges` in `docker-compose.production.yml`; immutable digest-pinned release images; and no interactive shell in the runtime path. The migrator is additionally confined to the `ops` profile and one-shot execution. |
-| Owner | @yasserfullstack-tech |
-| Review / expiry date | 2026-10-20 — re-check for a Debian fix, and remove this exception as soon as one ships |
+Those Debian advisories are therefore no longer accepted production exceptions.
+The blocking and retained-report Trivy scans remain authoritative for the new
+Alpine images; any HIGH/CRITICAL finding in the replacement base must follow the
+normal exception process above rather than inheriting the retired Debian
+exception.
 
-No finding is suppressed from the scan reports; a `.trivyignore` is deliberately
-not used, so these remain visible for triage in every artifact.
-
+No finding is suppressed from scan reports; a `.trivyignore` is deliberately
+not used, so new findings remain visible for triage.

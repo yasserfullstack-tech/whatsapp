@@ -1,6 +1,6 @@
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { schema } from "@wa/db";
-import { requirePlatformAdmin } from "@/lib/platform-admin";
+import { requirePlatformAdminStepUp } from "@/lib/platform-admin";
 import { db } from "@/lib/server";
 
 function csvCell(value: unknown): string {
@@ -10,7 +10,7 @@ function csvCell(value: unknown): string {
 }
 
 export async function GET(request: Request) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminStepUp();
   const url = new URL(request.url);
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 160);
   const action = (url.searchParams.get("action") ?? "").trim().slice(0, 160);

@@ -3,7 +3,7 @@
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { schema } from "@wa/db";
-import { requirePlatformAdmin } from "./platform-admin";
+import { requirePlatformAdminMutation } from "./platform-admin";
 import { db } from "./server";
 
 const workspaceRoles = new Set(["owner", "admin", "member", "viewer"]);
@@ -37,7 +37,7 @@ function refreshAccess() {
 }
 
 export async function grantPlatformAdminAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const targetAuthUserId = requiredText(formData, "authUserId");
   const [target] = await db
     .select({ id: schema.authUser.id, email: schema.authUser.email })
@@ -79,7 +79,7 @@ export async function grantPlatformAdminAction(formData: FormData) {
 }
 
 export async function revokePlatformAdminAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const targetAuthUserId = requiredText(formData, "authUserId");
   if (targetAuthUserId === actor.authUserId) {
     throw new Error("You cannot revoke your own platform-admin grant");
@@ -119,7 +119,7 @@ export async function revokePlatformAdminAction(formData: FormData) {
 }
 
 export async function suspendOrganizationAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const organizationId = requiredText(formData, "organizationId");
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 500) || "Suspended by platform administrator";
   const now = new Date();
@@ -146,7 +146,7 @@ export async function suspendOrganizationAction(formData: FormData) {
 }
 
 export async function reactivateOrganizationAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const organizationId = requiredText(formData, "organizationId");
   const now = new Date();
 
@@ -172,7 +172,7 @@ export async function reactivateOrganizationAction(formData: FormData) {
 }
 
 export async function updateOrganizationPlanAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const organizationId = requiredText(formData, "organizationId");
   const plan = requiredText(formData, "plan").slice(0, 80);
   const contactLimit = optionalLimit(formData, "contactLimit");
@@ -202,7 +202,7 @@ export async function updateOrganizationPlanAction(formData: FormData) {
 }
 
 export async function updateMembershipRoleAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const membershipId = requiredText(formData, "membershipId");
   const role = requiredText(formData, "role");
   if (!workspaceRoles.has(role)) throw new Error("Invalid workspace role");
@@ -258,7 +258,7 @@ export async function updateMembershipRoleAction(formData: FormData) {
 }
 
 export async function removeMembershipAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const membershipId = requiredText(formData, "membershipId");
 
   const [membershipRef] = await db
@@ -308,7 +308,7 @@ export async function removeMembershipAction(formData: FormData) {
 }
 
 export async function setUserDisabledAction(formData: FormData) {
-  const actor = await requirePlatformAdmin();
+  const actor = await requirePlatformAdminMutation();
   const userId = requiredText(formData, "userId");
   const disabled = requiredText(formData, "disabled") === "true";
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 500) || null;

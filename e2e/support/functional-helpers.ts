@@ -192,6 +192,16 @@ export async function grantPlatformAdmin(tenant: FunctionalTenant) {
     createdByAuthUserId: tenant.authUserId,
     source: "manual",
   });
+  await functionalSql`
+    UPDATE auth_user
+    SET two_factor_enabled = true, updated_at = now()
+    WHERE id = ${tenant.authUserId}
+  `;
+  await functionalSql`
+    UPDATE auth_session
+    SET created_at = now(), updated_at = now()
+    WHERE user_id = ${tenant.authUserId}
+  `;
 }
 
 export async function disableUser(tenant: FunctionalTenant, disabled = true) {

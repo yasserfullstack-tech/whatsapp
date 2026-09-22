@@ -46,7 +46,7 @@ jobs:
       backup: ${{ steps.classify.outputs.backup }}
       reporting: ${{ steps.classify.outputs.reporting }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # Full history so the merge base of base..head can be computed.
           fetch-depth: 0
@@ -160,7 +160,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Prepare placeholder deployment environments
         run: |
@@ -215,12 +215,17 @@ jobs:
 
       - name: Validate Caddy configuration
         run: |
+          grep -F '@internalOnly path /metrics /ready' infra/production/Caddyfile
+          if grep -E '@api path .*\/ready' infra/production/Caddyfile; then
+            echo 'public API matcher must not expose /ready' >&2
+            exit 1
+          fi
           docker run --rm \
             -e APP_DOMAIN=example.test \
             -e CADDY_EMAIL=ops@example.test \
             -e CADDY_MAX_REQUEST_BODY=16MB \
             -v "$PWD/infra/production/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: Validate Prometheus configuration and alert rules
         run: |
@@ -228,18 +233,18 @@ jobs:
             -v "$PWD/infra/production/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
             -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
             -v "$PWD/.runtime/monitoring:/runtime/monitoring:ro" \
-            prom/prometheus:v3.13.3 \
+            prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7 \
             check config /etc/prometheus/prometheus.yml
           docker run --rm --entrypoint /bin/promtool \
             -v "$PWD/infra/production/alerts:/etc/prometheus/alerts:ro" \
-            prom/prometheus:v3.13.3 \
+            prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7 \
             check rules /etc/prometheus/alerts/whatsapp.rules.yml
 
       - name: Validate Alertmanager configuration
         run: |
           docker run --rm --entrypoint /bin/amtool \
             -v "$PWD/infra/production/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
-            prom/alertmanager:v0.28.1 \
+            prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba \
             check-config /etc/alertmanager/alertmanager.yml
 
       - name: Build production images with immutable revision metadata
@@ -327,7 +332,7 @@ jobs:
           skip-setup-trivy: "true"
 
       - name: Upload production vulnerability reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trivy-production-security-${{ github.run_id }}-${{ github.run_attempt }}
           path: trivy-*.json
@@ -478,7 +483,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Validate backup and recovery shell scripts
         run: |
@@ -546,7 +551,7 @@ jobs:
             phone_numbers: 3
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: whatsapp
           POSTGRES_USER: whatsapp
@@ -567,8 +572,8 @@ jobs:
       # cascading fixture deletion only wastes CI time after measurements.
       REPORT_KEEP_DATA: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - run: bun install

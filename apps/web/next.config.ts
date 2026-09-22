@@ -5,41 +5,6 @@ import type { NextConfig } from "next";
 const isProduction = process.env.NODE_ENV === "production";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-function configuredOrigin(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
-const r2Origin = configuredOrigin(process.env.R2_ENDPOINT);
-const connectSources = [
-  "'self'",
-  "https://graph.facebook.com",
-  "https://www.facebook.com",
-  "https://web.facebook.com",
-  "https://*.r2.cloudflarestorage.com",
-  ...(r2Origin ? [r2Origin] : []),
-];
-
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "script-src 'self' 'unsafe-inline' https://connect.facebook.net",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  `connect-src ${connectSources.join(" ")}`,
-  "frame-src https://www.facebook.com https://web.facebook.com",
-  ...(isProduction ? ["upgrade-insecure-requests"] : []),
-].join("; ");
-
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -47,7 +12,6 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   ...(isProduction
     ? [
-        { key: "Content-Security-Policy", value: contentSecurityPolicy },
         { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
       ]
     : []),

@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { schema } from "@wa/db";
+import { hasRecentAuthentication } from "./recent-auth";
 import { auth, db } from "./server";
 
 export type PlatformAdminContext = {
@@ -77,4 +78,38 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
     name: session.user.name,
     source: "bootstrap",
   };
+}
+
+
+export async function requirePlatformAdminStepUp(): Promise<PlatformAdminContext> {
+  const actor = await requirePlatformAdmin();
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.id !== actor.authUserId) redirect("/sign-in");
+
+  const [stepUp] = await db
+    .select({
+      twoFactorEnabled: schema.authUser.twoFactorEnabled,
+      sessionCreatedAt: schema.authSession.createdAt,
+    })
+    .from(schema.authSession)
+    .innerJoin(schema.authUser, eq(schema.authUser.id, schema.authSession.userId))
+    .where(and(
+      eq(schema.authSession.id, session.session.id),
+      eq(schema.authSession.userId, actor.authUserId),
+    ))
+    .limit(1);
+
+  if (!stepUp?.twoFactorEnabled) {
+    throw new Error("Platform administrator mutations require multi-factor authentication");
+  }
+  if (!hasRecentAuthentication({ createdAt: stepUp.sessionCreatedAt })) {
+    throw new Error("Recent authentication required before performing platform administrator mutations");
+  }
+
+  return actor;
+}
+
+
+export async function requirePlatformAdminMutation(): Promise<PlatformAdminContext> {
+  return requirePlatformAdminStepUp();
 }

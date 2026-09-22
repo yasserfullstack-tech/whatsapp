@@ -3,6 +3,8 @@ import {
 	bunImagePinsAreFrozen,
 	composeServiceBlock,
 	composeUserOverrideRunsAsRoot,
+	externalComposeImageRefs,
+	imageRefUsesDigest,
 	dockerInstructions,
 	evaluateControls,
 	frozenInstallProblems,
@@ -27,9 +29,9 @@ const LABELS = [
 
 function dockerfile(): string {
 	return [
-		"FROM oven/bun:1.4.2-slim AS build",
+		"FROM oven/bun:1.4.2-slim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS build",
 		"RUN bun install --frozen-lockfile --ignore-scripts",
-		"FROM oven/bun:1.4.2-slim AS runtime",
+		"FROM oven/bun:1.4.2-slim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS runtime",
 		LABELS,
 	].join("\n");
 }
@@ -37,13 +39,13 @@ function dockerfile(): string {
 /** api.Dockerfile with both `migrator` and `runtime` stages running as `bun`. */
 function apiDockerfile(): string {
 	return [
-		"FROM oven/bun:1.4.2-slim AS build",
+		"FROM oven/bun:1.4.2-slim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS build",
 		"RUN bun install --frozen-lockfile --ignore-scripts",
-		"FROM oven/bun:1.4.2-slim AS migrator",
+		"FROM oven/bun:1.4.2-slim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS migrator",
 		LABELS,
 		"USER bun",
 		'CMD ["bun", "run", "--filter", "@wa/db", "db:migrate:runtime"]',
-		"FROM oven/bun:1.4.2-slim AS runtime",
+		"FROM oven/bun:1.4.2-slim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS runtime",
 		LABELS,
 		"USER bun",
 	].join("\n");
@@ -52,7 +54,7 @@ function apiDockerfile(): string {
 const COMPOSE = [
 	"services:",
 	"  postgres:",
-	"    image: postgres:17-alpine",
+	"    image: postgres:17-alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	"  migrate:",
 	'    profiles: ["ops"]',
 	"    build:",
@@ -60,7 +62,7 @@ const COMPOSE = [
 	"    security_opt:",
 	"      - no-new-privileges:true",
 	"  web:",
-	"    image: example",
+	"    image: ${WEB_IMAGE:?WEB_IMAGE is required}",
 ].join("\n");
 
 const MIGRATOR_ROOT_ROW =
@@ -169,6 +171,7 @@ function goodSource(): RepoSource {
 		rootPackageJson: JSON.stringify({ packageManager: "bun@1.4.2" }),
 		policyDoc: policyDoc(),
 		composeProduction: COMPOSE,
+		caddyfile: "@internalOnly path /metrics /ready\nrespond @internalOnly 404\n@api path /api/v1/* /health",
 	};
 }
 
@@ -224,10 +227,46 @@ describe("check-container-supply-chain detects regressions", () => {
 	test("flags a Dockerfile with no dependency install at all", () => {
 		const source = goodSource();
 		source.dockerfiles["infra/docker/worker.Dockerfile"] = [
-			"FROM oven/bun:1.4.2-slim AS runtime",
+			"FROM oven/bun:1.4.2-slim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS runtime",
 			LABELS,
 		].join("\n");
 		expect(resultFor(source, "frozen-install-images")).toBe(false);
+	});
+
+	test("rejects malformed double-digest image references", () => {
+		expect(imageRefUsesDigest("postgres:17-alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")).toBe(false);
+		expect(imageRefUsesDigest("postgres:17-alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).toBe(true);
+	});
+
+	test("flags a mutable third-party production image", () => {
+		const source = goodSource();
+		source.composeProduction = source.composeProduction.replace(
+			"postgres:17-alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"postgres:17-alpine",
+		);
+		expect(resultFor(source, "third-party-image-digests")).toBe(false);
+	});
+
+	test("extracts only literal external Compose images and validates digests", () => {
+		const refs = externalComposeImageRefs([
+			"services:",
+			"  postgres:",
+			"    image: postgres:17-alpine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"  web:",
+			"    image: ${WEB_IMAGE:?WEB_IMAGE is required}",
+		].join("\n"));
+		expect(refs).toHaveLength(1);
+		expect(imageRefUsesDigest(refs[0]!)).toBe(true);
+		expect(imageRefUsesDigest("postgres:17-alpine")).toBe(false);
+	});
+
+	test("flags a Bun base that keeps the version but drops the digest", () => {
+		const source = goodSource();
+		source.dockerfiles["infra/docker/web.Dockerfile"] = dockerfile().replaceAll(
+			"@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			"",
+		);
+		expect(resultFor(source, "bun-image-pinned")).toBe(false);
 	});
 
 	test("flags an unpinned Bun base image", () => {
@@ -332,6 +371,21 @@ describe("check-container-supply-chain detects regressions", () => {
 		expect(resultFor(source, "scanner-pinned")).toBe(false);
 	});
 
+	test("flags a mutable third-party production image", () => {
+		const source = goodSource();
+		source.composeProduction = source.composeProduction.replace(
+			/postgres:17-alpine@sha256:[0-9a-f]{64}/,
+			"postgres:17-alpine",
+		);
+		expect(resultFor(source, "third-party-image-digests")).toBe(false);
+	});
+
+	test("flags a public dependency readiness endpoint", () => {
+		const source = goodSource();
+		source.caddyfile = "@api path /api/v1/* /health /ready";
+		expect(resultFor(source, "readiness-private")).toBe(false);
+	});
+
 	test("flags a Dockerfile that drops a provenance label", () => {
 		const source = goodSource();
 		source.dockerfiles["infra/docker/web.Dockerfile"] = dockerfile().replace(
@@ -352,6 +406,34 @@ describe("check-container-supply-chain detects regressions", () => {
 			"image.source",
 		);
 		expect(resultFor(source, "provenance-verified")).toBe(false);
+	});
+
+	test("flags an expired accepted vulnerability exception", () => {
+		const source = goodSource();
+		source.policyDoc = [
+			policyDoc(),
+			"",
+			"### Accepted exceptions",
+			"",
+			"| Field | Value |",
+			"| --- | --- |",
+			"| Review / expiry date | 2000-01-01 — expired |",
+		].join("\n");
+		expect(resultFor(source, "accepted-exception-review-current")).toBe(false);
+	});
+
+	test("accepts an accepted vulnerability exception with a future review date", () => {
+		const source = goodSource();
+		source.policyDoc = [
+			policyDoc(),
+			"",
+			"### Accepted exceptions",
+			"",
+			"| Field | Value |",
+			"| --- | --- |",
+			"| Review / expiry date | 2099-01-01 — review |",
+		].join("\n");
+		expect(resultFor(source, "accepted-exception-review-current")).toBe(true);
 	});
 
 	test("flags a policy doc that loses the exception requirements", () => {
@@ -525,10 +607,12 @@ describe("check-container-supply-chain helpers", () => {
 		expect(stepId(steps[0])).toBe("policy_x");
 	});
 
-	test("bunImagePinsAreFrozen rejects floating and wrong-version tags", () => {
-		expect(bunImagePinsAreFrozen("FROM oven/bun:1.4.2-slim\n").ok).toBe(true);
+	test("bunImagePinsAreFrozen rejects floating, unpinned, and wrong-version tags", () => {
+		const digest = "a".repeat(64);
+		expect(bunImagePinsAreFrozen(`FROM oven/bun:1.4.2-alpine@sha256:${digest}\n`).ok).toBe(true);
+		expect(bunImagePinsAreFrozen("FROM oven/bun:1.4.2-alpine\n").ok).toBe(false);
 		expect(bunImagePinsAreFrozen("FROM oven/bun:latest\n").ok).toBe(false);
-		expect(bunImagePinsAreFrozen("FROM oven/bun:1.3.14-slim\n").ok).toBe(false);
+		expect(bunImagePinsAreFrozen(`FROM oven/bun:1.3.14-alpine@sha256:${digest}\n`).ok).toBe(false);
 		expect(bunImagePinsAreFrozen("FROM node:22-alpine\n").ok).toBe(false);
 	});
 

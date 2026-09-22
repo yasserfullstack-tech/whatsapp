@@ -27,11 +27,11 @@ https://{$APP_DOMAIN} {
 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 	}
 
-	# Metrics stay on the private Compose network and are scraped by Prometheus.
-	@metrics path /metrics
-	respond @metrics 404
+	# Metrics and dependency readiness stay on the private Compose network.
+	@internalOnly path /metrics /ready
+	respond @internalOnly 404
 
-	@api path /api/v1/* /health /ready
+	@api path /api/v1/* /health
 	reverse_proxy @api api:4000 {
 		health_uri /health
 		health_interval 30s

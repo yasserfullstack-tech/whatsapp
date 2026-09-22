@@ -31,6 +31,7 @@ export type RepoSource = {
 	rootPackageJson: string;
 	policyDoc: string;
 	composeProduction: string;
+	caddyfile: string;
 };
 
 /** Production images that must be scanned and labelled. */
@@ -99,14 +100,18 @@ export function bunImagePinsAreFrozen(content: string): { ok: boolean; detail: s
 	if (refs.length === 0) {
 		return { ok: false, detail: "no `FROM oven/bun:<version>` stage found" };
 	}
-	const unpinned = refs.filter((ref) => !ref.startsWith(`${PINNED_BUN_VERSION}-`));
+	const unpinned = refs.filter(
+		(ref) =>
+			!ref.startsWith(`${PINNED_BUN_VERSION}-`) ||
+			!/@sha256:[0-9a-f]{64}$/i.test(ref),
+	);
 	if (unpinned.length > 0) {
 		return {
 			ok: false,
-			detail: `unpinned or unexpected Bun image tag(s): ${unpinned.join(", ")}`,
+			detail: `unpinned or unexpected Bun image reference(s): ${unpinned.join(", ")}`,
 		};
 	}
-	return { ok: true, detail: `all ${refs.length} Bun stage(s) pinned to ${PINNED_BUN_VERSION}` };
+	return { ok: true, detail: `all ${refs.length} Bun stage(s) pinned to ${PINNED_BUN_VERSION} and immutable digests` };
 }
 
 /** Splits a Dockerfile into logical instructions, joining `\` continuations. */
@@ -193,6 +198,21 @@ export function composeUserOverrideRunsAsRoot(
 /** Every `aquasecurity/trivy-action@<ref>` reference in a workflow. */
 export function trivyActionRefs(content: string): string[] {
 	return [...content.matchAll(/aquasecurity\/trivy-action@([^\s#]+)/g)].map((match) => match[1]);
+}
+
+export function externalComposeImageRefs(content: string): string[] {
+	return content
+		.split("\n")
+		.flatMap((line) => {
+			const match = line.match(/^\s*image:\s*(.+?)\s*$/);
+			if (!match) return [];
+			const value = match[1].trim().replace(/^[\"\']|[\"\']$/g, "");
+			return value.startsWith("${") ? [] : [value];
+		});
+}
+
+export function imageRefUsesDigest(ref: string): boolean {
+	return /^[^\s@]+(?:@sha256:[0-9a-f]{64})$/i.test(ref);
 }
 
 /** Reads the `severity:` list from a step body, upper-cased and trimmed. */
@@ -480,6 +500,31 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 				: `not pinned to a commit SHA: ${floatingScannerRefs.join(", ")}`,
 	);
 
+	const readinessIsPrivate =
+		/^\s*@internalOnly\s+path\s+[^\n]*\/ready(?:\s|$)/m.test(source.caddyfile) &&
+		!/^\s*@api\s+path\s+[^\n]*\/ready(?:\s|$)/m.test(source.caddyfile);
+	push(
+		"readiness-private",
+		"Dependency readiness details are not exposed through the public edge",
+		readinessIsPrivate,
+		readinessIsPrivate
+			? "Caddy blocks /ready before public API routing"
+			: "Caddy must block /ready and keep it out of the public @api matcher",
+	);
+
+	const thirdPartyImageRefs = externalComposeImageRefs(source.composeProduction);
+	const mutableThirdPartyImages = thirdPartyImageRefs.filter((ref) => !imageRefUsesDigest(ref));
+	push(
+		"third-party-image-digests",
+		"Every literal third-party production image is pinned by SHA-256 digest",
+		thirdPartyImageRefs.length > 0 && mutableThirdPartyImages.length === 0,
+		thirdPartyImageRefs.length === 0
+			? "no literal third-party image references found"
+			: mutableThirdPartyImages.length === 0
+				? `all ${thirdPartyImageRefs.length} third-party image reference(s) use immutable digests`
+				: `mutable third-party image references: ${mutableThirdPartyImages.join(", ")}`,
+	);
+
 	// --- Image provenance / traceability -----------------------------------
 
 	const labelProblems: string[] = [];
@@ -543,6 +588,27 @@ export function evaluateControls(source: RepoSource): ControlCheck[] {
 
 	// --- Policy documentation ----------------------------------------------
 
+	const hasAcceptedExceptions = /### Accepted exceptions/.test(source.policyDoc);
+	const exceptionReviewMatch = source.policyDoc.match(/\| Review \/ expiry date \|\s*(\d{4}-\d{2}-\d{2})\b/);
+	const exceptionReviewAt = exceptionReviewMatch
+		? Date.parse(`${exceptionReviewMatch[1]}T23:59:59Z`)
+		: Number.NaN;
+	const exceptionReviewCurrent =
+		!hasAcceptedExceptions ||
+		(Number.isFinite(exceptionReviewAt) && exceptionReviewAt >= Date.now());
+	push(
+		"accepted-exception-review-current",
+		"Accepted vulnerability exceptions have a non-expired review date",
+		exceptionReviewCurrent,
+		!hasAcceptedExceptions
+			? "no accepted vulnerability exception table is present"
+			: !exceptionReviewMatch
+				? "accepted exceptions exist without a parseable review / expiry date"
+				: exceptionReviewCurrent
+					? `review date ${exceptionReviewMatch[1]} is still current`
+					: `review date ${exceptionReviewMatch[1]} has expired`,
+	);
+
 	const documentsSeverity = /HIGH/.test(source.policyDoc) && /CRITICAL/.test(source.policyDoc);
 	const documentsExceptions = /## Exceptions/.test(source.policyDoc);
 	push(
@@ -596,6 +662,7 @@ function loadSource(): RepoSource {
 		rootPackageJson: readFileSync("package.json", "utf8"),
 		policyDoc: readFileSync("docs/container-supply-chain-security.md", "utf8"),
 		composeProduction: readFileSync("docker-compose.production.yml", "utf8"),
+		caddyfile: readFileSync("infra/production/Caddyfile", "utf8"),
 	};
 }
 
