@@ -30,7 +30,7 @@ A task can be in more than one state at once:
 
 - ✅ **Verified complete** — Definition of done is satisfied and the required evidence is recorded.
 - 🟦 **Implemented** — repository-side code/config/tests/docs are merged, but verification/evidence remains.
-- ⏳ **External evidence required** — completion depends on Meta, Stripe, production infrastructure, legal review, a real operator destination, a real restore, a pentest, or another non-Git system.
+- ⏳ **External evidence required** — completion depends on Meta, the selected production billing provider, production infrastructure, legal review, a real operator destination, a real restore, a pentest, or another non-Git system.
 - ⚠️ **Failing / drift** — a current workflow, operational control, or tracking state is wrong and needs correction.
 - ⬜ **Open** — not verified complete.
 
@@ -73,7 +73,7 @@ The item-by-item record is in [Readiness issue-state audit (2026-09-21)](#readin
 
 ## 4. Mock/local regression coverage is not provider acceptance
 
-The repository has strong local/fake-provider regression coverage, but fake Meta, mock Stripe, local R2/S3, or synthetic email cannot close the provider-production acceptance gate. PR-012 exists specifically to require real-provider evidence.
+The repository has strong local/fake-provider regression coverage, but fake Meta, a mock billing provider, local R2/S3, or synthetic email cannot close the provider-production acceptance gate. PR-012 exists specifically to require real-provider evidence.
 
 ---
 
@@ -86,8 +86,8 @@ The repository has strong local/fake-provider regression coverage, but fake Meta
 | PR-003 Connection health / reauthorization | 🟦 ⏳ `[ ]` | Lifecycle/validation/reconnect work merged via [#79](https://github.com/yasserfullstack-tech/whatsapp/pull/79) | Attach real staging reconnect/credential-replacement evidence to the reopened [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48). |
 | PR-004 Meta asset/account synchronization | 🟦 ⏳ `[ ]` | Webhook/reconciliation/audit/metrics work merged via [#78](https://github.com/yasserfullstack-tech/whatsapp/pull/78) | Capture a real Meta state transition or reconciliation repair in staging and attach it to the reopened [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49). |
 | PR-005 External Meta prerequisites | ⏳ `[ ]` | Evidence runbook merged via [#69](https://github.com/yasserfullstack-tech/whatsapp/pull/69) | Production Meta approvals/access, webhook/configuration, real WABA/phone onboarding, and sanitized proof in [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50). |
-| PR-006 Real billing provider | 🟦 ⏳ `[ ]` | Stripe provider/lifecycle/webhook code merged via [#73](https://github.com/yasserfullstack-tech/whatsapp/pull/73) | Run the documented real Stripe test-mode lifecycle: Checkout, webhooks, upgrade/downgrade, portal, failed-payment recovery, cancel, replay, refund. Attach the evidence to the reopened [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51). |
-| PR-007 Server-side entitlements | 🟦 ⏳ `[ ]` | Enforcement/accounting merged via [#76](https://github.com/yasserfullstack-tech/whatsapp/pull/76); repository verification recorded on [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | Repository enforcement/usage-accounting evidence is complete; prove real Stripe-driven plan/status transitions through the same paths with PR-006/PR-012. |
+| PR-006 Real billing provider | ⬜ `[ ]` | Provider-neutral billing contract and local billing model remain; the previous concrete provider integration has been removed while a replacement is selected. | Select the production billing provider, implement it behind the provider contract, and run the documented sandbox/test lifecycle: checkout, webhooks, upgrade/downgrade, account management, failed-payment recovery, cancellation, replay, and refund behavior as supported. Attach the evidence to [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51). |
+| PR-007 Server-side entitlements | 🟦 ⏳ `[ ]` | Enforcement/accounting merged via [#76](https://github.com/yasserfullstack-tech/whatsapp/pull/76); repository verification recorded on [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | Repository enforcement/usage-accounting evidence is complete; after PR-006 selects a provider, prove real provider-driven plan/status transitions through the same paths with PR-006/PR-012. |
 | PR-008 Legal/compliance | 🟦 ⏳ `[ ]` | Versioned drafts, acceptance storage, and runbooks merged via [#74](https://github.com/yasserfullstack-tech/whatsapp/pull/74) | Qualified legal review/approval, final entity/jurisdiction/vendor details, and approval evidence in [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53). |
 | PR-009 Staging/production infrastructure | 🟦 ⏳ `[ ]` | Isolation/immutable release/evidence/rollback tooling merged via [#71](https://github.com/yasserfullstack-tech/whatsapp/pull/71); vulnerability-gated immutable GHCR release publishing via [#113](https://github.com/yasserfullstack-tech/whatsapp/pull/113) | Real staging + production deployment proof, DNS/TLS/firewall, environment isolation, email/Sentry/Meta config, and actual rollback drill — attach to the reopened [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54). |
 | PR-010 Backup/recovery | 🟦 ⏳ `[ ]` | Backup scheduling, off-server validation, restore drill tooling merged via [#77](https://github.com/yasserfullstack-tech/whatsapp/pull/77) | Real production timer/backup, freshness monitoring, clean-host restore + app smoke test, measured recovery, and accepted RPO/RTO/R2 strategy — attach to the reopened [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55). |
@@ -130,7 +130,7 @@ Do **not** accept normal paid production customers until every launch blocker be
 - [ ] Meta production approvals/permissions/webhook/phone/WABA proof.
 - [ ] Real reconnect/credential-replacement evidence.
 - [ ] Real Meta asset/account state synchronization evidence.
-- [ ] Real Stripe test-mode checkout/subscription/payment/recovery/replay evidence.
+- [ ] Select the production billing provider and capture real sandbox/test checkout/subscription/payment/recovery/replay evidence.
 - [ ] Final entitlement verification linked to the billing/provider lifecycle.
 - [ ] Legal/compliance approval.
 - [ ] Real staging and production deployment evidence, including DNS/TLS/firewall/isolation and rollback.
@@ -169,7 +169,7 @@ These items do not necessarily block the first paid launch unless explicitly pro
 ## P0 — close paid-launch external evidence
 
 4. Complete PR-002/003/004/005 Meta staging/production evidence.
-5. Complete PR-006 Stripe test-mode lifecycle evidence and link PR-007 verification to it.
+5. Select and implement the PR-006 production billing provider, complete its sandbox/test lifecycle evidence, and link PR-007 verification to it.
 6. Obtain PR-008 legal approval.
 7. Execute PR-009 production infrastructure proof and rollback drill.
 8. Execute PR-010 real backup/recovery drill.
@@ -229,9 +229,9 @@ Template/phone/WABA state handling, idempotent durable webhooks, periodic reconc
 
 **Tracking:** [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51) · **Implementation:** [#73](https://github.com/yasserfullstack-tech/whatsapp/pull/73)
 
-Stripe customer/Checkout/subscription changes/cancellation/portal/invoice/payment/failure/refund/webhook handling is implemented with signature verification and replay-safe event processing.
+The provider-neutral billing contract and local plan/subscription/invoice/payment model are implemented. The previous concrete online provider integration has been removed because that provider will not be used.
 
-**Still needed:** real Stripe test-mode end-to-end lifecycle evidence using configured test Prices and an externally reachable test webhook endpoint.
+**Still needed:** select the production billing provider, implement the required checkout/subscription/payment lifecycle behind the provider-neutral contract, and capture real sandbox/test evidence using an externally reachable test webhook endpoint where required.
 
 ## [ ] PR-007 — Enforce entitlements and usage limits server-side
 
@@ -239,7 +239,7 @@ Stripe customer/Checkout/subscription changes/cancellation/portal/invoice/paymen
 
 Server/worker enforcement for paid limits and idempotent usage accounting is implemented. Repository verification on #52 covers direct API/service bypass protection, duplicate/replay-safe accounting, period rollover, tenant isolation, upgrade/downgrade behavior, and the server/worker enforcement boundaries.
 
-**Still needed:** prove the real Stripe test-mode subscription/payment lifecycle drives these same entitlement paths correctly, together with PR-006/PR-012 provider validation.
+**Still needed:** after the production billing provider is selected and implemented, prove its real sandbox/test subscription/payment lifecycle drives these same entitlement paths correctly, together with PR-006/PR-012 provider validation.
 
 ## [ ] PR-008 — Finalize legal documents and compliance procedures
 
@@ -408,8 +408,8 @@ Performed for [#92](https://github.com/yasserfullstack-tech/whatsapp/issues/92).
 | PR-003 | `[ ]` | [#48](https://github.com/yasserfullstack-tech/whatsapp/issues/48) | OPEN | OK — **reopened**; real staging reconnect evidence outstanding |
 | PR-004 | `[ ]` | [#49](https://github.com/yasserfullstack-tech/whatsapp/issues/49) | OPEN | OK — **reopened**; real Meta state-transition evidence outstanding |
 | PR-005 | `[ ]` | [#50](https://github.com/yasserfullstack-tech/whatsapp/issues/50) | OPEN | OK — external Meta approvals/onboarding evidence outstanding |
-| PR-006 | `[ ]` | [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51) | OPEN | OK — **reopened**; real Stripe test-mode lifecycle evidence outstanding |
-| PR-007 | `[ ]` | [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | OPEN | OK — repository enforcement/accounting verification complete; real Stripe-driven plan/status transition evidence outstanding with PR-006/PR-012 |
+| PR-006 | `[ ]` | [#51](https://github.com/yasserfullstack-tech/whatsapp/issues/51) | OPEN | OK — concrete online billing provider is intentionally unselected; provider selection, implementation, and real sandbox/test lifecycle evidence are outstanding |
+| PR-007 | `[ ]` | [#52](https://github.com/yasserfullstack-tech/whatsapp/issues/52) | OPEN | OK — repository enforcement/accounting verification complete; real provider-driven plan/status transition evidence is outstanding with PR-006/PR-012 after provider selection |
 | PR-008 | `[ ]` | [#53](https://github.com/yasserfullstack-tech/whatsapp/issues/53) | OPEN | OK — qualified legal approval outstanding |
 | PR-009 | `[ ]` | [#54](https://github.com/yasserfullstack-tech/whatsapp/issues/54) | OPEN | OK — **reopened**; real staging/production deployment evidence outstanding |
 | PR-010 | `[ ]` | [#55](https://github.com/yasserfullstack-tech/whatsapp/issues/55) | OPEN | OK — **reopened**; real backup/clean-host restore evidence outstanding |
