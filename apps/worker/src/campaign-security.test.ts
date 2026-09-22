@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { DrizzleBillingRepository, EntitlementService, ensureDefaultBilling } from "@wa/billing";
 import { createDatabase, schema } from "@wa/db";
 import { claimCampaignRecipientForSend } from "./campaign-security";
 
@@ -12,7 +11,6 @@ describe("campaign send queue tenant boundary", () => {
   test("a forged send job cannot claim another organization's recipient", async () => {
     const database = createDatabase(databaseUrl);
     const db = database.db;
-    const entitlements = new EntitlementService(new DrizzleBillingRepository(db));
     const suffix = randomUUID();
     const organizations = await db.insert(schema.organizations).values([
       { name: `Queue attacker ${suffix}`, slug: `queue-attacker-${suffix}` },
@@ -22,11 +20,6 @@ describe("campaign send queue tenant boundary", () => {
     if (!attacker || !victim) throw new Error("Could not create organization fixtures");
 
     try {
-      await Promise.all([
-        ensureDefaultBilling(db, attacker.id),
-        ensureDefaultBilling(db, victim.id),
-      ]);
-
       const [phone] = await db.insert(schema.whatsappPhoneNumbers).values({
         organizationId: victim.id,
         wabaId: `waba-${suffix}`,
@@ -71,7 +64,7 @@ describe("campaign send queue tenant boundary", () => {
       }).returning({ id: schema.campaignRecipients.id });
       if (!recipient) throw new Error("Could not create recipient fixture");
 
-      const forged = await claimCampaignRecipientForSend(db, entitlements, {
+      const forged = await claimCampaignRecipientForSend(db, {
         organizationId: attacker.id,
         campaignId: campaign.id,
         recipientId: recipient.id,
@@ -89,7 +82,7 @@ describe("campaign send queue tenant boundary", () => {
         ));
       expect(untouched).toEqual([{ status: "queued", attemptCount: 0 }]);
 
-      const legitimate = await claimCampaignRecipientForSend(db, entitlements, {
+      const legitimate = await claimCampaignRecipientForSend(db, {
         organizationId: victim.id,
         campaignId: campaign.id,
         recipientId: recipient.id,
