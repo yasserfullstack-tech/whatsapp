@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { EntitlementService } from "@wa/billing";
+import type { EntitlementService } from "@wa/billing";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase } from "@wa/db";
 import {
