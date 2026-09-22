@@ -55,17 +55,7 @@ export type UsageAppendResult = {
   total: number;
 };
 
-export type BillingUsageContext = {
-  subscription: BillingSubscriptionSnapshot | null;
-  entitlement: BillingEntitlementSnapshot | null;
-};
-
 export interface BillingRepository {
-  getUsageContext(
-    organizationId: string,
-    key: EntitlementKey,
-    at: Date,
-  ): Promise<BillingUsageContext>;
   getCurrentSubscription(organizationId: string, at: Date): Promise<BillingSubscriptionSnapshot | null>;
   getEntitlement(planVersionId: string, key: EntitlementKey): Promise<BillingEntitlementSnapshot | null>;
   getUsage(input: {
@@ -282,42 +272,20 @@ export class EntitlementService {
     if (!input.idempotencyKey.trim()) throw new Error("recordUsage idempotencyKey is required");
 
     const at = input.occurredAt ?? new Date();
-    // Metering is a hot path for campaign sends. Load the current subscription
-    // and entitlement together so each recipient needs one policy read before
-    // the atomic usage write. appendUsage remains the numeric authority because
-    // it handles idempotency and finite-limit concurrency.
-    const { subscription, entitlement } = await this.repository.getUsageContext(
-      input.organizationId,
-      input.key,
-      at,
-    );
-
-    if (!subscription) {
-      throw new BillingEntitlementError("no_subscription", input.key);
-    }
-    if (!isSubscriptionUsable(subscription, at)) {
-      throw new BillingEntitlementError("subscription_inactive", input.key);
-    }
-    if (!entitlement) {
-      throw new BillingEntitlementError("entitlement_missing", input.key);
-    }
-    if (!entitlement.enabled) {
-      throw new BillingEntitlementError("entitlement_disabled", input.key);
-    }
-
-    const check: UsageCheck = {
-      allowed: true,
-      reason: "ok",
-      status: subscription.status,
-      planCode: subscription.planCode,
-      mode: entitlementDefinitions[input.key].mode,
-      limit: entitlement.limit,
-      used: 0,
+    // Validate subscription/entitlement availability only. appendUsage is the
+    // authority for numeric enforcement because it checks idempotency first;
+    // this keeps retries safe even when usage is at or above a downgraded limit.
+    const check = await this.assertUsage(input.organizationId, input.key, {
       requested: 0,
-      remaining: entitlement.limit,
-      periodStart: subscription.currentPeriodStart,
-      periodEnd: subscription.currentPeriodEnd,
-    };
+      currentUsage: 0,
+      at,
+    });
+    if (!check.periodStart || !check.periodEnd) {
+      throw new BillingEntitlementError(check.reason, input.key);
+    }
+
+    const subscription = await this.repository.getCurrentSubscription(input.organizationId, at);
+    if (!subscription) throw new BillingEntitlementError("no_subscription", input.key);
 
     const result = await this.repository.appendUsage({
       organizationId: input.organizationId,
@@ -325,8 +293,8 @@ export class EntitlementService {
       entitlementKey: input.key,
       quantity: input.quantity,
       idempotencyKey: input.idempotencyKey,
-      periodStart: subscription.currentPeriodStart,
-      periodEnd: subscription.currentPeriodEnd,
+      periodStart: check.periodStart,
+      periodEnd: check.periodEnd,
       occurredAt: at,
       metadata: input.metadata ?? {},
       limit: check.limit,

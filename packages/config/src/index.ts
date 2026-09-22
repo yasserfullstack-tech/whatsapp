@@ -54,6 +54,7 @@ const workerSchema = z.object({
   EMAIL_REPLY_TO: z.string().optional(),
   DEFAULT_META_MPS: z.coerce.number().int().positive().max(1_000).default(80),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().max(2_000).default(400),
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().max(80).default(48),
   WEBHOOK_CONCURRENCY: z.coerce.number().int().positive().max(1_000).default(100),
   CAMPAIGN_DISPATCH_CONCURRENCY: z.coerce.number().int().positive().max(100).default(8),
   CONTACT_IMPORT_CONCURRENCY: z.coerce.number().int().positive().max(16).default(2),
