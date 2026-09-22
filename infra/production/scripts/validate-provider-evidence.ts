@@ -81,8 +81,8 @@ const FORBIDDEN_KEY =
 
 const FORBIDDEN_VALUE_PATTERNS: Array<[RegExp, string]> = [
   [/\bBearer\s+\S+/i, "Bearer credential"],
-  [/\bsk_(?:live|test)_[A-Za-z0-9]+\b/, "Stripe secret key"],
-  [/\bwhsec_[A-Za-z0-9]+\b/, "Stripe webhook secret"],
+  [/\bsk_(?:live|test)_[A-Za-z0-9]+\b/, "payment-provider secret key"],
+  [/\bwhsec_[A-Za-z0-9]+\b/, "payment-provider webhook secret"],
   [/\bAKIA[0-9A-Z]{16}\b/, "cloud access key"],
   [/\bEAA[A-Za-z0-9]{20,}\b/, "Meta access token"],
   [/(?:^|\s)\+[1-9][0-9]{7,14}\b/, "E.164 phone number"],
