@@ -52,11 +52,11 @@ export async function applyStatus(
   db: Database,
   organizationId: string,
   status: WhatsAppMessageStatus,
-): Promise<void> {
+): Promise<boolean> {
   const at = eventTime(status).toISOString();
 
   if (status.status === "sent") {
-    await db.execute(sql`
+    const rows = await db.execute(sql`
       UPDATE campaign_recipients
       SET
         sent_at = COALESCE(sent_at, ${at}::timestamptz),
@@ -67,12 +67,13 @@ export async function applyStatus(
         updated_at = now()
       WHERE wamid = ${status.wamid}
         AND organization_id = ${organizationId}::uuid
+      RETURNING id
     `);
-    return;
+    return rows.length > 0;
   }
 
   if (status.status === "delivered") {
-    await db.execute(sql`
+    const rows = await db.execute(sql`
       UPDATE campaign_recipients
       SET
         delivered_at = COALESCE(delivered_at, ${at}::timestamptz),
@@ -83,12 +84,13 @@ export async function applyStatus(
         updated_at = now()
       WHERE wamid = ${status.wamid}
         AND organization_id = ${organizationId}::uuid
+      RETURNING id
     `);
-    return;
+    return rows.length > 0;
   }
 
   if (status.status === "read") {
-    await db.execute(sql`
+    const rows = await db.execute(sql`
       UPDATE campaign_recipients
       SET
         read_at = COALESCE(read_at, ${at}::timestamptz),
@@ -99,12 +101,13 @@ export async function applyStatus(
         updated_at = now()
       WHERE wamid = ${status.wamid}
         AND organization_id = ${organizationId}::uuid
+      RETURNING id
     `);
-    return;
+    return rows.length > 0;
   }
 
   const failure = failureDetails(status);
-  await db.execute(sql`
+  const rows = await db.execute(sql`
     UPDATE campaign_recipients
     SET
       failed_at = COALESCE(failed_at, ${at}::timestamptz),
@@ -117,5 +120,7 @@ export async function applyStatus(
       updated_at = now()
     WHERE wamid = ${status.wamid}
       AND organization_id = ${organizationId}::uuid
+    RETURNING id
   `);
+  return rows.length > 0;
 }
