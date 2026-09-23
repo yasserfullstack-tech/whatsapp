@@ -39,7 +39,6 @@ export type MetaSendErrorDisposition =
 
 const PERMANENT_META_SEND_CODES = new Set(["100", "131026", "132000", "132001"]);
 const THROUGHPUT_META_SEND_CODES = new Set(["130429", "131048", "80007"]);
-const AMBIGUOUS_META_SEND_CODES = new Set(["131000"]);
 
 export function classifyMetaSendError(error: MetaApiError): MetaSendErrorDisposition {
   const code = errorCode(error) ?? String(error.status);
@@ -52,7 +51,7 @@ export function classifyMetaSendError(error: MetaApiError): MetaSendErrorDisposi
     return { kind: "permanent", code };
   }
 
-  if (AMBIGUOUS_META_SEND_CODES.has(code) || error.status >= 500 || error.status < 200) {
+  if (error.status >= 500 || error.status < 200) {
     return { kind: "ambiguous", code };
   }
 
