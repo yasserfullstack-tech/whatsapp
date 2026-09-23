@@ -144,6 +144,7 @@ test.describe("authentication and account security workflows", () => {
 
       const deletion = await tenant.api.post("/api/settings/data/account-deletion", {
         data: { confirmation: "DELETE ACCOUNT" },
+        headers: { origin: "http://127.0.0.1:3000" },
       });
       expect(deletion.ok(), `account deletion failed: ${await deletion.text()}`).toBeTruthy();
 
