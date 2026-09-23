@@ -130,7 +130,7 @@ export function encryptSecret(plaintext: string, keys: string | EncryptionKeyRin
 export function decryptSecret(secret: EncryptedSecret, keys: string | EncryptionKeyRing): string {
   const version = secret.keyVersion ?? DEFAULT_KEY_VERSION;
   const key = decodeKey(selectKey(keys, version));
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(secret.iv, "base64"));
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(secret.iv, "base64"), { authTagLength: 16 });
   decipher.setAuthTag(Buffer.from(secret.authTag, "base64"));
   return Buffer.concat([
     decipher.update(Buffer.from(secret.ciphertext, "base64")),
