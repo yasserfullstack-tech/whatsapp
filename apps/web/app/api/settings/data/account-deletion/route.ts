@@ -37,6 +37,12 @@ export async function POST(request: Request) {
       return { status: "owns_workspaces" as const, ownedWorkspaceCount };
     }
 
+    const [lockedAuthUser] = await tx.select({ id: schema.authUser.id })
+      .from(schema.authUser)
+      .where(eq(schema.authUser.id, context.session.user.id))
+      .for("update");
+    if (!lockedAuthUser) return { status: "already_deleted" as const };
+
     await auth.api.revokeSessions({ headers: request.headers });
 
     const [removedUser] = await tx.delete(schema.users)
