@@ -148,6 +148,7 @@ export function createCampaignDispatchWorker(input: {
           organizationId: record.organizationId,
           campaignId: record.campaignId,
           recipientId: recipient.id,
+          reservationQueuedAt: queuedAt.toISOString(),
           phoneNumberId: record.phoneNumberId,
           credentialKey: record.credentialKey,
           to: recipient.phoneE164.replace(/^\+/, ""),
