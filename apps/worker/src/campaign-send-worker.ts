@@ -1,5 +1,5 @@
 import { Worker, type Job } from "bullmq";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
 import { MetaApiError, WhatsAppCloudClient } from "@wa/meta";
@@ -119,7 +119,7 @@ export function createCampaignSendWorker(input: {
       // the provider boundary. A prior claim without a recorded outcome is never
       // automatically resent because that could duplicate a real WhatsApp send.
       const now = new Date();
-      const claimed = await claimCampaignRecipientForSend(db, {
+      let claimed = await claimCampaignRecipientForSend(db, {
         organizationId: job.data.organizationId,
         campaignId: job.data.campaignId,
         recipientId: job.data.recipientId,
@@ -131,7 +131,49 @@ export function createCampaignSendWorker(input: {
         if (await guardUnknownPriorOutcome(job)) {
           return { failed: true, reason: "send-outcome-unknown" };
         }
-        return { skipped: true, reason: "recipient-already-processed-or-foreign" };
+
+        // A paused campaign intentionally makes the atomic claim fail. Return the
+        // recipient to pending only while the campaign is still paused so resume
+        // can safely publish a fresh BullMQ job instead of leaving a retained
+        // completed job ID blocking the queued row indefinitely.
+        const [requeuedForPause] = await db
+          .update(schema.campaignRecipients)
+          .set({
+            status: "pending",
+            queuedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(schema.campaignRecipients.id, job.data.recipientId),
+            eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+            eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+            eq(schema.campaignRecipients.status, "queued"),
+            sql`exists (
+              select 1
+              from ${schema.campaigns}
+              where ${schema.campaigns.id} = ${job.data.campaignId}
+                and ${schema.campaigns.organizationId} = ${job.data.organizationId}
+                and ${schema.campaigns.status} = 'paused'
+            )`,
+          ))
+          .returning({ id: schema.campaignRecipients.id });
+
+        if (requeuedForPause) {
+          return { skipped: true, reason: "campaign-paused-requeued" };
+        }
+
+        // The campaign may have resumed between the first claim and the paused
+        // requeue attempt. Retry the atomic claim once so that race cannot leave
+        // the recipient queued behind a completed BullMQ job.
+        claimed = await claimCampaignRecipientForSend(db, {
+          organizationId: job.data.organizationId,
+          campaignId: job.data.campaignId,
+          recipientId: job.data.recipientId,
+          now: new Date(),
+        });
+        if (!claimed) {
+          return { skipped: true, reason: "recipient-already-processed-or-foreign" };
+        }
       }
 
       let result: Awaited<ReturnType<WhatsAppCloudClient["sendTemplate"]>>;
