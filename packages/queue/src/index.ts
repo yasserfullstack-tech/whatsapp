@@ -21,6 +21,7 @@ export type SendMessageJob = {
   organizationId: string;
   campaignId: string;
   recipientId: string;
+  reservationQueuedAt: string;
   phoneNumberId: string;
   credentialKey: string;
   to: string;
