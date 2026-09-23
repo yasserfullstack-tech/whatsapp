@@ -5,7 +5,9 @@ import { db } from "@/lib/server";
 
 function csvCell(value: unknown): string {
   let text = value == null ? "" : value instanceof Date ? value.toISOString() : typeof value === "string" ? value : JSON.stringify(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  const firstCodePoint = text.codePointAt(0);
+  const spreadsheetControlPrefixes = new Set([9, 13, 43, 45, 61, 64]);
+  if (firstCodePoint !== undefined && spreadsheetControlPrefixes.has(firstCodePoint)) text = `'${text}`;
   return `"${text.replaceAll('"', '""')}"`;
 }
 
