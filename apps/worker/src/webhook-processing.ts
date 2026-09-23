@@ -213,7 +213,10 @@ export async function processWebhookEvent(db: Database, job: Job<WebhookProcessJ
         : await organizationForPhone(db, status.phoneNumberId);
       if (!statusOrganizationId) continue;
       organizationId ??= statusOrganizationId;
-      await applyStatus(db, statusOrganizationId, status);
+      const matched = await applyStatus(db, statusOrganizationId, status);
+      if (!matched) {
+        throw new Error(`Webhook status ${status.status} for wamid ${status.wamid} has no matching campaign recipient yet`);
+      }
     }
 
     let optOuts = 0;
