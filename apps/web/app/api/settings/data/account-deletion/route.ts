@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { schema } from "@wa/db";
 import { getAuthContext } from "@/lib/auth-context";
 import { hasRecentAuthentication } from "@/lib/recent-auth";
-import { db } from "@/lib/server";
+import { auth, db } from "@/lib/server";
 
 export async function POST(request: Request) {
   const context = await getAuthContext();
@@ -36,6 +36,8 @@ export async function POST(request: Request) {
     if (ownedWorkspaceCount > 0) {
       return { status: "owns_workspaces" as const, ownedWorkspaceCount };
     }
+
+    await auth.api.revokeSessions({ headers: request.headers });
 
     const [removedUser] = await tx.delete(schema.users)
       .where(eq(schema.users.id, context.workspace.userId))
