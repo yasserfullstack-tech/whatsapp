@@ -120,13 +120,24 @@ test.describe("authentication and account security workflows", () => {
 
   test("account deletion revokes every active session", async () => {
     const tenant = await createTenant("account-delete", "member");
-    const secondSession = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
+    const signInApi = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
+    let secondSession: Awaited<ReturnType<typeof request.newContext>> | null = null;
     try {
-      const signIn = await secondSession.post("/api/auth/sign-in/email", {
+      const signIn = await signInApi.post("/api/auth/sign-in/email", {
         data: { email: tenant.email, password: tenant.password },
       });
       expect(signIn.ok(), `second sign-in failed: ${await signIn.text()}`).toBeTruthy();
+      const cookie = signIn.headersArray()
+        .filter(({ name }) => name.toLowerCase() === "set-cookie")
+        .map(({ value }) => value.split(";", 1)[0])
+        .filter(Boolean)
+        .join("; ");
+      expect(cookie).toContain("better-auth.session_token=");
 
+      secondSession = await request.newContext({
+        baseURL: "http://127.0.0.1:3000",
+        extraHTTPHeaders: { cookie },
+      });
       const beforeDeletion = await secondSession.get("/api/auth/get-session");
       expect(beforeDeletion.ok()).toBeTruthy();
       expect((await beforeDeletion.json() as { user?: { email?: string } } | null)?.user?.email).toBe(tenant.email);
@@ -142,7 +153,8 @@ test.describe("authentication and account security workflows", () => {
         expect(await session.json()).toBeNull();
       }
     } finally {
-      await secondSession.dispose();
+      await secondSession?.dispose();
+      await signInApi.dispose();
       await destroyTenant(tenant);
     }
   });
