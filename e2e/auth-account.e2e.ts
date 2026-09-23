@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, request, test } from "@playwright/test";
 import {
   capturedEmailUrl,
   createTenant,
@@ -114,6 +114,35 @@ test.describe("authentication and account security workflows", () => {
       await expect(page).toHaveURL(/\/dashboard$/);
       await context.clearCookies();
     } finally {
+      await destroyTenant(tenant);
+    }
+  });
+
+  test("account deletion revokes every active session", async () => {
+    const tenant = await createTenant("account-delete", "member");
+    const secondSession = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
+    try {
+      const signIn = await secondSession.post("/api/auth/sign-in/email", {
+        data: { email: tenant.email, password: tenant.password },
+      });
+      expect(signIn.ok(), `second sign-in failed: ${await signIn.text()}`).toBeTruthy();
+
+      const beforeDeletion = await secondSession.get("/api/auth/get-session");
+      expect(beforeDeletion.ok()).toBeTruthy();
+      expect((await beforeDeletion.json() as { user?: { email?: string } } | null)?.user?.email).toBe(tenant.email);
+
+      const deletion = await tenant.api.post("/api/settings/data/account-deletion", {
+        data: { confirmation: "DELETE ACCOUNT" },
+      });
+      expect(deletion.ok(), `account deletion failed: ${await deletion.text()}`).toBeTruthy();
+
+      for (const sessionApi of [tenant.api, secondSession]) {
+        const session = await sessionApi.get("/api/auth/get-session");
+        expect(session.ok()).toBeTruthy();
+        expect(await session.json()).toBeNull();
+      }
+    } finally {
+      await secondSession.dispose();
       await destroyTenant(tenant);
     }
   });
