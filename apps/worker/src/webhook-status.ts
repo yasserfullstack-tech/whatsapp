@@ -33,9 +33,9 @@ export function webhookRecipientStatusAfter(
     return ["pending", "queued", "submitted", "sent", "delivered"].includes(current) ? "delivered" : current;
   }
   if (incoming === "read") {
-    return current === "failed" ? "failed" : "read";
+    return current === "failed" || current === "skipped" ? current : "read";
   }
-  return current === "delivered" || current === "read" ? current : "failed";
+  return current === "delivered" || current === "read" || current === "skipped" ? current : "failed";
 }
 
 function failureDetails(status: WhatsAppMessageStatus): { code: string | null; message: string | null } {
@@ -95,7 +95,7 @@ export async function applyStatus(
       SET
         read_at = COALESCE(read_at, ${at}::timestamptz),
         status = CASE
-          WHEN status <> 'failed' THEN 'read'::recipient_status
+          WHEN status NOT IN ('failed', 'skipped') THEN 'read'::recipient_status
           ELSE status
         END,
         updated_at = now()
@@ -114,7 +114,7 @@ export async function applyStatus(
       error_code = COALESCE(${failure.code}, error_code),
       last_error = COALESCE(${failure.message}, last_error),
       status = CASE
-        WHEN status IN ('delivered', 'read') THEN status
+        WHEN status IN ('delivered', 'read', 'skipped') THEN status
         ELSE 'failed'::recipient_status
       END,
       updated_at = now()
