@@ -128,7 +128,7 @@ async function main() {
   if (!organization) throw new Error("Could not create webhook load-test organization");
   organizationId = organization.id;
 
-  await db.insert(schema.whatsappPhoneNumbers).values({
+  const [phone] = await db.insert(schema.whatsappPhoneNumbers).values({
     organizationId,
     wabaId: `load-webhook-waba-${runId}`,
     phoneNumberId,
@@ -138,7 +138,49 @@ async function main() {
     qualityRating: "GREEN",
     throughputMps: 80,
     credentialKey: `load-webhook-unused-${runId}`,
-  });
+  }).returning({ id: schema.whatsappPhoneNumbers.id });
+  if (!phone) throw new Error("Could not create webhook load-test phone");
+
+  // Every flooded status must belong to a sent campaign message: statuses for
+  // unknown wamids are deliberately retried (#146) and would never settle here.
+  const [template] = await db.insert(schema.templates).values({
+    organizationId,
+    wabaId: `load-webhook-waba-${runId}`,
+    metaTemplateId: `load-webhook-template-${runId}`,
+    name: `load_webhook_${runId.replace(/-/g, "_")}`,
+    language: "en",
+    category: "marketing",
+    status: "approved",
+    components: [],
+  }).returning({ id: schema.templates.id });
+  if (!template) throw new Error("Could not create webhook load-test template");
+
+  const [campaign] = await db.insert(schema.campaigns).values({
+    organizationId,
+    whatsappPhoneNumberId: phone.id,
+    templateId: template.id,
+    name: `Webhook load campaign ${runId}`,
+    status: "sending",
+    recipientCount: events,
+  }).returning({ id: schema.campaigns.id });
+  if (!campaign) throw new Error("Could not create webhook load-test campaign");
+
+  await client`
+    INSERT INTO contacts (id, organization_id, phone_e164, opted_in, created_at, updated_at)
+    SELECT gen_random_uuid(), ${organizationId}::uuid, '+' || (15550000000::bigint + g)::text, true, now(), now()
+    FROM generate_series(0, ${events - 1}) AS g
+  `;
+  await client`
+    INSERT INTO campaign_recipients (
+      id, organization_id, campaign_id, contact_id, phone_e164, status, wamid, submitted_at, created_at, updated_at
+    )
+    SELECT
+      gen_random_uuid(), ${organizationId}::uuid, ${campaign.id}::uuid, c.id, c.phone_e164, 'submitted',
+      ${`wamid.load.webhook.${runId}.`} || (substring(c.phone_e164 from 2)::bigint - 15550000000)::text,
+      now(), now(), now()
+    FROM contacts c
+    WHERE c.organization_id = ${organizationId}::uuid
+  `;
 
   const api = Bun.spawn(["bun", "apps/api/src/index.ts"], {
     env: {
