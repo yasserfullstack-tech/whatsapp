@@ -136,12 +136,28 @@ function sleep(milliseconds: number): Promise<void> { return new Promise((resolv
 
 export class PerNumberRateLimiter {
   constructor(private readonly redis: Redis) {}
+
+  async penalize(phoneNumberId: string, milliseconds: number): Promise<void> {
+    const safeMs = Math.max(1_000, Math.min(milliseconds, 5 * 60_000));
+    const key = `rate:whatsapp:penalty:${phoneNumberId}`;
+    const currentTtl = await this.redis.pttl(key);
+    if (currentTtl >= safeMs) return;
+    await this.redis.set(key, "1", "PX", safeMs);
+  }
+
   async acquire(phoneNumberId: string, messagesPerSecond: number): Promise<void> {
     const safeMps = Math.max(1, Math.min(messagesPerSecond, 1_000));
     const capacity = Math.max(1, Math.ceil(safeMps * 0.1));
     const refillPerMillisecond = safeMps / 1_000;
     const key = `rate:whatsapp:${phoneNumberId}`;
+    const penaltyKey = `rate:whatsapp:penalty:${phoneNumberId}`;
     for (;;) {
+      const penaltyTtl = await this.redis.pttl(penaltyKey);
+      if (penaltyTtl > 0) {
+        await sleep(penaltyTtl);
+        continue;
+      }
+
       const result = (await this.redis.eval(TOKEN_BUCKET_SCRIPT, 1, key, refillPerMillisecond.toString(), capacity.toString(), "1")) as [number, number];
       if (Number(result[0]) === 1) return;
       await sleep(Math.max(1, Number(result[1]) || 1));
