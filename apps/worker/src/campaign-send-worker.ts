@@ -1,4 +1,4 @@
-import { Worker, type Job } from "bullmq";
+import { UnrecoverableError, Worker, type Job } from "bullmq";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { WorkerEnv } from "@wa/config";
 import { createDatabase, schema } from "@wa/db";
@@ -18,6 +18,7 @@ import {
 } from "./connection-health";
 import { createAccessTokenLoader, CredentialUnavailableError } from "./campaign-access-token";
 import {
+  classifyMetaSendError,
   createCampaignSendState,
   errorCode,
   errorText,
@@ -229,15 +230,34 @@ export function createCampaignSendWorker(input: {
           return { failed: true, reason: "connection-reauthorization-required" };
         }
 
+        const disposition = classifyMetaSendError(error);
+
+        if (disposition.kind === "ambiguous") {
+          await markUnknownSendOutcome(
+            job.data.recipientId,
+            job.data.campaignId,
+            job.data.organizationId,
+            errorText(error),
+          );
+          return { failed: true, reason: "send-outcome-unknown" };
+        }
+
+        if (disposition.kind === "throughput") {
+          // Back pressure is shared by every worker using this phone number,
+          // preventing HTTP-400 throughput errors from bypassing the limiter.
+          await limiter.penalize(job.data.phoneNumberId, disposition.retryAfterMs);
+        }
+
         const attempts = Number(job.opts.attempts ?? 1);
-        const isFinalAttempt = job.attemptsMade + 1 >= attempts;
+        const isPermanent = disposition.kind === "permanent";
+        const isFinalAttempt = isPermanent || job.attemptsMade + 1 >= attempts;
         const failedAt = new Date();
         await db
           .update(schema.campaignRecipients)
           .set({
             status: isFinalAttempt ? "failed" : "queued",
             lastError: errorText(error),
-            errorCode: errorCode(error),
+            errorCode: disposition.code ?? errorCode(error),
             failedAt: isFinalAttempt ? failedAt : null,
             updatedAt: failedAt,
           })
@@ -251,6 +271,11 @@ export function createCampaignSendWorker(input: {
               isNull(schema.campaignRecipients.lastError),
             ),
           );
+
+        if (isPermanent) {
+          throw new UnrecoverableError(`Permanent Meta send error ${disposition.code}`);
+        }
+
         throw error;
       }
 
