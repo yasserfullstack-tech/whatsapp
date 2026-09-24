@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, request, test } from "@playwright/test";
 import {
   capturedEmailUrl,
   createTenant,
@@ -114,6 +114,48 @@ test.describe("authentication and account security workflows", () => {
       await expect(page).toHaveURL(/\/dashboard$/);
       await context.clearCookies();
     } finally {
+      await destroyTenant(tenant);
+    }
+  });
+
+  test("account deletion revokes every active session", async () => {
+    const tenant = await createTenant("account-delete", "member");
+    const signInApi = await request.newContext({ baseURL: "http://127.0.0.1:3000" });
+    let secondSession: Awaited<ReturnType<typeof request.newContext>> | null = null;
+    try {
+      const signIn = await signInApi.post("/api/auth/sign-in/email", {
+        data: { email: tenant.email, password: tenant.password },
+      });
+      expect(signIn.ok(), `second sign-in failed: ${await signIn.text()}`).toBeTruthy();
+      const cookie = signIn.headersArray()
+        .filter(({ name }) => name.toLowerCase() === "set-cookie")
+        .map(({ value }) => value.split(";", 1)[0])
+        .filter(Boolean)
+        .join("; ");
+      expect(cookie).toContain("better-auth.session_token=");
+
+      secondSession = await request.newContext({
+        baseURL: "http://127.0.0.1:3000",
+        extraHTTPHeaders: { cookie },
+      });
+      const beforeDeletion = await secondSession.get("/api/auth/get-session");
+      expect(beforeDeletion.ok()).toBeTruthy();
+      expect((await beforeDeletion.json() as { user?: { email?: string } } | null)?.user?.email).toBe(tenant.email);
+
+      const deletion = await tenant.api.post("/api/settings/data/account-deletion", {
+        data: { confirmation: "DELETE ACCOUNT" },
+        headers: { origin: "http://127.0.0.1:3000" },
+      });
+      expect(deletion.ok(), `account deletion failed: ${await deletion.text()}`).toBeTruthy();
+
+      for (const sessionApi of [tenant.api, secondSession]) {
+        const session = await sessionApi.get("/api/auth/get-session");
+        expect(session.ok()).toBeTruthy();
+        expect(await session.json()).toBeNull();
+      }
+    } finally {
+      await secondSession?.dispose();
+      await signInApi.dispose();
       await destroyTenant(tenant);
     }
   });
