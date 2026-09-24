@@ -148,6 +148,8 @@ export function createCampaignSendWorker(input: {
             eq(schema.campaignRecipients.campaignId, job.data.campaignId),
             eq(schema.campaignRecipients.organizationId, job.data.organizationId),
             eq(schema.campaignRecipients.status, "queued"),
+            // A stale job must not release a newer reservation of this recipient.
+            eq(schema.campaignRecipients.queuedAt, new Date(job.data.reservationQueuedAt)),
             sql`exists (
               select 1
               from ${schema.campaigns}
@@ -169,6 +171,7 @@ export function createCampaignSendWorker(input: {
           organizationId: job.data.organizationId,
           campaignId: job.data.campaignId,
           recipientId: job.data.recipientId,
+          reservationQueuedAt: new Date(job.data.reservationQueuedAt),
           now: new Date(),
         });
         if (!claimed) {
