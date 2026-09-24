@@ -31,6 +31,12 @@ describe("webhook delivery status monotonicity", () => {
   test("preserves existing failed-before-read business rule", () => {
     expect(webhookRecipientStatusAfter("failed", "read")).toBe("failed");
   });
+
+  test("a recipient skipped by a concurrent control action stays skipped", () => {
+    for (const incoming of ["sent", "delivered", "read", "failed"] as const) {
+      expect(webhookRecipientStatusAfter("skipped", incoming)).toBe("skipped");
+    }
+  });
 });
 
 describe("webhook retry strategy", () => {

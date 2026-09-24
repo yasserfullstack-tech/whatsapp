@@ -5,6 +5,7 @@ import { isMarketingOptOutMessage, parseWhatsAppWebhook, type WhatsAppInboundMes
 import type { WebhookProcessJob } from "@wa/queue";
 import {
   MAX_WEBHOOK_PROCESSING_ATTEMPTS,
+  UNMATCHED_STATUS_RETRY_WINDOW_MS,
   WEBHOOK_MAX_RETRY_DELAY_MS,
   webhookLog,
   webhookMetrics,
@@ -198,6 +199,19 @@ async function recordProcessingFailure(
   return "retry";
 }
 
+async function withoutInboxMessages<T extends { organizationId: string; wamid: string }>(
+  db: Database,
+  statuses: T[],
+): Promise<T[]> {
+  if (statuses.length === 0) return statuses;
+  const known = await db
+    .select({ organizationId: schema.inboxMessages.organizationId, wamid: schema.inboxMessages.wamid })
+    .from(schema.inboxMessages)
+    .where(inArray(schema.inboxMessages.wamid, statuses.map((status) => status.wamid)));
+  const knownKeys = new Set(known.map((row) => `${row.organizationId}:${row.wamid}`));
+  return statuses.filter((status) => !knownKeys.has(`${status.organizationId}:${status.wamid}`));
+}
+
 export async function processWebhookEvent(db: Database, job: Job<WebhookProcessJob>) {
   const event = await claimWebhookEvent(db, job.data.eventId);
   if (!event) return { skipped: true, reason: "already-processed-or-claimed" };
@@ -207,13 +221,16 @@ export async function processWebhookEvent(db: Database, job: Job<WebhookProcessJ
     const phoneNumberId = event.phoneNumberId ?? parsed.phoneNumberIds[0] ?? null;
     let organizationId = event.organizationId ?? await organizationForPhone(db, phoneNumberId ?? undefined);
 
+    const unmatchedStatuses: { organizationId: string; wamid: string; status: string }[] = [];
     for (const status of parsed.statuses) {
       const statusOrganizationId = status.phoneNumberId === phoneNumberId && organizationId
         ? organizationId
         : await organizationForPhone(db, status.phoneNumberId);
       if (!statusOrganizationId) continue;
       organizationId ??= statusOrganizationId;
-      await applyStatus(db, statusOrganizationId, status);
+      if (!await applyStatus(db, statusOrganizationId, status)) {
+        unmatchedStatuses.push({ organizationId: statusOrganizationId, wamid: status.wamid, status: status.status });
+      }
     }
 
     let optOuts = 0;
@@ -224,6 +241,18 @@ export async function processWebhookEvent(db: Database, job: Job<WebhookProcessJ
       if (!messageOrganizationId) continue;
       organizationId ??= messageOrganizationId;
       if (await applyMarketingOptOut(db, messageOrganizationId, message)) optOuts += 1;
+    }
+
+    // Retry only after opt-outs in the same payload are applied, and only for
+    // statuses that are not inbox replies (the inbox projection owns those).
+    const campaignUnmatched = await withoutInboxMessages(db, unmatchedStatuses);
+    if (campaignUnmatched.length > 0) {
+      const first = campaignUnmatched[0]!;
+      if (Date.now() - event.createdAt.getTime() < UNMATCHED_STATUS_RETRY_WINDOW_MS) {
+        throw new Error(`Webhook status ${first.status} for wamid ${first.wamid} has no matching campaign recipient yet`);
+      }
+      webhookMetrics.incCounter("whatsapp_webhook_unmatched_statuses_total", {}, campaignUnmatched.length);
+      webhookLog.info("webhook_status_unmatched", { eventId: event.id, count: campaignUnmatched.length, wamid: first.wamid });
     }
 
     const processedAt = new Date();

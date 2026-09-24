@@ -303,7 +303,26 @@ export function createCampaignSendWorker(input: {
           )
           .returning({ id: schema.campaignRecipients.id });
 
-        if (!persisted) return { skipped: true, reason: "recipient-state-changed-after-send" };
+        if (!persisted) {
+          // Meta accepted the send, so retain the provider message ID even if
+          // a concurrent pause/cancel/control action changed recipient state.
+          // This lets later status webhooks correlate without undoing that state.
+          await db
+            .update(schema.campaignRecipients)
+            .set({
+              wamid: result.messageId,
+              submittedAt,
+              updatedAt: submittedAt,
+            })
+            .where(and(
+              eq(schema.campaignRecipients.id, job.data.recipientId),
+              eq(schema.campaignRecipients.campaignId, job.data.campaignId),
+              eq(schema.campaignRecipients.organizationId, job.data.organizationId),
+              eq(schema.campaignRecipients.attemptCount, claimed.attemptCount),
+              isNull(schema.campaignRecipients.wamid),
+            ));
+          return { skipped: true, reason: "recipient-state-changed-after-send", wamid: result.messageId };
+        }
         return { wamid: result.messageId };
       } catch (error) {
         await markUnknownSendOutcome(

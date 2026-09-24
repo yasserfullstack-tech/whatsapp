@@ -33,9 +33,9 @@ export function webhookRecipientStatusAfter(
     return ["pending", "queued", "submitted", "sent", "delivered"].includes(current) ? "delivered" : current;
   }
   if (incoming === "read") {
-    return current === "failed" ? "failed" : "read";
+    return current === "failed" || current === "skipped" ? current : "read";
   }
-  return current === "delivered" || current === "read" ? current : "failed";
+  return current === "delivered" || current === "read" || current === "skipped" ? current : "failed";
 }
 
 function failureDetails(status: WhatsAppMessageStatus): { code: string | null; message: string | null } {
@@ -52,11 +52,11 @@ export async function applyStatus(
   db: Database,
   organizationId: string,
   status: WhatsAppMessageStatus,
-): Promise<void> {
+): Promise<boolean> {
   const at = eventTime(status).toISOString();
 
   if (status.status === "sent") {
-    await db.execute(sql`
+    const rows = await db.execute(sql`
       UPDATE campaign_recipients
       SET
         sent_at = COALESCE(sent_at, ${at}::timestamptz),
@@ -67,12 +67,13 @@ export async function applyStatus(
         updated_at = now()
       WHERE wamid = ${status.wamid}
         AND organization_id = ${organizationId}::uuid
+      RETURNING id
     `);
-    return;
+    return rows.length > 0;
   }
 
   if (status.status === "delivered") {
-    await db.execute(sql`
+    const rows = await db.execute(sql`
       UPDATE campaign_recipients
       SET
         delivered_at = COALESCE(delivered_at, ${at}::timestamptz),
@@ -83,39 +84,43 @@ export async function applyStatus(
         updated_at = now()
       WHERE wamid = ${status.wamid}
         AND organization_id = ${organizationId}::uuid
+      RETURNING id
     `);
-    return;
+    return rows.length > 0;
   }
 
   if (status.status === "read") {
-    await db.execute(sql`
+    const rows = await db.execute(sql`
       UPDATE campaign_recipients
       SET
         read_at = COALESCE(read_at, ${at}::timestamptz),
         status = CASE
-          WHEN status <> 'failed' THEN 'read'::recipient_status
+          WHEN status NOT IN ('failed', 'skipped') THEN 'read'::recipient_status
           ELSE status
         END,
         updated_at = now()
       WHERE wamid = ${status.wamid}
         AND organization_id = ${organizationId}::uuid
+      RETURNING id
     `);
-    return;
+    return rows.length > 0;
   }
 
   const failure = failureDetails(status);
-  await db.execute(sql`
+  const rows = await db.execute(sql`
     UPDATE campaign_recipients
     SET
       failed_at = COALESCE(failed_at, ${at}::timestamptz),
       error_code = COALESCE(${failure.code}, error_code),
       last_error = COALESCE(${failure.message}, last_error),
       status = CASE
-        WHEN status IN ('delivered', 'read') THEN status
+        WHEN status IN ('delivered', 'read', 'skipped') THEN status
         ELSE 'failed'::recipient_status
       END,
       updated_at = now()
     WHERE wamid = ${status.wamid}
       AND organization_id = ${organizationId}::uuid
+    RETURNING id
   `);
+  return rows.length > 0;
 }
