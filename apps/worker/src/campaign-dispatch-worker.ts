@@ -286,6 +286,7 @@ export function createCampaignDispatchWorker(input: {
         .where(and(
           eq(schema.campaigns.id, record.campaignId),
           eq(schema.campaigns.organizationId, record.organizationId),
+          eq(schema.campaigns.status, campaignState.status),
         ));
     }
   };
