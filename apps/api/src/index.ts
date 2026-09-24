@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { loadApiEnv } from "@wa/config";
@@ -44,6 +44,14 @@ function metricRoute(path: string): string {
 function safeRequestId(value: string | undefined): string {
   if (value && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value)) return value;
   return randomUUID();
+}
+
+function verifyTokenMatches(candidate: string | undefined, expected: string): boolean {
+  if (candidate === undefined) return false;
+  const candidateBytes = Buffer.from(candidate, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (candidateBytes.length !== expectedBytes.length) return false;
+  return timingSafeEqual(candidateBytes, expectedBytes);
 }
 
 async function refreshDatabaseMetrics() {
@@ -168,7 +176,7 @@ app.get("/api/v1/meta/webhook", (c) => {
   const token = c.req.query("hub.verify_token");
   const challenge = c.req.query("hub.challenge");
 
-  if (mode === "subscribe" && token === env.META_VERIFY_TOKEN && challenge) {
+  if (mode === "subscribe" && verifyTokenMatches(token, env.META_VERIFY_TOKEN) && challenge) {
     return c.text(challenge, 200);
   }
 

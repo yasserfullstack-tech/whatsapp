@@ -44,7 +44,7 @@ export function startCampaignWorkers(input: {
       reconciliation.close();
       connectionHealthMonitor.close();
       await Promise.all([
-        sendWorker.close(true),
+        sendWorker.close(),
         campaignDispatchWorker.close(true),
         sendQueue.close(),
         dispatchQueue.close(),
