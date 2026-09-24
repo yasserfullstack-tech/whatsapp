@@ -107,10 +107,11 @@ export function createDataLifecycleQueue(redisUrl: string): Queue<DataLifecycleJ
 
 const TOKEN_BUCKET_SCRIPT = `
 local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local rate = tonumber(ARGV[2])
-local capacity = tonumber(ARGV[3])
-local requested = tonumber(ARGV[4])
+local redis_time = redis.call('TIME')
+local now = (tonumber(redis_time[1]) * 1000) + math.floor(tonumber(redis_time[2]) / 1000)
+local rate = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local requested = tonumber(ARGV[3])
 local state = redis.call('HMGET', key, 'tokens', 'timestamp')
 local tokens = tonumber(state[1])
 local timestamp = tonumber(state[2])
@@ -141,7 +142,7 @@ export class PerNumberRateLimiter {
     const refillPerMillisecond = safeMps / 1_000;
     const key = `rate:whatsapp:${phoneNumberId}`;
     for (;;) {
-      const result = (await this.redis.eval(TOKEN_BUCKET_SCRIPT, 1, key, Date.now().toString(), refillPerMillisecond.toString(), capacity.toString(), "1")) as [number, number];
+      const result = (await this.redis.eval(TOKEN_BUCKET_SCRIPT, 1, key, refillPerMillisecond.toString(), capacity.toString(), "1")) as [number, number];
       if (Number(result[0]) === 1) return;
       await sleep(Math.max(1, Number(result[1]) || 1));
     }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DestructiveConfirmDialog } from "@/components/destructive-confirm-dialog";
+import { authClient } from "@/lib/auth-client";
 
 type ExportKind = "contacts" | "campaign_recipients" | "consent_history" | "campaigns" | "workspace";
 type ExportJob = {
@@ -211,6 +212,7 @@ export function DataLifecyclePanel(props: Props) {
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not delete account");
+      await authClient.signOut().catch(() => undefined);
       window.location.assign("/sign-in");
       return true;
     } catch (error) {
