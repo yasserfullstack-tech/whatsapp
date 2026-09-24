@@ -94,6 +94,17 @@ describe("campaign send queue tenant boundary", () => {
       });
       expect(stale).toBeNull();
 
+      await db.update(schema.campaigns).set({ status: "paused" }).where(eq(schema.campaigns.id, campaign.id));
+      const paused = await claimCampaignRecipientForSend(db, {
+        organizationId: victim.id,
+        campaignId: campaign.id,
+        recipientId: recipient.id,
+        reservationQueuedAt,
+        now: new Date(),
+      });
+      expect(paused).toBeNull();
+      await db.update(schema.campaigns).set({ status: "sending" }).where(eq(schema.campaigns.id, campaign.id));
+
       const legitimate = await claimCampaignRecipientForSend(db, {
         organizationId: victim.id,
         campaignId: campaign.id,

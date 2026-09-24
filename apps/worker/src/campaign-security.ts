@@ -28,6 +28,16 @@ export async function claimCampaignRecipientForSend(
       eq(schema.campaignRecipients.organizationId, input.organizationId),
       eq(schema.campaignRecipients.status, "queued"),
       eq(schema.campaignRecipients.queuedAt, input.reservationQueuedAt),
+      // Claiming and checking the campaign control state must happen in the same
+      // statement. A paused/cancelled campaign therefore cannot start another
+      // provider send merely because its recipient was already queued.
+      sql`exists (
+        select 1
+        from ${schema.campaigns}
+        where ${schema.campaigns.id} = ${input.campaignId}
+          and ${schema.campaigns.organizationId} = ${input.organizationId}
+          and ${schema.campaigns.status} = 'sending'
+      )`,
       or(
         eq(schema.campaignRecipients.attemptCount, 0),
         isNotNull(schema.campaignRecipients.lastError),
