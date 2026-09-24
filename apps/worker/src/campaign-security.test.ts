@@ -55,12 +55,14 @@ describe("campaign send queue tenant boundary", () => {
       }).returning({ id: schema.campaigns.id });
       if (!campaign) throw new Error("Could not create campaign fixture");
 
+      const reservationQueuedAt = new Date();
       const [recipient] = await db.insert(schema.campaignRecipients).values({
         organizationId: victim.id,
         campaignId: campaign.id,
         contactId: contact.id,
         phoneE164: "+15550009999",
         status: "queued",
+        queuedAt: reservationQueuedAt,
       }).returning({ id: schema.campaignRecipients.id });
       if (!recipient) throw new Error("Could not create recipient fixture");
 
@@ -68,6 +70,7 @@ describe("campaign send queue tenant boundary", () => {
         organizationId: attacker.id,
         campaignId: campaign.id,
         recipientId: recipient.id,
+        reservationQueuedAt,
         now: new Date(),
       });
       expect(forged).toBeNull();
@@ -82,10 +85,20 @@ describe("campaign send queue tenant boundary", () => {
         ));
       expect(untouched).toEqual([{ status: "queued", attemptCount: 0 }]);
 
+      const stale = await claimCampaignRecipientForSend(db, {
+        organizationId: victim.id,
+        campaignId: campaign.id,
+        recipientId: recipient.id,
+        reservationQueuedAt: new Date(reservationQueuedAt.getTime() - 1),
+        now: new Date(),
+      });
+      expect(stale).toBeNull();
+
       const legitimate = await claimCampaignRecipientForSend(db, {
         organizationId: victim.id,
         campaignId: campaign.id,
         recipientId: recipient.id,
+        reservationQueuedAt,
         now: new Date(),
       });
       expect(legitimate?.id).toBe(recipient.id);
