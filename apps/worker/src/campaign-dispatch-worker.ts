@@ -266,6 +266,7 @@ export function createCampaignDispatchWorker(input: {
           organizationId: record.organizationId,
           campaignId: record.campaignId,
           recipientId: recipient.id,
+          reservationQueuedAt: queuedAt.toISOString(),
           phoneNumberId: record.phoneNumberId,
           credentialKey: record.credentialKey,
           to: recipient.phoneE164.replace(/^\+/, ""),
@@ -274,7 +275,7 @@ export function createCampaignDispatchWorker(input: {
           components: renderTemplateComponents(record.templateComponents, bindings, recipient) as TemplateComponent[] | undefined,
           maxMessagesPerSecond: record.throughputMps,
         } satisfies SendMessageJob,
-        opts: { jobId: `send-${recipient.id}` },
+        opts: { jobId: `send-${recipient.id}-${queuedAt.getTime()}` },
       }));
 
       await sendQueue.addBulk(jobs);

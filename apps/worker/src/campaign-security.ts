@@ -9,6 +9,7 @@ export async function claimCampaignRecipientForSend(
     organizationId: string;
     campaignId: string;
     recipientId: string;
+    reservationQueuedAt: Date;
     now: Date;
   },
 ) {
@@ -26,6 +27,7 @@ export async function claimCampaignRecipientForSend(
       eq(schema.campaignRecipients.campaignId, input.campaignId),
       eq(schema.campaignRecipients.organizationId, input.organizationId),
       eq(schema.campaignRecipients.status, "queued"),
+      eq(schema.campaignRecipients.queuedAt, input.reservationQueuedAt),
       or(
         eq(schema.campaignRecipients.attemptCount, 0),
         isNotNull(schema.campaignRecipients.lastError),
