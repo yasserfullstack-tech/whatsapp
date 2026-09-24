@@ -83,6 +83,7 @@ export function createCampaignSendState(db: Database) {
         eq(schema.campaignRecipients.campaignId, job.campaignId),
         eq(schema.campaignRecipients.organizationId, job.organizationId),
         eq(schema.campaignRecipients.status, "queued"),
+        eq(schema.campaignRecipients.queuedAt, new Date(job.reservationQueuedAt)),
         isNull(schema.campaignRecipients.wamid),
       ));
   };

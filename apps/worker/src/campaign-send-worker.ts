@@ -43,6 +43,7 @@ export function createCampaignSendWorker(input: {
         attemptCount: schema.campaignRecipients.attemptCount,
         lastError: schema.campaignRecipients.lastError,
         wamid: schema.campaignRecipients.wamid,
+        queuedAt: schema.campaignRecipients.queuedAt,
       })
       .from(schema.campaignRecipients)
       .where(and(
@@ -54,6 +55,7 @@ export function createCampaignSendWorker(input: {
 
     if (
       recipient?.status === "queued" &&
+      recipient.queuedAt?.getTime() === new Date(job.data.reservationQueuedAt).getTime() &&
       recipient.attemptCount > 0 &&
       recipient.lastError === null &&
       recipient.wamid === null
@@ -121,6 +123,7 @@ export function createCampaignSendWorker(input: {
         organizationId: job.data.organizationId,
         campaignId: job.data.campaignId,
         recipientId: job.data.recipientId,
+        reservationQueuedAt: new Date(job.data.reservationQueuedAt),
         now,
       });
 
