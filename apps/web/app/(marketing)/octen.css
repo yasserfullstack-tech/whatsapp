@@ -1,0 +1,123 @@
+/* Premium Octen-inspired marketing refresh */
+.mkt-site {
+  background: #050505;
+  color: #f7f7f5;
+}
+
+.mkt-header {
+  background: rgba(5, 5, 5, .72);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.mkt-brand { color: #fff; }
+.mkt-logo {
+  background: linear-gradient(135deg,#25d366,#16a34a);
+  color: #06130b;
+}
+
+.mkt-nav { color: rgba(255,255,255,.65); }
+.mkt-nav a:hover { color: #fff; }
+
+.mkt-hero {
+  padding: 120px 0 100px;
+  background:
+    radial-gradient(circle at 80% 15%, rgba(37,211,102,.28), transparent 28%),
+    radial-gradient(circle at 15% 30%, rgba(99,102,241,.18), transparent 25%),
+    #050505;
+}
+
+.mkt-hero-grid {
+  grid-template-columns: 1fr .85fr;
+}
+
+.mkt-eyebrow {
+  color: #25d366;
+}
+
+.mkt-hero h1,
+.mkt-page-hero h1 {
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: -.07em;
+}
+
+.mkt-lead,
+.mkt-scale-note {
+  color: rgba(255,255,255,.68);
+}
+
+.mkt-button {
+  background: #25d366;
+  color: #041108 !important;
+  box-shadow: 0 20px 60px rgba(37,211,102,.25);
+}
+
+.mkt-secondary-button {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.14);
+  color: #fff;
+}
+
+.mkt-product-shot {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.12);
+  box-shadow: 0 40px 120px rgba(0,0,0,.45);
+  backdrop-filter: blur(20px);
+}
+
+.mkt-shot-grid article,
+.mkt-shot-chart {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.1);
+}
+
+.mkt-shot-grid span,
+.mkt-shot-topbar { color: rgba(255,255,255,.55); }
+.mkt-shot-grid strong { color: #fff; }
+
+.mkt-section-muted { background: #090909; }
+.mkt-section-heading h2,
+.mkt-feature-panel h2,
+.mkt-cta-box h2,
+.mkt-card h3,
+.mkt-step-grid h3 {
+  color: #fff;
+}
+
+.mkt-section-heading p,
+.mkt-card p,
+.mkt-step-grid p,
+.mkt-feature-panel p {
+  color: rgba(255,255,255,.62);
+}
+
+.mkt-card,
+.mkt-feature-panel {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.1);
+}
+
+.mkt-card-icon {
+  background: rgba(37,211,102,.12);
+  color: #25d366;
+}
+
+.mkt-feature-panel-dark {
+  background: linear-gradient(135deg,#102b1b,#06100a);
+}
+
+.mkt-cta-box {
+  background: linear-gradient(135deg,#25d366,#16a34a);
+}
+
+.mkt-cta-box p { color: rgba(0,0,0,.65); }
+
+.mkt-footer {
+  background: #050505;
+  border-color: rgba(255,255,255,.08);
+}
+
+.mkt-footer-note,
+.mkt-footer-grid a:not(.mkt-brand) {
+  color: rgba(255,255,255,.55);
+}
