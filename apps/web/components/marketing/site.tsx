@@ -20,16 +20,19 @@ export function MarketingHome({ locale }: { locale: Locale }) {
   const home = getMarketingCopy(locale).home;
   return <>
     <section className="mkt-hero"><div className="mkt-container mkt-hero-grid">
-      <div className="mkt-copy"><span className="mkt-eyebrow">Business messaging platform</span><h1>{home.title}</h1><p className="mkt-lead">{home.description}</p>
-      <div className="mkt-hero-actions"><Link className="mkt-button" href="/sign-up">{home.primaryCta}</Link><a className="mkt-secondary-button" href="#platform">Explore platform</a></div></div>
-      <div className="mkt-product-window"><div className="mkt-window-header"><span>Campaign AI</span><span className="live">● Live</span></div><div className="mkt-chat"><p>New customer message</p><strong>How can we help?</strong></div><div className="mkt-stats">{home.metrics.map((m)=><div key={m.label}><small>{m.label}</small><b>{m.value}</b></div>)}</div></div>
+      <div className="mkt-copy"><span className="mkt-eyebrow">WhatsApp automation platform</span><h1>{home.title}</h1><p className="mkt-lead">{home.description}</p><div className="mkt-hero-actions"><Link className="mkt-button" href="/sign-up">{home.primaryCta}</Link><a className="mkt-secondary-button" href="#platform">See how it works</a></div></div>
+      <div className="mkt-product-window"><div className="mkt-window-header"><span>Campaign workspace</span><span className="live">● Active</span></div><div className="mkt-chat"><small>Customer conversation</small><strong>Automated replies, campaigns and analytics in one place.</strong></div><div className="mkt-stats">{home.metrics.map((m)=><div key={m.label}><small>{m.label}</small><b>{m.value}</b></div>)}</div></div>
     </div></section>
 
-    <section id="platform" className="mkt-section"><div className="mkt-container"><span className="mkt-eyebrow">Everything in one place</span><h2>{home.featureTitle}</h2><p>{home.featureIntro}</p><div className="mkt-card-grid">{home.features.map(f=><article className="mkt-card" key={f.title}><h3>{f.title}</h3><p>{f.body}</p></article>)}</div></div></section>
+    <section className="mkt-proof"><div className="mkt-container"><span>Built for teams managing customer conversations at scale</span><span>Meta integration</span><span>Analytics</span><span>Automation</span></div></section>
 
-    <section className="mkt-section mkt-dark-panel"><div className="mkt-container"><span className="mkt-eyebrow">Workflow</span><h2>{home.howTitle}</h2><div className="mkt-step-grid">{home.how.map(s=><article key={s.title}><h3>{s.title}</h3><p>{s.body}</p></article>)}</div></div></section>
+    <section id="platform" className="mkt-section"><div className="mkt-container"><span className="mkt-eyebrow">Platform</span><h2>{home.featureTitle}</h2><p>{home.featureIntro}</p><div className="mkt-card-grid">{home.features.map(f=><article className="mkt-card" key={f.title}><h3>{f.title}</h3><p>{f.body}</p></article>)}</div></div></section>
 
-    <section className="mkt-section"><div className="mkt-container mkt-trust"><div><span className="mkt-eyebrow">Built for growth</span><h2>{home.metaTitle}</h2><p>{home.metaBody}</p></div><div><span className="mkt-eyebrow">Reliable operations</span><h2>{home.trustTitle}</h2><p>{home.trustBody}</p></div></div></section>
+    <section className="mkt-section mkt-dark-panel"><div className="mkt-container"><span className="mkt-eyebrow">Automation flow</span><h2>{home.howTitle}</h2><div className="mkt-step-grid">{home.how.map(s=><article key={s.title}><h3>{s.title}</h3><p>{s.body}</p></article>)}</div></div></section>
+
+    <section className="mkt-section"><div className="mkt-container mkt-trust"><div><span className="mkt-eyebrow">Connected messaging</span><h2>{home.metaTitle}</h2><p>{home.metaBody}</p></div><div><span className="mkt-eyebrow">Enterprise ready</span><h2>{home.trustTitle}</h2><p>{home.trustBody}</p></div></div></section>
+
+    <section className="mkt-section mkt-conversation"><div className="mkt-container"><h2>Turn conversations into customer journeys</h2><div className="mkt-conversation-grid"><div>Incoming message</div><div>Automation rules</div><div>Campaign analytics</div></div></div></section>
 
     <section className="mkt-container mkt-final"><h2>{home.ctaTitle}</h2><p>{home.ctaBody}</p><Link className="mkt-button" href="/sign-up">{home.primaryCta}</Link></section>
   </>;
