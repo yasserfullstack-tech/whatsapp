@@ -10,16 +10,14 @@ export function MarketingShell({ locale, children }: { locale: Locale; children:
     <div className="mkt-site">
       <header className="mkt-header">
         <div className="mkt-container mkt-nav-row">
-          <Link className="mkt-brand" href="/" aria-label={copy.brand}>
-            <span className="mkt-logo" aria-hidden="true">W</span>
-            <span>{copy.brand}</span>
+          <Link className="mkt-brand" href="/">
+            <span className="mkt-logo">W</span>
+            {copy.brand}
           </Link>
-          <nav className="mkt-nav" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Primary navigation"}>
+          <nav className="mkt-nav">
             <Link href="/features">{copy.nav.features}</Link>
             <Link href="/pricing">{copy.nav.pricing}</Link>
-            <Link href="/whatsapp">{copy.nav.whatsapp}</Link>
             <Link href="/security">{copy.nav.security}</Link>
-            <Link href="/contact">{copy.nav.contact}</Link>
           </nav>
           <div className="mkt-actions">
             <Link className="mkt-link-button" href="/sign-in">{copy.signIn}</Link>
@@ -27,37 +25,9 @@ export function MarketingShell({ locale, children }: { locale: Locale; children:
           </div>
         </div>
       </header>
-
       <main>{children}</main>
-
       <footer className="mkt-footer">
-        <div className="mkt-container mkt-footer-grid">
-          <div>
-            <Link className="mkt-brand" href="/">
-              <span className="mkt-logo" aria-hidden="true">W</span>
-              <span>{copy.brand}</span>
-            </Link>
-            <p className="mkt-footer-note">{copy.footer.note}</p>
-          </div>
-          <div>
-            <strong>{copy.footer.product}</strong>
-            <Link href="/features">{copy.nav.features}</Link>
-            <Link href="/pricing">{copy.nav.pricing}</Link>
-            <Link href="/whatsapp">{copy.nav.whatsapp}</Link>
-          </div>
-          <div>
-            <strong>{copy.footer.company}</strong>
-            <Link href="/security">{copy.nav.security}</Link>
-            <Link href="/contact">{copy.nav.contact}</Link>
-          </div>
-          <div>
-            <strong>{copy.footer.legal}</strong>
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/terms">Terms</Link>
-            <Link href="/acceptable-use">Acceptable use</Link>
-            <Link href="/anti-spam">Anti-spam</Link>
-          </div>
-        </div>
+        <div className="mkt-container">{copy.footer.note}</div>
       </footer>
     </div>
   );
@@ -77,16 +47,11 @@ export function MarketingHome({ locale }: { locale: Locale }) {
             <p className="mkt-lead">{home.description}</p>
             <div className="mkt-hero-actions">
               <Link className="mkt-button" href="/sign-up">{home.primaryCta}</Link>
-              <a className="mkt-secondary-button" href="#how-it-works">{home.secondaryCta}</a>
+              <a className="mkt-secondary-button" href="#workflow">{home.secondaryCta}</a>
             </div>
-            <p className="mkt-scale-note">{home.scaleNote}</p>
           </div>
-
           <div className="mkt-product-shot" aria-label={home.dashboardLabel}>
-            <div className="mkt-shot-topbar">
-              <span>{home.dashboardLabel}</span>
-              <span className="mkt-live-dot">●</span>
-            </div>
+            <div className="mkt-shot-topbar">{home.dashboardLabel}</div>
             <div className="mkt-shot-grid">
               {home.metrics.map((metric) => (
                 <article key={metric.label}>
@@ -95,13 +60,9 @@ export function MarketingHome({ locale }: { locale: Locale }) {
                 </article>
               ))}
             </div>
-            <div className="mkt-shot-chart" aria-hidden="true">
-              <div style={{ height: "48%" }} />
-              <div style={{ height: "70%" }} />
-              <div style={{ height: "58%" }} />
-              <div style={{ height: "84%" }} />
-              <div style={{ height: "76%" }} />
-              <div style={{ height: "94%" }} />
+            <div className="mkt-chat-preview">
+              <div>Customer message</div>
+              <strong>Campaign delivered ✓</strong>
             </div>
           </div>
         </div>
@@ -110,14 +71,12 @@ export function MarketingHome({ locale }: { locale: Locale }) {
       <section className="mkt-section">
         <div className="mkt-container">
           <div className="mkt-section-heading">
-            <p className="mkt-eyebrow">{copy.nav.features}</p>
             <h2>{home.featureTitle}</h2>
             <p>{home.featureIntro}</p>
           </div>
           <div className="mkt-card-grid">
             {home.features.map((feature) => (
               <article className="mkt-card" key={feature.title}>
-                <span className="mkt-card-icon" aria-hidden="true">↗</span>
                 <h3>{feature.title}</h3>
                 <p>{feature.body}</p>
               </article>
@@ -126,46 +85,15 @@ export function MarketingHome({ locale }: { locale: Locale }) {
         </div>
       </section>
 
-      <section className="mkt-section mkt-section-muted" id="how-it-works">
+      <section className="mkt-section mkt-section-muted" id="workflow">
         <div className="mkt-container">
-          <div className="mkt-section-heading"><h2>{home.howTitle}</h2></div>
+          <h2>{home.howTitle}</h2>
           <div className="mkt-step-grid">
             {home.how.map((step) => (
               <article key={step.title}>
                 <h3>{step.title}</h3>
                 <p>{step.body}</p>
               </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="mkt-section">
-        <div className="mkt-container mkt-split">
-          <article className="mkt-feature-panel">
-            <p className="mkt-eyebrow">Meta</p>
-            <h2>{home.metaTitle}</h2>
-            <p>{home.metaBody}</p>
-            <Link className="mkt-text-link" href="/whatsapp">{copy.nav.whatsapp} →</Link>
-          </article>
-          <article className="mkt-feature-panel mkt-feature-panel-dark">
-            <p className="mkt-eyebrow">Trust</p>
-            <h2>{home.trustTitle}</h2>
-            <p>{home.trustBody}</p>
-            <Link className="mkt-text-link" href="/security">{copy.nav.security} →</Link>
-          </article>
-        </div>
-      </section>
-
-      <section className="mkt-section mkt-section-muted">
-        <div className="mkt-container mkt-faq-layout">
-          <div className="mkt-section-heading"><h2>{home.faqTitle}</h2></div>
-          <div className="mkt-faq-list">
-            {home.faqs.map((faq) => (
-              <details key={faq.question}>
-                <summary>{faq.question}</summary>
-                <p>{faq.answer}</p>
-              </details>
             ))}
           </div>
         </div>
@@ -189,40 +117,12 @@ export function MarketingContentPage({ locale, slug }: { locale: Locale; slug: M
   const page = copy.pages[slug];
 
   return (
-    <>
-      <section className="mkt-page-hero">
-        <div className="mkt-container mkt-narrow">
-          <p className="mkt-eyebrow">{page.eyebrow}</p>
-          <h1>{page.title}</h1>
-          <p className="mkt-lead">{page.description}</p>
-        </div>
-      </section>
-      <section className="mkt-section">
-        <div className="mkt-container mkt-content-stack">
-          {page.sections.map((section) => (
-            <article className="mkt-content-section" key={section.title}>
-              <h2>{section.title}</h2>
-              <p>{section.body}</p>
-              {section.items ? (
-                <ul>
-                  {section.items.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-              ) : null}
-            </article>
-          ))}
-        </div>
-      </section>
-      {slug !== "privacy" && slug !== "terms" && slug !== "acceptable-use" && slug !== "anti-spam" ? (
-        <section className="mkt-cta-section">
-          <div className="mkt-container mkt-cta-box">
-            <div>
-              <h2>{copy.home.ctaTitle}</h2>
-              <p>{copy.home.ctaBody}</p>
-            </div>
-            <Link className="mkt-button" href="/sign-up">{copy.start}</Link>
-          </div>
-        </section>
-      ) : null}
-    </>
+    <section className="mkt-page-hero">
+      <div className="mkt-container mkt-narrow">
+        <p className="mkt-eyebrow">{page.eyebrow}</p>
+        <h1>{page.title}</h1>
+        <p className="mkt-lead">{page.description}</p>
+      </div>
+    </section>
   );
 }
