@@ -26,9 +26,32 @@ export function MarketingShell({ locale, children }: { locale: Locale; children:
         </div>
       </header>
       <main>{children}</main>
-      <footer className="mkt-footer">
-        <div className="mkt-container">{copy.footer.note}</div>
-      </footer>
+      <footer className="mkt-footer"><div className="mkt-container">{copy.footer.note}</div></footer>
+    </div>
+  );
+}
+
+function ProductPreview() {
+  return (
+    <div className="mkt-product-shot" aria-label="WhatsApp campaign dashboard preview">
+      <div className="mkt-shot-topbar">
+        <span>Campaign workspace</span>
+        <span>Live</span>
+      </div>
+      <div className="mkt-chat-preview">
+        <div className="mkt-chat-header">Customer inbox</div>
+        <p>"Your order has shipped"</p>
+        <strong>Delivered ✓✓</strong>
+      </div>
+      <div className="mkt-shot-grid">
+        <article><span>Audience</span><strong>128,450</strong></article>
+        <article><span>Queued</span><strong>42,120</strong></article>
+        <article><span>Delivered</span><strong>98.4%</strong></article>
+        <article><span>Templates</span><strong>24</strong></article>
+      </div>
+      <div className="mkt-campaign-flow">
+        <span>Audience</span><b>→</b><span>Template</span><b>→</b><span>Delivery</span>
+      </div>
     </div>
   );
 }
@@ -50,21 +73,7 @@ export function MarketingHome({ locale }: { locale: Locale }) {
               <a className="mkt-secondary-button" href="#workflow">{home.secondaryCta}</a>
             </div>
           </div>
-          <div className="mkt-product-shot" aria-label={home.dashboardLabel}>
-            <div className="mkt-shot-topbar">{home.dashboardLabel}</div>
-            <div className="mkt-shot-grid">
-              {home.metrics.map((metric) => (
-                <article key={metric.label}>
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </article>
-              ))}
-            </div>
-            <div className="mkt-chat-preview">
-              <div>Customer message</div>
-              <strong>Campaign delivered ✓</strong>
-            </div>
-          </div>
+          <ProductPreview />
         </div>
       </section>
 
@@ -87,24 +96,31 @@ export function MarketingHome({ locale }: { locale: Locale }) {
 
       <section className="mkt-section mkt-section-muted" id="workflow">
         <div className="mkt-container">
-          <h2>{home.howTitle}</h2>
+          <div className="mkt-section-heading"><h2>{home.howTitle}</h2></div>
           <div className="mkt-step-grid">
             {home.how.map((step) => (
-              <article key={step.title}>
-                <h3>{step.title}</h3>
-                <p>{step.body}</p>
-              </article>
+              <article key={step.title}><h3>{step.title}</h3><p>{step.body}</p></article>
             ))}
           </div>
         </div>
       </section>
 
+      <section className="mkt-section">
+        <div className="mkt-container mkt-split">
+          <article className="mkt-feature-panel">
+            <h2>{home.metaTitle}</h2>
+            <p>{home.metaBody}</p>
+          </article>
+          <article className="mkt-feature-panel mkt-feature-panel-dark">
+            <h2>{home.trustTitle}</h2>
+            <p>{home.trustBody}</p>
+          </article>
+        </div>
+      </section>
+
       <section className="mkt-cta-section">
         <div className="mkt-container mkt-cta-box">
-          <div>
-            <h2>{home.ctaTitle}</h2>
-            <p>{home.ctaBody}</p>
-          </div>
+          <div><h2>{home.ctaTitle}</h2><p>{home.ctaBody}</p></div>
           <Link className="mkt-button" href="/sign-up">{home.primaryCta}</Link>
         </div>
       </section>
