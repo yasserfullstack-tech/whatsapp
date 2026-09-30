@@ -6,7 +6,8 @@
 .reportFiltersPanel { margin-top: 4px; }
 .reportFilters { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 14px; margin-top: 16px; align-items: end; }
 .reportFilters label { display: grid; gap: 7px; min-width: 0; color: var(--muted); font-size: .82rem; font-weight: 650; }
-.reportFilters input, .reportFilters select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); padding: 10px 11px; font: inherit; }
+.reportFilters input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); padding: 10px 11px; font: inherit; }
+.reportFilters select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); padding: 10px 32px 10px 11px; font: inherit; }
 .reportFilterActions { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
 .reportFilterActions .primary, .reportFilterActions .secondary { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; }
 .reportStats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }

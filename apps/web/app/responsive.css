@@ -6,8 +6,12 @@ html[dir="rtl"] .eyebrow { letter-spacing: 0; text-transform: none; }
 .content, .panel, .numberRow, .contactRow, .contactIdentity, .contactState { min-width: 0; }
 input, select, textarea { max-width: 100%; }
 
-.languageSwitcher { position: fixed; inset-inline-end: 16px; bottom: 16px; z-index: 100; display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.96); box-shadow: var(--shadow); backdrop-filter: blur(10px); }
-.languageSwitcher button { border: 0; border-radius: 999px; padding: 7px 10px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 800; }
+/* Fixed to the viewport, so it always sits over whatever is at the bottom right
+   of the page. Shrunk and de-emphasised rather than moved: its proper home is
+   the page header, which every page renders itself. */
+.languageSwitcher { position: fixed; inset-inline-end: 14px; bottom: 14px; z-index: 100; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: rgba(255,255,255,.92); box-shadow: var(--shadow-sm); backdrop-filter: blur(10px); opacity: .72; transition: opacity .12s ease; }
+.languageSwitcher:hover, .languageSwitcher:focus-within { opacity: 1; }
+.languageSwitcher button { border: 0; border-radius: var(--radius-pill); padding: 5px 9px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
 .languageSwitcher button.active { background: var(--accent); color: #fff; }
 
 .formGrid4, .formGrid3, .formGrid2, .filterBuilderRow, .bindingRow, .analyticsMiniGrid { display: grid; gap: 12px; }
@@ -19,7 +23,10 @@ input, select, textarea { max-width: 100%; }
 .analyticsMiniGrid { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
 .analyticsMiniGrid strong { display: block; margin-top: 4px; }
 .formLabel { display: grid; gap: 7px; min-width: 0; font-size: 13px; font-weight: 700; }
-.formLabel input, .formLabel select, .formLabel textarea, .filterBuilderRow input, .filterBuilderRow select, .bindingRow input, .bindingRow select { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); outline: none; }
+.formLabel input, .formLabel textarea, .filterBuilderRow input, .bindingRow input { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); outline: none; }
+
+/* Gutter for the custom chevron set in globals.css. */
+.formLabel select, .filterBuilderRow select, .bindingRow select { padding-inline-end: 34px; }
 .formLabel input:focus, .formLabel select:focus, .formLabel textarea:focus, .filterBuilderRow input:focus, .filterBuilderRow select:focus, .bindingRow input:focus, .bindingRow select:focus { border-color: #78c8a7; box-shadow: 0 0 0 3px rgba(13, 143, 93, .09); }
 .formLabel textarea { resize: vertical; }
 .actionRow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -40,9 +47,13 @@ input, select, textarea { max-width: 100%; }
 @media (max-width: 760px) {
   .sidebar { position: sticky; top: 0; z-index: 50; height: auto; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px 14px; }
   .brand { padding: 0; }
-  .nav { grid-column: 1 / -1; display: flex !important; gap: 6px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; padding-bottom: 2px; }
+  .nav { grid-column: 1 / -1; display: flex !important; gap: 6px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; padding-bottom: 2px; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
   .nav::-webkit-scrollbar { display: none; }
-  .navItem { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 9px 11px; }
+  /* The strip used to clip the last visible label mid-word with nothing to say
+     it scrolled. Fade the trailing edge and snap items into place instead. */
+  .nav { mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%); }
+  .navItem { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 9px 11px; scroll-snap-align: start; }
+  .navItem.active::before { inset-block: 6px; }
   .workspace { display: none !important; }
   .content { padding: 24px 16px 72px; }
   .topbar { gap: 16px; }
