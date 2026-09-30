@@ -6,6 +6,7 @@ export const workspaceSettingsMessages = {
       eyebrow: "Workspace settings",
       readOnly: "Your role has read-only access to these settings.",
       roles: { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer" },
+      saving: "Saving…",
     },
     general: {
       title: "General",
@@ -23,6 +24,8 @@ export const workspaceSettingsMessages = {
       english: "English",
       arabic: "Arabic",
       saveChanges: "Save changes",
+      saving: "Saving…",
+      saved: "Workspace settings saved.",
     },
     team: {
       title: "Team",
@@ -93,6 +96,7 @@ export const workspaceSettingsMessages = {
       email: "Email",
       required: "Required",
       save: "Save preferences",
+      saved: "Notification preferences saved.",
       categories: {
         campaigns: "Campaigns",
         imports: "Imports",
@@ -111,6 +115,7 @@ export const workspaceSettingsMessages = {
       eyebrow: "إعدادات مساحة العمل",
       readOnly: "دورك يتيح عرض هذه الإعدادات فقط.",
       roles: { owner: "المالك", admin: "المشرف", member: "عضو", viewer: "مشاهد" },
+      saving: "جارِ الحفظ…",
     },
     general: {
       title: "عام",
@@ -128,6 +133,8 @@ export const workspaceSettingsMessages = {
       english: "الإنجليزية",
       arabic: "العربية",
       saveChanges: "حفظ التغييرات",
+      saving: "جارِ الحفظ…",
+      saved: "تم حفظ إعدادات مساعة العمل.",
     },
     team: {
       title: "الفريق",
@@ -198,6 +205,7 @@ export const workspaceSettingsMessages = {
       email: "البريد الإلكتروني",
       required: "مطلوب",
       save: "حفظ التفضيلات",
+      saved: "تم حفظ تفضيلات الإشعار.",
       categories: {
         campaigns: "الحملات",
         imports: "الاستيراد",

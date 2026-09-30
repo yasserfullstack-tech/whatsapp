@@ -30,7 +30,11 @@ export type EmbeddedSignupReadyAttempt = {
 export type EmbeddedSignupAttemptOutcome =
   | { kind: "ignore" }
   | { kind: "pending" }
-  | { kind: "terminal"; reason: "cancelled" | "failed" | "no_code"; requiresReload: boolean }
+  | {
+      kind: "terminal";
+      reason: "cancelled" | "failed" | "no_code";
+      requiresReload: boolean;
+    }
   | EmbeddedSignupReadyAttempt;
 
 type ActiveAttempt = {
@@ -61,20 +65,37 @@ export class EmbeddedSignupAttemptTracker {
   begin(): number | null {
     if (this.reloadRequired || this.active) return null;
     const id = this.nextAttemptId++;
-    this.active = { id, source: null, code: null, signup: null, completing: false };
+    this.active = {
+      id,
+      source: null,
+      code: null,
+      signup: null,
+      completing: false,
+    };
     return id;
   }
 
-  acceptLoginResponse(attemptId: number, rawCode: unknown): EmbeddedSignupAttemptOutcome {
+  isActive(attemptId: number): boolean {
+    return this.active?.id === attemptId;
+  }
+
+  acceptLoginResponse(
+    attemptId: number,
+    rawCode: unknown,
+  ): EmbeddedSignupAttemptOutcome {
     const active = this.active;
-    if (!active || active.id !== attemptId || active.completing) return { kind: "ignore" };
+    if (!active || active.id !== attemptId || active.completing)
+      return { kind: "ignore" };
     const code = nonEmptyString(rawCode);
     if (!code) return this.endAttempt(active, "no_code");
     active.code = code;
     return this.maybeReady(active);
   }
 
-  acceptMessage(source: object | null, message: EmbeddedSignupMessage): EmbeddedSignupAttemptOutcome {
+  acceptMessage(
+    source: object | null,
+    message: EmbeddedSignupMessage,
+  ): EmbeddedSignupAttemptOutcome {
     if (message.kind === "ignore") return { kind: "ignore" };
     const active = this.active;
     if (!active || active.completing) return { kind: "ignore" };
@@ -90,7 +111,8 @@ export class EmbeddedSignupAttemptTracker {
     active.source = source;
 
     if (message.kind === "cancel") return this.endAttempt(active, "cancelled");
-    if (message.kind === "error" || message.kind === "invalid") return this.endAttempt(active, "failed");
+    if (message.kind === "error" || message.kind === "invalid")
+      return this.endAttempt(active, "failed");
 
     active.signup = message.data;
     return this.maybeReady(active);
@@ -119,7 +141,12 @@ export class EmbeddedSignupAttemptTracker {
   private maybeReady(active: ActiveAttempt): EmbeddedSignupAttemptOutcome {
     if (!active.code || !active.signup) return { kind: "pending" };
     active.completing = true;
-    return { kind: "ready", attemptId: active.id, code: active.code, signup: active.signup };
+    return {
+      kind: "ready",
+      attemptId: active.id,
+      code: active.code,
+      signup: active.signup,
+    };
   }
 
   private endAttempt(
@@ -145,7 +172,9 @@ export class EmbeddedSignupAttemptTracker {
   }
 }
 
-export function createEmbeddedSignupLoginOptions(configId: string): EmbeddedSignupLoginOptions {
+export function createEmbeddedSignupLoginOptions(
+  configId: string,
+): EmbeddedSignupLoginOptions {
   return {
     config_id: configId,
     response_type: "code",
@@ -154,7 +183,10 @@ export function createEmbeddedSignupLoginOptions(configId: string): EmbeddedSign
   };
 }
 
-export function parseEmbeddedSignupMessage(origin: string, rawPayload: unknown): EmbeddedSignupMessage {
+export function parseEmbeddedSignupMessage(
+  origin: string,
+  rawPayload: unknown,
+): EmbeddedSignupMessage {
   if (!FACEBOOK_EMBEDDED_SIGNUP_ORIGINS.has(origin)) return { kind: "ignore" };
 
   let payload = rawPayload;
@@ -172,14 +204,16 @@ export function parseEmbeddedSignupMessage(origin: string, rawPayload: unknown):
   if (record.event === "CANCEL") return { kind: "cancel" };
   if (record.event === "ERROR") return { kind: "error" };
   if (record.event !== "FINISH") return { kind: "invalid" };
-  if (!record.data || typeof record.data !== "object") return { kind: "invalid" };
+  if (!record.data || typeof record.data !== "object")
+    return { kind: "invalid" };
 
   const data = record.data as Record<string, unknown>;
   const wabaId = nonEmptyString(data.waba_id);
   const phoneNumberId = nonEmptyString(data.phone_number_id);
   if (!wabaId || !phoneNumberId) return { kind: "invalid" };
 
-  const businessId = data.business_id === undefined ? null : nonEmptyString(data.business_id);
+  const businessId =
+    data.business_id === undefined ? null : nonEmptyString(data.business_id);
   if (data.business_id !== undefined && !businessId) return { kind: "invalid" };
 
   return {

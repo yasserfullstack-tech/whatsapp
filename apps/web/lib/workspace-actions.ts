@@ -9,7 +9,8 @@ import { z } from "zod";
 import { schema } from "@wa/db";
 import { sendAuthEmail } from "./auth-email";
 import { requireAuthContext } from "./auth-context";
-import { entitlements } from "./entitlements-server";
+import { toActionResult, type ActionResult } from "./action-result";
+import { entitlementErrorPayload, entitlements } from "./entitlements-server";
 import { db } from "./server";
 import { can, type WorkspaceAction } from "./workspace-access";
 import { transferWorkspaceOwnershipAtomic } from "./workspace-ownership";
@@ -19,7 +20,10 @@ const editableRole = z.enum(["admin", "member", "viewer"]);
 const inviteRole = editableRole;
 const uuid = z.string().uuid();
 
-function requirePermission(role: "owner" | "admin" | "member" | "viewer", action: WorkspaceAction) {
+function requirePermission(
+  role: "owner" | "admin" | "member" | "viewer",
+  action: WorkspaceAction,
+) {
   if (!can(role, action)) throw new Error("Forbidden");
 }
 
@@ -56,30 +60,44 @@ async function audit(input: {
   });
 }
 
-export async function updateWorkspaceGeneralAction(formData: FormData) {
+export async function updateWorkspaceGeneralAction(
+  _previous: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  return toActionResult(() => applyWorkspaceGeneral(formData));
+}
+
+async function applyWorkspaceGeneral(formData: FormData) {
   const { workspace } = await requireAuthContext();
   requirePermission(workspace.role, "workspace.update");
 
-  const parsed = z.object({
-    organizationName: z.string().trim().min(2).max(120),
-    timezone: z.string().trim().min(1).max(80),
-    defaultCountry: z.string().trim().max(2),
-    preferredLanguage: z.enum(["en", "ar"]),
-  }).parse({
-    organizationName: formData.get("organizationName"),
-    timezone: formData.get("timezone"),
-    defaultCountry: formData.get("defaultCountry"),
-    preferredLanguage: formData.get("preferredLanguage"),
-  });
+  const parsed = z
+    .object({
+      organizationName: z.string().trim().min(2).max(120),
+      timezone: z.string().trim().min(1).max(80),
+      defaultCountry: z.string().trim().max(2),
+      preferredLanguage: z.enum(["en", "ar"]),
+    })
+    .parse({
+      organizationName: formData.get("organizationName"),
+      timezone: formData.get("timezone"),
+      defaultCountry: formData.get("defaultCountry"),
+      preferredLanguage: formData.get("preferredLanguage"),
+    });
 
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: parsed.timezone }).format(new Date());
+    new Intl.DateTimeFormat("en-US", { timeZone: parsed.timezone }).format(
+      new Date(),
+    );
   } catch {
     throw new Error("Invalid timezone");
   }
 
-  const country = parsed.defaultCountry ? parsed.defaultCountry.toUpperCase() : null;
-  if (country && !/^[A-Z]{2}$/.test(country)) throw new Error("Default country must be a two-letter code");
+  const country = parsed.defaultCountry
+    ? parsed.defaultCountry.toUpperCase()
+    : null;
+  if (country && !/^[A-Z]{2}$/.test(country))
+    throw new Error("Default country must be a two-letter code");
 
   await db.transaction(async (tx) => {
     await tx
@@ -112,7 +130,11 @@ export async function updateWorkspaceGeneralAction(formData: FormData) {
       action: "workspace.general.updated",
       targetType: "organization",
       targetId: workspace.organizationId,
-      metadata: { timezone: parsed.timezone, defaultCountry: country, preferredLanguage: parsed.preferredLanguage },
+      metadata: {
+        timezone: parsed.timezone,
+        defaultCountry: country,
+        preferredLanguage: parsed.preferredLanguage,
+      },
     });
   });
 
@@ -123,10 +145,12 @@ export async function inviteWorkspaceMemberAction(formData: FormData) {
   const { workspace } = await requireAuthContext();
   requirePermission(workspace.role, "team.invite");
 
-  const parsed = z.object({
-    email: z.string().trim().toLowerCase().email().max(254),
-    role: inviteRole,
-  }).parse({ email: formData.get("email"), role: formData.get("role") });
+  const parsed = z
+    .object({
+      email: z.string().trim().toLowerCase().email().max(254),
+      role: inviteRole,
+    })
+    .parse({ email: formData.get("email"), role: formData.get("role") });
 
   if (workspace.role !== "owner" && parsed.role === "admin") {
     throw new Error("Only the workspace owner can invite administrators");
@@ -136,16 +160,30 @@ export async function inviteWorkspaceMemberAction(formData: FormData) {
     await db
       .select({ id: schema.organizationMembers.id })
       .from(schema.organizationMembers)
-      .innerJoin(schema.users, eq(schema.users.id, schema.organizationMembers.userId))
-      .where(and(eq(schema.organizationMembers.organizationId, workspace.organizationId), eq(schema.users.email, parsed.email)))
+      .innerJoin(
+        schema.users,
+        eq(schema.users.id, schema.organizationMembers.userId),
+      )
+      .where(
+        and(
+          eq(
+            schema.organizationMembers.organizationId,
+            workspace.organizationId,
+          ),
+          eq(schema.users.email, parsed.email),
+        ),
+      )
       .limit(1)
   )[0];
-  if (existingMember) throw new Error("That user is already a workspace member");
+  if (existingMember)
+    throw new Error("That user is already a workspace member");
 
   const [memberCount] = await db
     .select({ total: count() })
     .from(schema.organizationMembers)
-    .where(eq(schema.organizationMembers.organizationId, workspace.organizationId));
+    .where(
+      eq(schema.organizationMembers.organizationId, workspace.organizationId),
+    );
   await entitlements.assertUsage(workspace.organizationId, "max_members", {
     currentUsage: memberCount?.total ?? 0,
     requested: 1,
@@ -158,11 +196,16 @@ export async function inviteWorkspaceMemberAction(formData: FormData) {
   await db.transaction(async (tx) => {
     await tx
       .delete(schema.organizationInvitations)
-      .where(and(
-        eq(schema.organizationInvitations.organizationId, workspace.organizationId),
-        eq(schema.organizationInvitations.email, parsed.email),
-        isNull(schema.organizationInvitations.acceptedAt),
-      ));
+      .where(
+        and(
+          eq(
+            schema.organizationInvitations.organizationId,
+            workspace.organizationId,
+          ),
+          eq(schema.organizationInvitations.email, parsed.email),
+          isNull(schema.organizationInvitations.acceptedAt),
+        ),
+      );
 
     await tx.insert(schema.organizationInvitations).values({
       organizationId: workspace.organizationId,
@@ -191,14 +234,31 @@ export async function inviteWorkspaceMemberAction(formData: FormData) {
       text: `You were invited to join ${workspace.organizationName} as ${parsed.role}. Open ${baseUrl}/invite/${token} while signed in as ${parsed.email}. This invitation expires in 7 days.`,
     });
   } catch (error) {
-    await db.delete(schema.organizationInvitations).where(eq(schema.organizationInvitations.tokenHash, hash));
+    await db
+      .delete(schema.organizationInvitations)
+      .where(eq(schema.organizationInvitations.tokenHash, hash));
     throw error;
   }
 
   revalidatePath("/settings/team");
 }
 
-export async function acceptWorkspaceInvitationAction(formData: FormData) {
+export type InvitationAcceptResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      code: "invalid" | "wrong_email" | "member_limit" | "unknown";
+    };
+
+// Expected refusals used to throw, which the browser saw as an unexplained
+// HTTP 500: an expired invitation, a mismatched address, and a workspace that
+// has reached its plan member limit are all ordinary outcomes the invitee needs
+// to read. The transaction and its entitlement check are unchanged.
+export async function acceptWorkspaceInvitationAction(
+  _previous: InvitationAcceptResult | null,
+  formData: FormData,
+): Promise<InvitationAcceptResult> {
   const { session, workspace } = await requireAuthContext();
   const token = z.string().min(20).max(200).parse(formData.get("token"));
   const hash = tokenHash(token);
@@ -214,65 +274,115 @@ export async function acceptWorkspaceInvitationAction(formData: FormData) {
         role: schema.organizationInvitations.role,
       })
       .from(schema.organizationInvitations)
-      .innerJoin(schema.organizations, eq(schema.organizations.id, schema.organizationInvitations.organizationId))
-      .where(and(
-        eq(schema.organizationInvitations.tokenHash, hash),
-        isNull(schema.organizationInvitations.acceptedAt),
-        gt(schema.organizationInvitations.expiresAt, now),
-      ))
+      .innerJoin(
+        schema.organizations,
+        eq(
+          schema.organizations.id,
+          schema.organizationInvitations.organizationId,
+        ),
+      )
+      .where(
+        and(
+          eq(schema.organizationInvitations.tokenHash, hash),
+          isNull(schema.organizationInvitations.acceptedAt),
+          gt(schema.organizationInvitations.expiresAt, now),
+        ),
+      )
       .limit(1)
   )[0];
 
-  if (!invitation) throw new Error("Invitation is invalid or expired");
+  if (!invitation) {
+    return {
+      ok: false,
+      code: "invalid",
+      error:
+        "This invitation is invalid or has expired. Ask the workspace owner for a new one.",
+    };
+  }
   if (invitation.email.toLowerCase() !== session.user.email.toLowerCase()) {
-    throw new Error("This invitation belongs to a different email address");
+    return {
+      ok: false,
+      code: "wrong_email",
+      error: "This invitation was sent to a different email address.",
+    };
   }
 
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`entitlement:max_members:${invitation.organizationId}`})::bigint)`);
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`entitlement:max_members:${invitation.organizationId}`})::bigint)`,
+      );
 
-    const membership = (
+      const membership = (
+        await tx
+          .select({
+            id: schema.organizationMembers.id,
+            role: schema.organizationMembers.role,
+          })
+          .from(schema.organizationMembers)
+          .where(
+            and(
+              eq(
+                schema.organizationMembers.organizationId,
+                invitation.organizationId,
+              ),
+              eq(schema.organizationMembers.userId, workspace.userId),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      if (!membership) {
+        const [memberCount] = await tx
+          .select({ total: count() })
+          .from(schema.organizationMembers)
+          .where(
+            eq(
+              schema.organizationMembers.organizationId,
+              invitation.organizationId,
+            ),
+          );
+        await entitlements.assertUsage(
+          invitation.organizationId,
+          "max_members",
+          {
+            currentUsage: memberCount?.total ?? 0,
+            requested: 1,
+          },
+        );
+
+        await tx.insert(schema.organizationMembers).values({
+          organizationId: invitation.organizationId,
+          userId: workspace.userId,
+          role: invitation.role === "owner" ? "member" : invitation.role,
+        });
+      }
+
       await tx
-        .select({ id: schema.organizationMembers.id, role: schema.organizationMembers.role })
-        .from(schema.organizationMembers)
-        .where(and(
-          eq(schema.organizationMembers.organizationId, invitation.organizationId),
-          eq(schema.organizationMembers.userId, workspace.userId),
-        ))
-        .limit(1)
-    )[0];
+        .update(schema.organizationInvitations)
+        .set({ acceptedAt: now })
+        .where(eq(schema.organizationInvitations.id, invitation.id));
 
-    if (!membership) {
-      const [memberCount] = await tx
-        .select({ total: count() })
-        .from(schema.organizationMembers)
-        .where(eq(schema.organizationMembers.organizationId, invitation.organizationId));
-      await entitlements.assertUsage(invitation.organizationId, "max_members", {
-        currentUsage: memberCount?.total ?? 0,
-        requested: 1,
-      });
-
-      await tx.insert(schema.organizationMembers).values({
+      await tx.insert(schema.workspaceAuditLogs).values({
         organizationId: invitation.organizationId,
-        userId: workspace.userId,
-        role: invitation.role === "owner" ? "member" : invitation.role,
+        actorUserId: workspace.userId,
+        action: "workspace.member.invitation_accepted",
+        targetType: "user",
+        targetId: workspace.userId,
+        metadata: { invitationId: invitation.id },
       });
-    }
-
-    await tx
-      .update(schema.organizationInvitations)
-      .set({ acceptedAt: now })
-      .where(eq(schema.organizationInvitations.id, invitation.id));
-
-    await tx.insert(schema.workspaceAuditLogs).values({
-      organizationId: invitation.organizationId,
-      actorUserId: workspace.userId,
-      action: "workspace.member.invitation_accepted",
-      targetType: "user",
-      targetId: workspace.userId,
-      metadata: { invitationId: invitation.id },
     });
-  });
+  } catch (error) {
+    const payload = entitlementErrorPayload(error);
+    if (payload?.error === "entitlement_limit_exceeded") {
+      return {
+        ok: false,
+        code: "member_limit",
+        error: `This workspace has reached its plan limit of ${payload.limit} team members. Ask the owner to remove a member or upgrade the plan.`,
+      };
+    }
+    throw error;
+  }
 
   await selectWorkspaceCookie(invitation.organizationId);
   redirect("/settings/team");
@@ -286,23 +396,40 @@ export async function changeWorkspaceMemberRoleAction(formData: FormData) {
 
   const target = (
     await db
-      .select({ id: schema.organizationMembers.id, userId: schema.organizationMembers.userId, role: schema.organizationMembers.role })
+      .select({
+        id: schema.organizationMembers.id,
+        userId: schema.organizationMembers.userId,
+        role: schema.organizationMembers.role,
+      })
       .from(schema.organizationMembers)
-      .where(and(
-        eq(schema.organizationMembers.id, membershipId),
-        eq(schema.organizationMembers.organizationId, workspace.organizationId),
-      ))
+      .where(
+        and(
+          eq(schema.organizationMembers.id, membershipId),
+          eq(
+            schema.organizationMembers.organizationId,
+            workspace.organizationId,
+          ),
+        ),
+      )
       .limit(1)
   )[0];
   if (!target) throw new Error("Member not found");
-  if (target.role === "owner") throw new Error("Transfer ownership instead of changing the owner role");
-  if (target.userId === workspace.userId) throw new Error("You cannot change your own role");
-  if (workspace.role !== "owner" && (target.role === "admin" || role === "admin")) {
+  if (target.role === "owner")
+    throw new Error("Transfer ownership instead of changing the owner role");
+  if (target.userId === workspace.userId)
+    throw new Error("You cannot change your own role");
+  if (
+    workspace.role !== "owner" &&
+    (target.role === "admin" || role === "admin")
+  ) {
     throw new Error("Only the workspace owner can manage administrators");
   }
 
   await db.transaction(async (tx) => {
-    await tx.update(schema.organizationMembers).set({ role }).where(eq(schema.organizationMembers.id, target.id));
+    await tx
+      .update(schema.organizationMembers)
+      .set({ role })
+      .where(eq(schema.organizationMembers.id, target.id));
     await tx.insert(schema.workspaceAuditLogs).values({
       organizationId: workspace.organizationId,
       actorUserId: workspace.userId,
@@ -322,23 +449,36 @@ export async function removeWorkspaceMemberAction(formData: FormData) {
 
   const target = (
     await db
-      .select({ id: schema.organizationMembers.id, userId: schema.organizationMembers.userId, role: schema.organizationMembers.role })
+      .select({
+        id: schema.organizationMembers.id,
+        userId: schema.organizationMembers.userId,
+        role: schema.organizationMembers.role,
+      })
       .from(schema.organizationMembers)
-      .where(and(
-        eq(schema.organizationMembers.id, membershipId),
-        eq(schema.organizationMembers.organizationId, workspace.organizationId),
-      ))
+      .where(
+        and(
+          eq(schema.organizationMembers.id, membershipId),
+          eq(
+            schema.organizationMembers.organizationId,
+            workspace.organizationId,
+          ),
+        ),
+      )
       .limit(1)
   )[0];
   if (!target) throw new Error("Member not found");
-  if (target.role === "owner") throw new Error("Transfer ownership before removing the owner");
-  if (target.userId === workspace.userId) throw new Error("You cannot remove yourself from this workspace");
+  if (target.role === "owner")
+    throw new Error("Transfer ownership before removing the owner");
+  if (target.userId === workspace.userId)
+    throw new Error("You cannot remove yourself from this workspace");
   if (workspace.role !== "owner" && target.role === "admin") {
     throw new Error("Only the workspace owner can remove administrators");
   }
 
   await db.transaction(async (tx) => {
-    await tx.delete(schema.organizationMembers).where(eq(schema.organizationMembers.id, target.id));
+    await tx
+      .delete(schema.organizationMembers)
+      .where(eq(schema.organizationMembers.id, target.id));
     await tx.insert(schema.workspaceAuditLogs).values({
       organizationId: workspace.organizationId,
       actorUserId: workspace.userId,
@@ -371,10 +511,12 @@ export async function switchWorkspaceAction(formData: FormData) {
     await db
       .select({ id: schema.organizationMembers.id })
       .from(schema.organizationMembers)
-      .where(and(
-        eq(schema.organizationMembers.organizationId, organizationId),
-        eq(schema.organizationMembers.userId, workspace.userId),
-      ))
+      .where(
+        and(
+          eq(schema.organizationMembers.organizationId, organizationId),
+          eq(schema.organizationMembers.userId, workspace.userId),
+        ),
+      )
       .limit(1)
   )[0];
   if (!membership) throw new Error("Workspace not found");
@@ -389,12 +531,21 @@ export async function disconnectWhatsAppNumberAction(formData: FormData) {
 
   const phone = (
     await db
-      .select({ id: schema.whatsappPhoneNumbers.id, credentialKey: schema.whatsappPhoneNumbers.credentialKey, status: schema.whatsappPhoneNumbers.status })
+      .select({
+        id: schema.whatsappPhoneNumbers.id,
+        credentialKey: schema.whatsappPhoneNumbers.credentialKey,
+        status: schema.whatsappPhoneNumbers.status,
+      })
       .from(schema.whatsappPhoneNumbers)
-      .where(and(
-        eq(schema.whatsappPhoneNumbers.id, phoneNumberId),
-        eq(schema.whatsappPhoneNumbers.organizationId, workspace.organizationId),
-      ))
+      .where(
+        and(
+          eq(schema.whatsappPhoneNumbers.id, phoneNumberId),
+          eq(
+            schema.whatsappPhoneNumbers.organizationId,
+            workspace.organizationId,
+          ),
+        ),
+      )
       .limit(1)
   )[0];
   if (!phone) throw new Error("WhatsApp number not found");
@@ -406,10 +557,12 @@ export async function disconnectWhatsAppNumberAction(formData: FormData) {
       .where(eq(schema.whatsappPhoneNumbers.id, phone.id));
     await tx
       .delete(schema.credentialSecrets)
-      .where(and(
-        eq(schema.credentialSecrets.organizationId, workspace.organizationId),
-        eq(schema.credentialSecrets.key, phone.credentialKey),
-      ));
+      .where(
+        and(
+          eq(schema.credentialSecrets.organizationId, workspace.organizationId),
+          eq(schema.credentialSecrets.key, phone.credentialKey),
+        ),
+      );
     await tx.insert(schema.workspaceAuditLogs).values({
       organizationId: workspace.organizationId,
       actorUserId: workspace.userId,

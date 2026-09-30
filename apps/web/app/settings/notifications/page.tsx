@@ -5,6 +5,7 @@ import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
 import { workspaceSettingsMessages } from "@/lib/i18n/workspace-settings";
+import { SettingsActionForm } from "@/components/settings-action-form";
 import { updateNotificationPreferencesAction } from "@/lib/notification-actions";
 import { db } from "@/lib/server";
 import styles from "./preferences.module.css";
@@ -33,7 +34,12 @@ export default async function NotificationSettingsPage() {
       <SettingsNav active="/settings/notifications" />
 
       <section className="panel settingsPanel">
-        <form action={updateNotificationPreferencesAction}>
+        <SettingsActionForm
+          action={updateNotificationPreferencesAction}
+          submitLabel={m.notifications.save}
+          pendingLabel={m.common.saving}
+          successMessage={m.notifications.saved}
+        >
           <div className={styles.table} role="table" aria-label={m.notifications.title}>
             <div className={`${styles.row} ${styles.header}`} role="row">
               <span role="columnheader">{m.notifications.event}</span><span role="columnheader">{m.notifications.inApp}</span><span role="columnheader">{m.notifications.email}</span>
@@ -52,8 +58,8 @@ export default async function NotificationSettingsPage() {
               );
             })}
           </div>
-          <div className={styles.footer}><button className="primary" type="submit">{m.notifications.save}</button></div>
-        </form>
+          <div className={styles.footer}></div>
+        </SettingsActionForm>
       </section>
     </>
   );
