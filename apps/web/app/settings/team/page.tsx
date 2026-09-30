@@ -60,7 +60,7 @@ export default async function TeamSettingsPage() {
           <div className="panelHeader"><div><h2>{m.team.inviteMember}</h2><p className="subtitle">{m.team.inviteHelp}</p></div></div>
           <SettingsActionForm
             action={inviteWorkspaceMemberAction}
-            submitLabel={m.team.inviteMember}
+            submitLabel={m.team.sendInvitation}
             pendingLabel={m.common.saving}
             successMessage={m.team.invitationSent}
           >
