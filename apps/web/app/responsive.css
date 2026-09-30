@@ -6,13 +6,22 @@ html[dir="rtl"] .eyebrow { letter-spacing: 0; text-transform: none; }
 .content, .panel, .numberRow, .contactRow, .contactIdentity, .contactState { min-width: 0; }
 input, select, textarea { max-width: 100%; }
 
-/* Fixed to the viewport, so it always sits over whatever is at the bottom right
-   of the page. Shrunk and de-emphasised rather than moved: its proper home is
-   the page header, which every page renders itself. */
+/* Fixed to the viewport, so it always sat over whatever was at the bottom right
+   of the page -- on the dashboard it landed on the Connect WhatsApp button. Below
+   761px the bottom 72px of .content is padding, so it sits clear of everything.
+   From 761px up it docks inside the sidebar column instead, which is the only
+   strip no page content can reach. Its proper home is the page header. */
 .languageSwitcher { position: fixed; inset-inline-end: 14px; bottom: 14px; z-index: 100; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: rgba(255,255,255,.92); box-shadow: var(--shadow-sm); backdrop-filter: blur(10px); opacity: .72; transition: opacity .12s ease; }
 .languageSwitcher:hover, .languageSwitcher:focus-within { opacity: 1; }
 .languageSwitcher button { border: 0; border-radius: var(--radius-pill); padding: 5px 9px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
 .languageSwitcher button.active { background: var(--accent); color: #fff; }
+/* From 761px up it docks inside the sidebar column, the only strip no page
+   content can reach. Must follow the base rules above to win on equal specificity. */
+@media (min-width: 761px) {
+  .languageSwitcher { inset-inline-start: 18px; inset-inline-end: auto; bottom: 96px; background: rgba(255,255,255,.1); border-color: var(--sidebar-line); color: var(--sidebar-fg); box-shadow: none; opacity: .85; }
+  .languageSwitcher button { color: var(--sidebar-muted); }
+  .languageSwitcher button.active { background: rgba(35,199,127,.18); color: #7ce0b0; }
+}
 
 .formGrid4, .formGrid3, .formGrid2, .filterBuilderRow, .bindingRow, .analyticsMiniGrid { display: grid; gap: 12px; }
 .formGrid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
