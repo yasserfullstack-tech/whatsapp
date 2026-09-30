@@ -10,12 +10,16 @@ export function SettingsActionForm({
   submitLabel,
   pendingLabel,
   successMessage,
+  canSubmit = true,
   children,
 }: {
   action: ActionForm;
   submitLabel: string;
   pendingLabel: string;
   successMessage: string;
+  // A role that cannot edit still needs these fields rendered and disabled: the
+  // read-only panel is part of the page, not an absent control.
+  canSubmit?: boolean;
   children: ReactNode;
 }) {
   const [state, formAction, pending] = useActionState<
@@ -27,9 +31,11 @@ export function SettingsActionForm({
     <>
       <form className="settingsFields" action={formAction}>
         {children}
-        <button className="primary" type="submit" disabled={pending}>
-          {pending ? pendingLabel : submitLabel}
-        </button>
+        {canSubmit ? (
+          <button className="primary" type="submit" disabled={pending}>
+            {pending ? pendingLabel : submitLabel}
+          </button>
+        ) : null}
       </form>
       {state ? (
         <p

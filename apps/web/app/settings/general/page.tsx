@@ -68,11 +68,12 @@ export default async function GeneralSettingsPage() {
           <div><h2>{m.general.organizationProfile}</h2><p className="subtitle">{m.general.organizationProfileHelp}</p></div>
           <span className="status connected">{m.common.roles[workspace.role]}</span>
         </div>
-        {editable ? <SettingsActionForm
+        <SettingsActionForm
           action={updateWorkspaceGeneralAction}
           submitLabel={m.general.saveChanges}
           pendingLabel={m.general.saving}
           successMessage={m.general.saved}
+          canSubmit={editable}
         >
           <label><span>{m.general.organizationName}</span><input name="organizationName" defaultValue={workspace.organizationName} disabled={!editable} required minLength={2} maxLength={120} /></label>
           <label><span>{m.general.timezone}</span><input name="timezone" defaultValue={preferences?.timezone ?? "UTC"} disabled={!editable} required placeholder="Asia/Baghdad" /></label>
@@ -84,7 +85,7 @@ export default async function GeneralSettingsPage() {
               <option value="ar">{m.general.arabic}</option>
             </select>
           </label>
-        </SettingsActionForm> : null}
+        </SettingsActionForm>
         {!editable ? <p className="settingsHint">{m.common.readOnly}</p> : null}
       </section>
     </>
