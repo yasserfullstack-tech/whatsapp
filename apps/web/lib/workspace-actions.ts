@@ -141,7 +141,14 @@ async function applyWorkspaceGeneral(formData: FormData) {
   revalidatePath("/settings/general");
 }
 
-export async function inviteWorkspaceMemberAction(formData: FormData) {
+export async function inviteWorkspaceMemberAction(
+  _previous: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  return toActionResult(() => applyWorkspaceInvitation(formData));
+}
+
+async function applyWorkspaceInvitation(formData: FormData) {
   const { workspace } = await requireAuthContext();
   requirePermission(workspace.role, "team.invite");
 
@@ -383,6 +390,7 @@ export async function acceptWorkspaceInvitationAction(
     }
     throw error;
   }
+
 
   await selectWorkspaceCookie(invitation.organizationId);
   redirect("/settings/team");

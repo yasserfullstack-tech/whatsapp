@@ -1,3 +1,5 @@
+import { entitlementErrorPayload } from "./entitlements-server";
+
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 // Shape every settings form action must satisfy to be driven by useActionState.

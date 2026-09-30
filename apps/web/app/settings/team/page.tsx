@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { schema } from "@wa/db";
+import { SettingsActionForm } from "@/components/settings-action-form";
 import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
 import { formatMessage } from "@/lib/i18n";
@@ -57,7 +58,12 @@ export default async function TeamSettingsPage() {
       {canInvite ? (
         <section className="panel settingsPanel">
           <div className="panelHeader"><div><h2>{m.team.inviteMember}</h2><p className="subtitle">{m.team.inviteHelp}</p></div></div>
-          <form className="settingsFields" action={inviteWorkspaceMemberAction}>
+          <SettingsActionForm
+            action={inviteWorkspaceMemberAction}
+            submitLabel={m.team.inviteMember}
+            pendingLabel={m.common.saving}
+            successMessage={m.team.invitationSent}
+          >
             <label><span>{m.team.email}</span><input name="email" type="email" autoComplete="email" required maxLength={254} placeholder={m.team.emailPlaceholder} /></label>
             <label>
               <span>{m.team.role}</span>
@@ -67,8 +73,7 @@ export default async function TeamSettingsPage() {
                 <option value="viewer">{m.common.roles.viewer}</option>
               </select>
             </label>
-            <div><button className="primary" type="submit">{m.team.sendInvitation}</button></div>
-          </form>
+          </SettingsActionForm>
         </section>
       ) : null}
 
