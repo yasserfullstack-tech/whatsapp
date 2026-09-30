@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { NotificationBell } from "@/components/notification-bell";
 import { SignOutButton } from "@/components/sign-out-button";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { useI18n } from "@/components/i18n-provider";
 
 type ActiveNav =
@@ -137,6 +138,7 @@ export function AppSidebar({
         ))}
       </nav>
       <NotificationBell active={active === "notifications"} />
+      <LanguageSwitcher inline />
       <div className="workspace">
         <div className="workspaceAvatar">{initials || "W"}</div>
         <div className="workspaceMeta">

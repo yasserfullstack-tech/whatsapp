@@ -15,13 +15,13 @@ input, select, textarea { max-width: 100%; }
 .languageSwitcher:hover, .languageSwitcher:focus-within { opacity: 1; }
 .languageSwitcher button { border: 0; border-radius: var(--radius-pill); padding: 5px 9px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }
 .languageSwitcher button.active { background: var(--accent); color: #fff; }
-/* From 761px up it docks inside the sidebar column, the only strip no page
-   content can reach. Must follow the base rules above to win on equal specificity. */
-@media (min-width: 761px) {
-  .languageSwitcher { inset-inline-start: 18px; inset-inline-end: auto; bottom: 96px; background: rgba(255,255,255,.1); border-color: var(--sidebar-line); color: var(--sidebar-fg); box-shadow: none; opacity: .85; }
-  .languageSwitcher button { color: var(--sidebar-muted); }
-  .languageSwitcher button.active { background: rgba(35,199,127,.18); color: #7ce0b0; }
-}
+/* In the app shell it is a normal row above the workspace block. Fixed
+   positioning cannot work here: the sidebar column is fully occupied, so a
+   pinned pill always lands on the nav, the workspace block or the page. */
+.languageSwitcherInline { position: static; inset: auto; padding: 4px; border-color: var(--sidebar-line); background: rgba(255,255,255,.06); box-shadow: none; opacity: 1; }
+.languageSwitcherInline button { color: var(--sidebar-muted); }
+.languageSwitcherInline button:hover { color: var(--sidebar-fg); }
+.languageSwitcherInline button.active { background: rgba(35,199,127,.18); color: #7ce0b0; }
 
 .formGrid4, .formGrid3, .formGrid2, .filterBuilderRow, .bindingRow, .analyticsMiniGrid { display: grid; gap: 12px; }
 .formGrid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -64,6 +64,7 @@ input, select, textarea { max-width: 100%; }
   .navItem { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 9px 11px; scroll-snap-align: start; }
   .navItem.active::before { inset-block: 6px; }
   .workspace { display: none !important; }
+  .languageSwitcherInline { grid-column: 1 / -1; justify-self: end; margin-top: 4px; }
   .content { padding: 24px 16px 72px; }
   .topbar { gap: 16px; }
   .topbar > .primary, .topbar > .secondary { align-self: stretch; text-align: center; }
