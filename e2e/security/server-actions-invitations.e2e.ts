@@ -181,7 +181,7 @@ test.describe.serial("server actions and invitation token security", () => {
       // The refusal is reported in the page instead of failing the request; the
       // email binding itself is asserted by the membership count below.
       await waitForServerAction(wrong.page, () => wrong.page.getByRole("button", { name: "Accept invitation" }).click());
-      await expect(wrong.page.getByRole("alert")).toContainText(/different email address/i);
+      await expect(wrong.page.locator("p.inlineError")).toContainText(/different email address/i);
     } finally {
       await wrong.context.close();
     }
@@ -215,7 +215,7 @@ test.describe.serial("server actions and invitation token security", () => {
     try {
       await replay.page.goto(`/invite/${inviteToken}`);
       await waitForServerAction(replay.page, () => replay.page.getByRole("button", { name: "Accept invitation" }).click());
-      await expect(replay.page.getByRole("alert")).toContainText(/invalid or has expired/i);
+      await expect(replay.page.locator("p.inlineError")).toContainText(/invalid or has expired/i);
     } finally {
       await replay.context.close();
     }
@@ -247,7 +247,7 @@ test.describe.serial("server actions and invitation token security", () => {
         browserSession.page,
         () => browserSession.page.getByRole("button", { name: "Accept invitation" }).click(),
       );
-      await expect(browserSession.page.getByRole("alert")).toContainText(/invalid or has expired/i);
+      await expect(browserSession.page.locator("p.inlineError")).toContainText(/invalid or has expired/i);
     } finally {
       await browserSession.context.close();
     }
