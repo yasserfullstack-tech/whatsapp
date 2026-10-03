@@ -65,6 +65,7 @@ export function MarketingHome({ locale }: { locale: Locale }) {
                 {home.secondaryCta} <span aria-hidden="true">↓</span>
               </a>
             </div>
+            <p className="mkt-scale-note">{home.scaleNote}</p>
           </div>
           <figure className="mkt-journey">
             <figcaption>

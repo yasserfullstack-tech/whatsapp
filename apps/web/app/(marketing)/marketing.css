@@ -20,6 +20,7 @@
 .mkt-hero-actions { display: flex; align-items: center; gap: 28px; margin-top: 36px; white-space: nowrap; }
 .mkt-hero-actions > a:not(.mkt-button) { color: var(--mkt-ink); font-size: 14px; font-weight: 700; border-bottom: 1px solid currentColor; padding-bottom: 5px; }
 .mkt-hero-actions > a:not(.mkt-button):hover { color: var(--mkt-green); }
+.mkt-scale-note { max-width: 530px; margin: 28px 0 0; color: #52705a; font-size: 13px; line-height: 1.6; }
 .mkt-journey { position: relative; width: 100%; aspect-ratio: 540 / 520; margin: 0; }
 .mkt-journey figcaption { position: absolute; inset-block-start: 0; inset-inline-start: 7%; color: #52705a; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .mkt-journey svg { display: block; width: 100%; height: 100%; overflow: visible; }
