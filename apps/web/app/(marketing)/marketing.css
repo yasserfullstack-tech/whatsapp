@@ -74,6 +74,11 @@
 .mkt-footer p { max-width: 460px; margin: 0; color: #536256; font-size: 12px; }
 .mkt-page-hero { min-height: 70vh; display: flex; align-items: center; padding: 100px 0; background: #e9ede5; }
 .mkt-page-hero h1 { max-width: 980px; }
+.mkt-content-stack { max-width: 900px; padding-block: 80px; }
+.mkt-content-section { padding: 32px 0; border-bottom: 1px solid #d5e0d6; }
+.mkt-content-section h2 { margin: 0; color: var(--mkt-ink); font-size: clamp(24px, 3vw, 34px); line-height: 1.15; }
+.mkt-content-section p, .mkt-content-section ul { margin: 14px 0 0; color: #405548; line-height: 1.7; overflow-wrap: anywhere; }
+.mkt-content-section ul { display: grid; gap: 10px; padding-inline-start: 22px; }
 .mkt-page-hero .mkt-container > p:last-child { max-width: 660px; color: #405548; font-size: 19px; line-height: 1.7; }
 
 @media (max-width: 900px) {

@@ -203,12 +203,29 @@ export function MarketingContentPage({
 }) {
   const page = getMarketingCopy(locale).pages[slug];
   return (
-    <section className="mkt-page-hero">
-      <div className="mkt-container">
-        <p className="mkt-section-label">{page.eyebrow}</p>
-        <h1>{page.title}</h1>
-        <p>{page.description}</p>
-      </div>
-    </section>
+    <>
+      <section className="mkt-page-hero">
+        <div className="mkt-container">
+          <p className="mkt-section-label">{page.eyebrow}</p>
+          <h1>{page.title}</h1>
+          <p>{page.description}</p>
+        </div>
+      </section>
+      <section className="mkt-container mkt-content-stack">
+        {page.sections.map((section) => (
+          <article className="mkt-content-section" key={section.title}>
+            <h2>{section.title}</h2>
+            <p>{section.body}</p>
+            {section.items ? (
+              <ul>
+                {section.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : null}
+          </article>
+        ))}
+      </section>
+    </>
   );
 }
