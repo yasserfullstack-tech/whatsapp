@@ -178,8 +178,10 @@ test.describe.serial("server actions and invitation token security", () => {
     const wrong = await authenticatedPage(browser, invitee);
     try {
       await wrong.page.goto(`/invite/${wrongEmailToken}`);
-      const response = await waitForServerAction(wrong.page, () => wrong.page.getByRole("button", { name: "Accept invitation" }).click());
-      expect(response.status()).toBeGreaterThanOrEqual(400);
+      // The refusal is reported in the page instead of failing the request; the
+      // email binding itself is asserted by the membership count below.
+      await waitForServerAction(wrong.page, () => wrong.page.getByRole("button", { name: "Accept invitation" }).click());
+      await expect(wrong.page.locator("p.inlineError")).toContainText(/different email address/i);
     } finally {
       await wrong.context.close();
     }
@@ -212,8 +214,8 @@ test.describe.serial("server actions and invitation token security", () => {
     const replay = await authenticatedPage(browser, invitee);
     try {
       await replay.page.goto(`/invite/${inviteToken}`);
-      const response = await waitForServerAction(replay.page, () => replay.page.getByRole("button", { name: "Accept invitation" }).click());
-      expect(response.status()).toBeGreaterThanOrEqual(400);
+      await waitForServerAction(replay.page, () => replay.page.getByRole("button", { name: "Accept invitation" }).click());
+      await expect(replay.page.locator("p.inlineError")).toContainText(/invalid or has expired/i);
     } finally {
       await replay.context.close();
     }
@@ -241,11 +243,11 @@ test.describe.serial("server actions and invitation token security", () => {
     const browserSession = await authenticatedPage(browser, tenantB);
     try {
       await browserSession.page.goto(`/invite/${expiredToken}`);
-      const response = await waitForServerAction(
+      await waitForServerAction(
         browserSession.page,
         () => browserSession.page.getByRole("button", { name: "Accept invitation" }).click(),
       );
-      expect(response.status()).toBeGreaterThanOrEqual(400);
+      await expect(browserSession.page.locator("p.inlineError")).toContainText(/invalid or has expired/i);
     } finally {
       await browserSession.context.close();
     }

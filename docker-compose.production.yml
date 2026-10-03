@@ -108,6 +108,18 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:?EMAIL_FROM is required}
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
+      # apps/web/lib/legal-documents.server.ts reads these and throws unless all
+      # eight are set once LEGAL_DOCUMENTS_APPROVED is true. Without this
+      # pass-through every workspace is stuck on /legal/accept with no way out.
+      LEGAL_DOCUMENTS_APPROVED: ${LEGAL_DOCUMENTS_APPROVED:-false}
+      LEGAL_ENTITY_NAME: ${LEGAL_ENTITY_NAME:-}
+      LEGAL_ENTITY_ADDRESS: ${LEGAL_ENTITY_ADDRESS:-}
+      PRIVACY_CONTACT_EMAIL: ${PRIVACY_CONTACT_EMAIL:-}
+      ABUSE_CONTACT_EMAIL: ${ABUSE_CONTACT_EMAIL:-}
+      SUPPORT_CONTACT_EMAIL: ${SUPPORT_CONTACT_EMAIL:-}
+      LEGAL_HOSTING_REGION: ${LEGAL_HOSTING_REGION:-}
+      LEGAL_GOVERNING_LAW: ${LEGAL_GOVERNING_LAW:-}
+      LEGAL_DISPUTE_FORUM: ${LEGAL_DISPUTE_FORUM:-}
       META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v26.0}
       META_APP_ID: ${META_APP_ID:?META_APP_ID is required}
       META_APP_SECRET: ${META_APP_SECRET:?META_APP_SECRET is required}
@@ -116,6 +128,10 @@ services:
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is required}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is required}
       R2_BUCKET: ${R2_BUCKET:?R2_BUCKET is required}
+      # Only needed for S3-compatible stores that are not Cloudflare R2: R2 signs
+      # with the literal region "auto" and every other store rejects it.
+      R2_REGION: ${R2_REGION:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     depends_on:
@@ -125,7 +141,13 @@ services:
         condition: service_healthy
     expose: ["3000"]
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -155,7 +177,13 @@ services:
         condition: service_healthy
     expose: ["4000"]
     healthcheck:
-      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:4000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:4000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -192,6 +220,8 @@ services:
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is required}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is required}
       R2_BUCKET: ${R2_BUCKET:?R2_BUCKET is required}
+      R2_REGION: ${R2_REGION:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     depends_on:
@@ -201,7 +231,13 @@ services:
         condition: service_healthy
     expose: ["9464"]
     healthcheck:
-      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:9464/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:9464/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 10

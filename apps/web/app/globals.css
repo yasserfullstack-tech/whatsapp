@@ -1,11 +1,8 @@
 :root {
   color-scheme: light;
-  --bg: #f5f7f8;
-  --surface: #ffffff;
-  --surface-2: #f0f4f2;
-  --text: #17211d;
-  --muted: #68756e;
-  --line: #e2e8e5;
+
+  /* Brand. admin.css used its own #176d45 and #10221a for the same green and the
+     same sidebar black; both now read from here so the two surfaces match. */
   --accent: #0d8f5d;
   --accent-dark: #08754b;
   --accent-soft: #e9f8f1;
@@ -13,47 +10,138 @@
   --warning-soft: #fff6dc;
   --danger: #a33a3a;
   --danger-soft: #fff0f0;
+
+  --bg: #f5f7f8;
+  --surface: #ffffff;
+  --surface-2: #f0f4f2;
+  --line: #e2e8e5;
+  --line-strong: #d9e1dd;
+  --text: #17211d;
+  --muted: #68756e;
+
+  --sidebar-bg: #102119;
+  --sidebar-fg: #f7fbf9;
+  --sidebar-muted: #9ab0a5;
+  --sidebar-line: #294036;
+  --sidebar-hover: #1a3025;
+  --sidebar-active: #123528;
+
+  /* Type. Inter was requested and never loaded, so every visitor got an OS
+     fallback and the result differed per platform. This is the honest stack:
+     native on every OS, and Noto Sans Arabic so the Arabic locale stops falling
+     back to a mismatched face. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Noto Sans Arabic", Arial, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 30px;
+  --text-display: clamp(30px, 4vw, 42px);
+
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 22px;
+  --space-6: 32px;
+
   --shadow: 0 14px 40px rgba(29, 50, 40, 0.07);
+  --shadow-sm: 0 1px 2px rgba(29, 50, 40, 0.05);
+  --focus-ring: 0 0 0 3px rgba(13, 143, 93, 0.28);
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
-body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.5; -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; }
 a { color: inherit; }
 button:disabled { cursor: not-allowed; opacity: .58; }
 
-.shell { min-height: 100vh; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
-.sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 28px; padding: 28px 18px 20px; background: #102119; color: #f7fbf9; }
+/* Native controls leaked through beside the custom ones -- an OS file picker on
+   the dashboard, OS selects and OS checkboxes in the filters. Normalising the
+   elements themselves fixes every page at once, including the ones pass two has
+   not reached. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%2368756e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 11px;
+  cursor: pointer;
+}
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+input[type="file"] {
+  width: 100%;
+  padding: 7px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+input[type="file"]::file-selector-button {
+  margin-inline-end: 10px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover { background: #d8f0e5; }
+
+.shell { min-height: 100vh; display: grid; grid-template-columns: 264px minmax(0, 1fr); }
+.sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-5); background: var(--sidebar-bg); color: var(--sidebar-fg); }
 .brand, .authBrand { display: flex; align-items: center; gap: 12px; }
 .brand { padding: 0 8px; }
 .brandMark, .connectionIcon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 13px; background: #23c77f; color: #082d1d; font-weight: 900; }
 .brand div:last-child, .workspace div.workspaceMeta, .authBrand div:last-child { display: grid; gap: 2px; }
 .brand span, .workspace span, .authBrand span { font-size: 12px; color: #9ab0a5; }
-.nav { display: grid; gap: 6px; }
-.navItem { width: 100%; display: flex; align-items: center; gap: 11px; padding: 11px 12px; border: 0; border-radius: 10px; background: transparent; color: #aebfb6; cursor: pointer; text-align: left; text-decoration: none; }
-.navItem:hover, .navItem.active { background: #1a3025; color: #fff; }
-.navDot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .75; }
-.workspace { margin-top: auto; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 12px; border-top: 1px solid #294036; }
+.nav { display: grid; gap: 2px; }
+.navItem { position: relative; width: 100%; display: flex; align-items: center; gap: 11px; padding: 10px 12px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--sidebar-muted); cursor: pointer; text-align: left; text-decoration: none; font-size: var(--text-sm); font-weight: 600; transition: background-color .12s ease, color .12s ease; }
+.navItem:hover { background: var(--sidebar-hover); color: var(--sidebar-fg); }
+.navItem.active { background: var(--sidebar-active); color: #fff; }
+/* The old active state was #1a3025 on #102119 -- a contrast ratio near 1.1:1.
+   The bar carries the position; the surface carries the state. */
+.navItem.active::before { content: ""; position: absolute; inset-block: 8px; inset-inline-start: 0; width: 3px; border-radius: 0 var(--radius-pill) var(--radius-pill) 0; background: #23c77f; }
+.navIcon { flex: 0 0 auto; opacity: .8; }
+.navItem:hover .navIcon, .navItem.active .navIcon { opacity: 1; }
+.workspace { margin-top: auto; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: var(--space-3); border-top: 1px solid var(--sidebar-line); }
 .workspaceAvatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #29483a; font-size: 12px; font-weight: 800; }
 .workspaceMeta { min-width: 0; }
 .workspaceMeta strong, .workspaceMeta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signOut { grid-column: 1 / -1; justify-self: start; color: #9ab0a5 !important; padding: 0; }
 
-.content { min-width: 0; padding: 42px clamp(24px, 4vw, 64px) 64px; }
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+.content { min-width: 0; padding: var(--space-5) clamp(24px, 4vw, 56px) var(--space-6); }
+/* Sticky so the page title and its primary action stay reachable down a long
+   page. Column layout on narrow screens, so it is pinned from 761px up only. */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin-bottom: var(--space-6); }
+@media (min-width: 761px) {
+  .topbar { position: sticky; top: 0; z-index: 20; margin-inline: calc(clamp(24px, 4vw, 56px) * -1); padding: var(--space-4) clamp(24px, 4vw, 56px); background: rgba(245, 247, 248, .88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+}
 h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 8px; font-size: clamp(30px, 4vw, 44px); letter-spacing: -0.04em; }
-h2 { margin-bottom: 8px; font-size: 20px; letter-spacing: -0.025em; }
+h1 { margin-bottom: 8px; font-size: var(--text-display); line-height: 1.1; letter-spacing: -0.035em; }
+h2 { margin-bottom: 8px; font-size: var(--text-xl); letter-spacing: -0.02em; }
 h3 { margin-bottom: 8px; }
-.eyebrow { margin-bottom: 6px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.eyebrow { margin-bottom: 6px; color: var(--accent); font-size: var(--text-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .subtitle, .connectionCopy p, .statCard p, .emptyState p, .checklist p, .numberRow p, .authHeading p { color: var(--muted); }
-.subtitle { margin-bottom: 0; }
-.primary, .secondary, .textButton { border: 0; cursor: pointer; font-weight: 750; }
-.primary { padding: 12px 17px; border-radius: 11px; background: var(--accent); color: white; box-shadow: 0 9px 20px rgba(13, 143, 93, .18); }
+.subtitle { margin-bottom: 0; max-width: 68ch; }
+/* One button vocabulary. Before this the same row carried a solid green, two pale
+   greens and a link, and the pale ones read as disabled. */
+.primary, .secondary, .textButton { border: 0; cursor: pointer; font-weight: 650; }
+.primary { padding: 11px 16px; border-radius: var(--radius-md); background: var(--accent); color: white; box-shadow: 0 6px 16px rgba(13, 143, 93, .18); }
 .primary:hover:not(:disabled) { background: var(--accent-dark); }
-.secondary { padding: 11px 15px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-dark); white-space: nowrap; }
-.textButton { background: transparent; color: var(--accent); }
+.secondary { padding: 11px 15px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); white-space: nowrap; }
+.secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-dark); }
+.textButton { padding: 0; background: transparent; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 
 .connectionCard, .panel, .statCard { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
 .connectionCard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 22px; border-radius: 18px; }
@@ -107,7 +195,10 @@ h3 { margin-bottom: 8px; }
 .contactFilters { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, .45fr) auto auto; gap: 12px; align-items: end; margin-bottom: 10px; }
 .contactFilters label, .consentActionForm label { display: grid; gap: 7px; }
 .contactFilters label > span, .consentActionForm label > span { font-size: 13px; font-weight: 750; }
-.contactFilters input, .contactFilters select, .consentActionForm input, .consentActionForm textarea { width: 100%; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); outline: none; }
+.contactFilters input, .consentActionForm input, .consentActionForm textarea { width: 100%; padding: 11px 12px; border: 1px solid #d9e1dd; border-radius: 10px; background: #fff; color: var(--text); outline: none; }
+
+/* Gutter for the custom chevron set in globals.css. */
+.contactFilters select, .consentActionForm select { padding-inline-end: 34px; }
 .contactFilters input:focus, .contactFilters select:focus, .consentActionForm input:focus, .consentActionForm textarea:focus { border-color: #78c8a7; box-shadow: 0 0 0 3px rgba(13, 143, 93, .09); }
 .consentActionForm textarea { min-height: 90px; resize: vertical; }
 .contactManagementGrid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .7fr); gap: 18px; margin-top: 18px; }

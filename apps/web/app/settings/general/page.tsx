@@ -4,6 +4,7 @@ import { SettingsNav } from "@/components/settings-nav";
 import { requireAuthContext } from "@/lib/auth-context";
 import { getI18n } from "@/lib/i18n/server";
 import { workspaceSettingsMessages } from "@/lib/i18n/workspace-settings";
+import { SettingsActionForm } from "@/components/settings-action-form";
 import { switchWorkspaceAction, updateWorkspaceGeneralAction } from "@/lib/workspace-actions";
 import { db } from "@/lib/server";
 import { can } from "@/lib/workspace-access";
@@ -67,7 +68,13 @@ export default async function GeneralSettingsPage() {
           <div><h2>{m.general.organizationProfile}</h2><p className="subtitle">{m.general.organizationProfileHelp}</p></div>
           <span className="status connected">{m.common.roles[workspace.role]}</span>
         </div>
-        <form className="settingsFields" action={updateWorkspaceGeneralAction}>
+        <SettingsActionForm
+          action={updateWorkspaceGeneralAction}
+          submitLabel={m.general.saveChanges}
+          pendingLabel={m.general.saving}
+          successMessage={m.general.saved}
+          canSubmit={editable}
+        >
           <label><span>{m.general.organizationName}</span><input name="organizationName" defaultValue={workspace.organizationName} disabled={!editable} required minLength={2} maxLength={120} /></label>
           <label><span>{m.general.timezone}</span><input name="timezone" defaultValue={preferences?.timezone ?? "UTC"} disabled={!editable} required placeholder="Asia/Baghdad" /></label>
           <label><span>{m.general.defaultCountry}</span><input name="defaultCountry" defaultValue={preferences?.defaultCountry ?? ""} disabled={!editable} maxLength={2} placeholder="IQ" /></label>
@@ -78,8 +85,7 @@ export default async function GeneralSettingsPage() {
               <option value="ar">{m.general.arabic}</option>
             </select>
           </label>
-          {editable ? <div><button className="primary" type="submit">{m.general.saveChanges}</button></div> : null}
-        </form>
+        </SettingsActionForm>
         {!editable ? <p className="settingsHint">{m.common.readOnly}</p> : null}
       </section>
     </>
