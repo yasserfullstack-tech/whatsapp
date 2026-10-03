@@ -83,9 +83,9 @@ const en: MarketingCopy = {
   },
   home: {
     eyebrow: "WhatsApp campaign operations",
-    title: "Run high-volume WhatsApp campaigns without turning your workflow into a spreadsheet project.",
+    title: "Know who can receive.\nKnow what was delivered.",
     description:
-      "Connect a business directly through Meta, organize opted-in contacts, build audiences, manage templates, launch campaigns, and monitor delivery from one workspace.",
+      "Connect your own WhatsApp Business account. Keep consent, templates, campaigns, and delivery outcomes in one place.",
     primaryCta: "Create your workspace",
     secondaryCta: "See how it works",
     scaleNote:
@@ -97,7 +97,7 @@ const en: MarketingCopy = {
       { label: "Compliance", value: "Consent + suppression" },
       { label: "Delivery", value: "Queued + observable" },
     ],
-    featureTitle: "One operational layer for the full campaign lifecycle",
+    featureTitle: "Connect. Prepare. Send. Follow the outcome.",
     featureIntro:
       "The platform is structured around the work teams actually repeat: connect, import, segment, approve, send, observe, and suppress.",
     features: [
@@ -127,7 +127,7 @@ const en: MarketingCopy = {
       { question: "How are opt-outs handled?", answer: "Suppression is part of the contact model and campaign eligibility workflow so suppressed contacts can be excluded from future sends." },
       { question: "Is this Meta or WhatsApp itself?", answer: "No. This is an independent campaign operations product that integrates with the WhatsApp Business Platform through Meta." },
     ],
-    ctaTitle: "Build the campaign operation before you scale the send volume.",
+    ctaTitle: "Start with your business account and an opted-in audience.",
     ctaBody: "Create a workspace, connect the business through Meta, and establish clean audience and consent workflows first.",
   },
   pages: {
@@ -239,8 +239,8 @@ const ar: MarketingCopy = {
   footer: { product: "المنتج", company: "الشركة", legal: "قانوني", note: "منصة لإدارة رسائل واتساب المبنية على الموافقة مع تكامل مباشر مع Meta." },
   home: {
     eyebrow: "تشغيل حملات واتساب",
-    title: "أدِر حملات واتساب كبيرة بدون تحويل العمل اليومي إلى مشروع جداول بيانات.",
-    description: "اربط نشاط العميل مباشرة عبر Meta، ونظّم جهات الاتصال الموافق عليها، وابنِ الشرائح، وأدِر القوالب والحملات ونتائج التسليم من مساحة عمل واحدة.",
+    title: "اعرف من يحق مراسلته.\nوتابع ما تم تسليمه.",
+    description: "اربط حساب واتساب للأعمال الخاص بك. وأدِر الموافقات والقوالب والحملات ونتائج التسليم من مكان واحد.",
     primaryCta: "أنشئ مساحة عمل",
     secondaryCta: "كيف تعمل المنصة",
     scaleNote: "تم تصميم البنية لدعم أحجام حملات كبيرة، بما فيها حالات استخدام تقارب 500 ألف مستلم. لكن سرعة الإرسال الفعلية تعتمد على حدود Meta وجودة المرسل وسعة الطوابير وحجم البنية واختبارات الحمل الإنتاجية؛ لذلك لا نَعِد بزمن إرسال ثابت قبل التحقق من هذه العوامل.",
@@ -251,7 +251,7 @@ const ar: MarketingCopy = {
       { label: "الامتثال", value: "موافقة + استبعاد" },
       { label: "التسليم", value: "طوابير + مراقبة" },
     ],
-    featureTitle: "طبقة تشغيل واحدة لدورة الحملة كاملة",
+    featureTitle: "اربط. جهّز. أرسل. وتابع النتيجة.",
     featureIntro: "المنصة مبنية حول خطوات العمل المتكررة فعلياً: الربط، الاستيراد، التقسيم، الاعتماد، الإرسال، المراقبة والاستبعاد.",
     features: [
       { title: "جهات الاتصال", body: "استورد جهات اتصال لديها موافقة، واحتفظ بسياق الموافقة وحالة الاستبعاد." },
@@ -278,7 +278,7 @@ const ar: MarketingCopy = {
       { question: "كيف يتم التعامل مع إلغاء الاشتراك؟", answer: "الاستبعاد جزء من نموذج جهة الاتصال ومن منطق أهلية الحملة حتى يمكن منع المستبعدين من الإرسال مستقبلاً." },
       { question: "هل هذه المنصة تابعة لـ Meta أو واتساب؟", answer: "لا. هذا منتج مستقل لإدارة عمليات الحملات ويتكامل مع WhatsApp Business Platform عبر Meta." },
     ],
-    ctaTitle: "ابنِ عملية الحملة بشكل صحيح قبل رفع حجم الإرسال.",
+    ctaTitle: "ابدأ بحساب نشاطك وجمهور وافق على التواصل.",
     ctaBody: "أنشئ مساحة عمل، واربط النشاط عبر Meta، وثبّت قواعد الجمهور والموافقة أولاً.",
   },
   pages: {
