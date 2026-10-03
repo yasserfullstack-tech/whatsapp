@@ -11,6 +11,7 @@ import {
 } from "@wa/notifications";
 import { requireAuthContext } from "./auth-context";
 import { db } from "./server";
+import { toActionResult, type ActionResult } from "./action-result";
 
 const uuid = z.string().uuid();
 
@@ -34,7 +35,14 @@ export async function markAllNotificationsReadAction() {
   revalidatePath("/notifications");
 }
 
-export async function updateNotificationPreferencesAction(formData: FormData) {
+export async function updateNotificationPreferencesAction(
+  _previous: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  return toActionResult(() => applyNotificationPreferences(formData));
+}
+
+async function applyNotificationPreferences(formData: FormData) {
   const { workspace } = await requireAuthContext();
   const now = new Date();
 

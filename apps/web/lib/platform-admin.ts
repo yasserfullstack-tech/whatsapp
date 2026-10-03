@@ -38,7 +38,10 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
     await db
       .select({ disabled: schema.platformUserControls.disabled })
       .from(schema.users)
-      .innerJoin(schema.platformUserControls, eq(schema.platformUserControls.userId, schema.users.id))
+      .innerJoin(
+        schema.platformUserControls,
+        eq(schema.platformUserControls.userId, schema.users.id),
+      )
       .where(eq(schema.users.externalAuthId, session.user.id))
       .limit(1)
   )[0];
@@ -62,14 +65,24 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
   }
 
   const bootstrappedByUserId = bootstrapAdminUserIds().has(session.user.id);
-  const bootstrappedByVerifiedEmail = session.user.emailVerified && bootstrapAdminEmails().has(session.user.email.toLowerCase());
-  if (existing?.revokedAt || (!bootstrappedByUserId && !bootstrappedByVerifiedEmail)) {
+  const bootstrappedByVerifiedEmail =
+    session.user.emailVerified &&
+    bootstrapAdminEmails().has(session.user.email.toLowerCase());
+  if (
+    existing?.revokedAt ||
+    (!bootstrappedByUserId && !bootstrappedByVerifiedEmail)
+  ) {
     redirect("/dashboard");
   }
 
   await db
     .insert(schema.platformAdminGrants)
-    .values({ authUserId: session.user.id, source: bootstrappedByUserId ? "bootstrap-user-id" : "bootstrap-verified-email" })
+    .values({
+      authUserId: session.user.id,
+      source: bootstrappedByUserId
+        ? "bootstrap-user-id"
+        : "bootstrap-verified-email",
+    })
     .onConflictDoNothing({ target: schema.platformAdminGrants.authUserId });
 
   return {
@@ -80,6 +93,48 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
   };
 }
 
+export type PlatformAdminStepUp = {
+  twoFactorEnabled: boolean;
+  recentAuthentication: boolean;
+};
+
+// Lets the platform-admin pages explain a blocked mutation before the user
+// clicks it. requirePlatformAdminStepUp() throws a bare Error for both
+// conditions, which surfaced as an unexplained HTTP 500 with the real reason
+// only in the server log.
+export async function readPlatformAdminStepUp(
+  actor: PlatformAdminContext,
+): Promise<PlatformAdminStepUp> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.id !== actor.authUserId) {
+    return { twoFactorEnabled: false, recentAuthentication: false };
+  }
+
+  const [stepUp] = await db
+    .select({
+      twoFactorEnabled: schema.authUser.twoFactorEnabled,
+      sessionCreatedAt: schema.authSession.createdAt,
+    })
+    .from(schema.authSession)
+    .innerJoin(
+      schema.authUser,
+      eq(schema.authUser.id, schema.authSession.userId),
+    )
+    .where(
+      and(
+        eq(schema.authSession.id, session.session.id),
+        eq(schema.authSession.userId, actor.authUserId),
+      ),
+    )
+    .limit(1);
+
+  return {
+    twoFactorEnabled: stepUp?.twoFactorEnabled ?? false,
+    recentAuthentication: stepUp
+      ? hasRecentAuthentication({ createdAt: stepUp.sessionCreatedAt })
+      : false,
+  };
+}
 
 export async function requirePlatformAdminStepUp(): Promise<PlatformAdminContext> {
   const actor = await requirePlatformAdmin();
@@ -92,23 +147,31 @@ export async function requirePlatformAdminStepUp(): Promise<PlatformAdminContext
       sessionCreatedAt: schema.authSession.createdAt,
     })
     .from(schema.authSession)
-    .innerJoin(schema.authUser, eq(schema.authUser.id, schema.authSession.userId))
-    .where(and(
-      eq(schema.authSession.id, session.session.id),
-      eq(schema.authSession.userId, actor.authUserId),
-    ))
+    .innerJoin(
+      schema.authUser,
+      eq(schema.authUser.id, schema.authSession.userId),
+    )
+    .where(
+      and(
+        eq(schema.authSession.id, session.session.id),
+        eq(schema.authSession.userId, actor.authUserId),
+      ),
+    )
     .limit(1);
 
   if (!stepUp?.twoFactorEnabled) {
-    throw new Error("Platform administrator mutations require multi-factor authentication");
+    throw new Error(
+      "Platform administrator mutations require multi-factor authentication",
+    );
   }
   if (!hasRecentAuthentication({ createdAt: stepUp.sessionCreatedAt })) {
-    throw new Error("Recent authentication required before performing platform administrator mutations");
+    throw new Error(
+      "Recent authentication required before performing platform administrator mutations",
+    );
   }
 
   return actor;
 }
-
 
 export async function requirePlatformAdminMutation(): Promise<PlatformAdminContext> {
   return requirePlatformAdminStepUp();

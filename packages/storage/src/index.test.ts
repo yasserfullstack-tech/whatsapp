@@ -1,23 +1,88 @@
 import { describe, expect, test } from "bun:test";
 import type { S3Client } from "@aws-sdk/client-s3";
-import { createPresignedCsvUpload, createR2Client, deleteStoredPrefix, isObjectKeyWithinPrefix } from "./index";
+import {
+  createPresignedCsvUpload,
+  createR2Client,
+  deleteStoredPrefix,
+  isObjectKeyWithinPrefix,
+  resolveObjectStoreRegion,
+} from "./index";
 
 function fakeS3(objects: Set<string>, ignoreDeletes = false): S3Client {
   return {
-    async send(command: { constructor: { name: string }; input: { Prefix?: string; Key?: string } }) {
+    async send(command: {
+      constructor: { name: string };
+      input: { Prefix?: string; Key?: string };
+    }) {
       if (command.constructor.name === "DeleteObjectCommand") {
-        if (!ignoreDeletes && command.input.Key) objects.delete(command.input.Key);
+        if (!ignoreDeletes && command.input.Key)
+          objects.delete(command.input.Key);
         return {};
       }
       if (command.constructor.name === "ListObjectsV2Command") {
         const prefix = command.input.Prefix ?? "";
         const keys = [...objects].filter((key) => key.startsWith(prefix));
-        return { Contents: keys.map((Key) => ({ Key })), IsTruncated: false, KeyCount: keys.length };
+        return {
+          Contents: keys.map((Key) => ({ Key })),
+          IsTruncated: false,
+          KeyCount: keys.length,
+        };
       }
       throw new Error(`Unexpected command ${command.constructor.name}`);
     },
   } as unknown as S3Client;
 }
+
+describe("object store region resolution", () => {
+  const originalRegion = process.env.R2_REGION;
+  const originalAwsRegion = process.env.AWS_REGION;
+
+  test("defaults to the R2 signing region", () => {
+    delete process.env.R2_REGION;
+    delete process.env.AWS_REGION;
+    expect(resolveObjectStoreRegion()).toBe("auto");
+  });
+
+  test("prefers an explicit region, then R2_REGION, then AWS_REGION", () => {
+    delete process.env.R2_REGION;
+    delete process.env.AWS_REGION;
+    process.env.AWS_REGION = "us-east-1";
+    expect(resolveObjectStoreRegion("eu-west-2")).toBe("eu-west-2");
+    expect(resolveObjectStoreRegion()).toBe("us-east-1");
+
+    process.env.R2_REGION = "ap-south-1";
+    expect(resolveObjectStoreRegion()).toBe("ap-south-1");
+  });
+
+  test("a configured region reaches the signed URL", async () => {
+    delete process.env.R2_REGION;
+    delete process.env.AWS_REGION;
+    const client = createR2Client({
+      accountId: "test",
+      accessKeyId: "test-access",
+      secretAccessKey: "test-secret",
+      bucket: "test-bucket",
+      endpoint: "http://minio.internal:9000",
+      region: "us-east-1",
+    });
+    const url = await createPresignedCsvUpload({
+      client,
+      bucket: "test-bucket",
+      key: "k.csv",
+      contentLength: 10,
+    });
+    expect(new URL(url).searchParams.get("X-Amz-Credential")).toContain(
+      "/us-east-1/s3/aws4_request",
+    );
+  });
+
+  test("restores the caller's environment", () => {
+    if (originalRegion === undefined) delete process.env.R2_REGION;
+    else process.env.R2_REGION = originalRegion;
+    if (originalAwsRegion === undefined) delete process.env.AWS_REGION;
+    else process.env.AWS_REGION = originalAwsRegion;
+  });
+});
 
 describe("R2 presigned upload security", () => {
   test("binds CSV uploads to both content type and declared content length", async () => {
@@ -36,7 +101,8 @@ describe("R2 presigned upload security", () => {
       expiresInSeconds: 300,
     });
 
-    const signedHeaders = new URL(url).searchParams.get("X-Amz-SignedHeaders") ?? "";
+    const signedHeaders =
+      new URL(url).searchParams.get("X-Amz-SignedHeaders") ?? "";
     expect(signedHeaders.split(";")).toContain("content-type");
     expect(signedHeaders.split(";")).toContain("content-length");
   });
@@ -45,12 +111,25 @@ describe("R2 presigned upload security", () => {
 describe("R2 object key isolation", () => {
   test("accepts only objects strictly below the expected prefix", () => {
     const prefix = "org-a/data-exports/job-a/";
-    expect(isObjectKeyWithinPrefix("org-a/data-exports/job-a/file.ndjson", prefix)).toBe(true);
-    expect(isObjectKeyWithinPrefix("org-a/data-exports/job-a/nested/file.ndjson", prefix)).toBe(true);
+    expect(
+      isObjectKeyWithinPrefix("org-a/data-exports/job-a/file.ndjson", prefix),
+    ).toBe(true);
+    expect(
+      isObjectKeyWithinPrefix(
+        "org-a/data-exports/job-a/nested/file.ndjson",
+        prefix,
+      ),
+    ).toBe(true);
     expect(isObjectKeyWithinPrefix(prefix, prefix)).toBe(false);
-    expect(isObjectKeyWithinPrefix("org-b/data-exports/job-a/file.ndjson", prefix)).toBe(false);
-    expect(isObjectKeyWithinPrefix("org-a2/data-exports/job-a/file.ndjson", prefix)).toBe(false);
-    expect(isObjectKeyWithinPrefix("org-a/data-exports/job-b/file.ndjson", prefix)).toBe(false);
+    expect(
+      isObjectKeyWithinPrefix("org-b/data-exports/job-a/file.ndjson", prefix),
+    ).toBe(false);
+    expect(
+      isObjectKeyWithinPrefix("org-a2/data-exports/job-a/file.ndjson", prefix),
+    ).toBe(false);
+    expect(
+      isObjectKeyWithinPrefix("org-a/data-exports/job-b/file.ndjson", prefix),
+    ).toBe(false);
   });
 
   test("rejects path-like traversal, separator tricks, and control characters", () => {
@@ -88,15 +167,28 @@ describe("R2 object key isolation", () => {
 
 describe("R2 tenant prefix cleanup", () => {
   test("deletes every tenant object and leaves other tenants untouched", async () => {
-    const objects = new Set(["org-a/contact-imports/a.csv", "org-a/data-exports/job/file.ndjson", "org-b/keep.csv"]);
-    const deleted = await deleteStoredPrefix({ client: fakeS3(objects), bucket: "test", prefix: "org-a/" });
+    const objects = new Set([
+      "org-a/contact-imports/a.csv",
+      "org-a/data-exports/job/file.ndjson",
+      "org-b/keep.csv",
+    ]);
+    const deleted = await deleteStoredPrefix({
+      client: fakeS3(objects),
+      bucket: "test",
+      prefix: "org-a/",
+    });
     expect(deleted).toBe(2);
     expect([...objects]).toEqual(["org-b/keep.csv"]);
   });
 
   test("fails the purge if a tenant object remains after deletion attempts", async () => {
     const objects = new Set(["org-a/orphan.bin"]);
-    await expect(deleteStoredPrefix({ client: fakeS3(objects, true), bucket: "test", prefix: "org-a/" }))
-      .rejects.toThrow("R2 prefix cleanup incomplete for org-a/");
+    await expect(
+      deleteStoredPrefix({
+        client: fakeS3(objects, true),
+        bucket: "test",
+        prefix: "org-a/",
+      }),
+    ).rejects.toThrow("R2 prefix cleanup incomplete for org-a/");
   });
 });
