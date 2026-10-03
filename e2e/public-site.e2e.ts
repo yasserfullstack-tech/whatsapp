@@ -27,7 +27,7 @@ test("public site is bilingual and responsive", async ({ page }) => {
   await page.goto("/");
 
   await expectDirection(page, "en", "ltr");
-  await expect(page.getByRole("heading", { name: /Run high-volume WhatsApp campaigns/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Know who can receive/ })).toBeVisible();
   await expect(page.locator(".mkt-scale-note")).toContainText("500,000 recipients");
   await expectNoHorizontalOverflow(page);
 
@@ -47,7 +47,7 @@ test("public site is bilingual and responsive", async ({ page }) => {
   await expectNoHorizontalOverflow(page);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /أدِر حملات واتساب كبيرة/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /اعرف من يحق مراسلته/ })).toBeVisible();
   await expectDirection(page, "ar", "rtl");
   await expectNoHorizontalOverflow(page);
 
